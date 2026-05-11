@@ -4,7 +4,7 @@ Plataforma Integral para la Comparación de Precios y Ahorro en Comercios Locale
 
 ---
 
-## 📌 Descripción del Proyecto
+## Descripción del Proyecto
 **Ar-Price** es una aplicación multiplataforma (Web y Mobile) diseñada para optimizar la economía del hogar mediante la comparación de precios entre supermercados y comercios locales.
 
 El sistema surge como respuesta a la falta de información centralizada y actualizada, que obliga a los consumidores a realizar comparaciones manuales en un contexto de alta inflación y variación constante de precios.
@@ -25,7 +25,7 @@ Incluye:
 
 ---
 
-## 👥 Integrantes del Equipo
+## Integrantes del Equipo
 
 | Integrante | Rol | Descripción |
 |------------|-----|-------------|
@@ -37,7 +37,7 @@ Incluye:
 Inspirado en la resistencia, adaptabilidad y construcción de soluciones tecnológicas escalables.
 ---
 
-## 🔍 Problemática
+## Problemática
 
 - Información de precios dispersa entre múltiples comercios
 - Alta volatilidad de precios debido a inflación y promociones
@@ -48,7 +48,7 @@ Además, los comercios locales tienen baja visibilidad digital y pocas herramien
 
 ---
 
-## 💡 Solución Propuesta
+## Solución Propuesta
 
 Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con la oferta de los comercios cercanos de manera clara y eficiente.
 
@@ -66,7 +66,7 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 
 ---
 
-## 🚀 Proyección y Escalabilidad
+## Proyección y Escalabilidad
 
 - Implementación de web scraping y APIs para actualización automática
 - Incorporación de cupones de descuento
@@ -93,7 +93,7 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 
 ---
 
-## ⚙️ Funcionalidades Clave
+## Funcionalidades Clave
 
 - Barra de búsqueda con filtros avanzados
 - Comparación de precios con cálculo de diferencias porcentuales
@@ -102,7 +102,7 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 
 ---
 
-## 📈 Valor del Proyecto
+## Valor del Proyecto
 
 - Promueve la transparencia en el mercado
 - Fomenta la competencia entre comercios locales
@@ -111,7 +111,7 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 
 ---
 
-## 🌐 Enlaces
+## Enlaces
 
 Repositorio: GitHub
 Documentación técnica
@@ -119,7 +119,7 @@ Diseño de producto (Wireframes)
 
 ---
 
-## 🧾 Autor
+## Autor
 
 Equipo Kordian
 Trabajo Final Integrador – 2026
