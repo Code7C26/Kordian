@@ -123,7 +123,3 @@ Diseño de producto (Wireframes)
 
 Equipo Kordian
 Trabajo Final Integrador – 2026
-
---
-## FALTA 
-subir imagenes y el video 
