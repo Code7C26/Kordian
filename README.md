@@ -1,4 +1,4 @@
-# 🛒 Ar-Price moreno
+# 🛒 Ar-Price 
 Plataforma Integral para la Comparación de Precios y Ahorro en Comercios Locales
 **Tecnología que crece con vos.**
 
@@ -76,7 +76,7 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 
 ---
 
-## 🛠 Tecnologías
+## Tecnologías
 
 ### Backend:
 - Python + Django
