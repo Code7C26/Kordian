@@ -1,4 +1,4 @@
-# 🛒 Ar-Price Leon
+# 🛒 Ar-Price 
 Plataforma Integral para la Comparación de Precios y Ahorro en Comercios Locales
 **Tecnología que crece con vos.**
 
@@ -123,3 +123,6 @@ Diseño de producto (Wireframes)
 
 Equipo Kordian
 Trabajo Final Integrador – 2026
+--
+## falta
+video y imagenes
