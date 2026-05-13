@@ -76,7 +76,7 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 
 ---
 
-## 🛠 Tecnologías
+## Tecnologías
 
 ### Backend:
 - Python + Django
