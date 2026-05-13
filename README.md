@@ -1,4 +1,4 @@
-# 🛒 Ar-Price matimatimati hernan 
+# 🛒 Ar-Price 
 Plataforma Integral para la Comparación de Precios y Ahorro en Comercios Locales
 **Tecnología que crece con vos.**
 
