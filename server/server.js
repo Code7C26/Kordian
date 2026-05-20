@@ -1,9 +1,5 @@
-require('dotenv').config()
-
 const express = require('express')
 const cors = require('cors')
-
-const pool = require('./src/config/db')
 
 const app = express()
 
@@ -11,61 +7,195 @@ app.use(cors())
 app.use(express.json())
 
 // =========================
-// ENDPOINT PRINCIPAL
+// BASE TEMPORAL
 // =========================
 
-app.get('/products', async (req, res) => {
-  try {
-    const { category, search } = req.query
+let products = [
+  {
+    id: 1,
 
-    let query = 'SELECT * FROM products'
-    let values = []
+    name: 'Leche La Serenísima 1L',
 
-    // 🔍 filtro por categoría
-    if (category && category !== 'Todas') {
-      values.push(category)
+    category: 'Canasta Básica',
 
-      query += ` WHERE category = $${values.length}`
+    brand: 'La Serenísima',
+
+    rating: 4.8,
+
+    offers: [
+      {
+        supermarket: 'Carrefour',
+        cashPrice: 1450,
+      },
+
+      {
+        supermarket: 'Coto',
+        cashPrice: 1390,
+      },
+    ],
+  },
+]
+
+// =========================
+// GET PRODUCTS
+// =========================
+
+app.get('/products', (req, res) => {
+  res.json(products)
+})
+
+// =========================
+// CREATE PRODUCT
+// =========================
+
+app.post('/products', (req, res) => {
+  const newProduct = req.body
+
+  const existingProduct =
+    products.find(
+      (product) =>
+        product.name
+          .toLowerCase()
+          .trim() ===
+          newProduct.name
+            .toLowerCase()
+            .trim() &&
+
+        product.brand
+          .toLowerCase()
+          .trim() ===
+          newProduct.brand
+            .toLowerCase()
+            .trim()
+    )
+
+  // SI EXISTE
+
+  if (existingProduct) {
+    const newOffer =
+      newProduct.offers[0]
+
+    const alreadyExists =
+      existingProduct.offers.some(
+        (offer) =>
+          offer.supermarket ===
+          newOffer.supermarket
+      )
+
+    if (!alreadyExists) {
+      existingProduct.offers.push(
+        newOffer
+      )
     }
 
-    // 🔍 filtro por búsqueda
-    if (search) {
-      values.push(`%${search}%`)
+    return res.json({
+      message:
+        'Oferta agregada',
 
-      if (query.includes('WHERE')) {
-        query += ` AND name ILIKE $${values.length}`
-      } else {
-        query += ` WHERE name ILIKE $${values.length}`
-      }
-    }
-
-    const result = await pool.query(query, values)
-
-    res.json(result.rows)
-
-  } catch (error) {
-    console.log(error)
-
-    res.status(500).json({
-      error: 'Error obteniendo productos'
+      product:
+        existingProduct,
     })
   }
+
+  // SI NO EXISTE
+
+  const productToCreate = {
+    id: products.length + 1,
+
+    ...newProduct,
+  }
+
+  products.push(productToCreate)
+
+  res.json({
+    message:
+      'Producto creado',
+
+    product: productToCreate,
+  })
 })
 
 // =========================
-// TEST API
+// UPDATE PRODUCT
 // =========================
 
-app.get('/', (req, res) => {
-  res.send('AR-PRICE API funcionando 🚀')
-})
+app.put(
+  '/products/:id',
+  (req, res) => {
+    const id = Number(
+      req.params.id
+    )
+
+    const updatedProduct =
+      req.body
+
+    const productIndex =
+      products.findIndex(
+        (product) =>
+          product.id === id
+      )
+
+    if (
+      productIndex === -1
+    ) {
+      return res
+        .status(404)
+        .json({
+          message:
+            'Producto no encontrado',
+        })
+    }
+
+    products[productIndex] =
+      {
+        ...products[
+          productIndex
+        ],
+
+        ...updatedProduct,
+      }
+
+    res.json({
+      message:
+        'Producto actualizado',
+
+      product:
+        products[
+          productIndex
+        ],
+    })
+  }
+)
+
+// =========================
+// DELETE PRODUCT
+// =========================
+
+app.delete(
+  '/products/:id',
+  (req, res) => {
+    const id = Number(
+      req.params.id
+    )
+
+    products = products.filter(
+      (product) =>
+        product.id !== id
+    )
+
+    res.json({
+      message:
+        'Producto eliminado',
+    })
+  }
+)
 
 // =========================
 // SERVER
 // =========================
 
-const PORT = process.env.PORT || 3000
-
-app.listen(PORT, () => {
-  console.log(`Servidor en puerto ${PORT} 🚀`)
+app.listen(3000, () => {
+  console.log(
+    '🚀 SERVER RUNNING ON 3000'
+  )
 })
