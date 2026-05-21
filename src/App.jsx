@@ -1,73 +1,150 @@
-import React, { useEffect, useState } from 'react'
+import React,
+{
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 
-export default function App() {
-  const [products, setProducts] = useState([])
-  const [search, setSearch] = useState('')
-  const [filtro, setFiltro] = useState('Todos')
+function App() {
+
+  const [products, setProducts] =
+    useState([])
+
+  const [search, setSearch] =
+    useState('')
+
+  const [filter, setFilter] =
+    useState('Todos')
 
   // =========================
-  // TRAER DESDE API
+  // LOAD PRODUCTS
   // =========================
 
   useEffect(() => {
-    fetch('http://localhost:3000/products')
+
+    fetch(
+      'http://localhost:3000/products'
+    )
       .then((res) => res.json())
-      .then((data) => setProducts(data))
+      .then((data) =>
+        setProducts(data)
+      )
+
   }, [])
 
   // =========================
-  // CATEGORÍAS DINÁMICAS
+  // FILTER PRODUCTS
   // =========================
 
-  const categorias = [
-    'Todos',
-    ...new Set(products.map(p => p.category))
-  ]
+  const filteredProducts =
+    useMemo(() => {
+
+      return products.filter(
+        (product) => {
+
+          const matchSearch =
+
+            product.name
+              ?.toLowerCase()
+              .includes(
+                search.toLowerCase()
+              )
+
+          const matchFilter =
+
+            filter === 'Todos'
+
+            ||
+
+            product.category ===
+              filter
+
+          return (
+            matchSearch &&
+            matchFilter
+          )
+        }
+      )
+
+    }, [
+      products,
+      search,
+      filter,
+    ])
 
   // =========================
-  // FILTRO
+  // UI
   // =========================
-
-  const productosFiltrados = products.filter((p) => {
-    const matchSearch =
-      p.name?.toLowerCase().includes(search.toLowerCase()) ||
-      p.brand?.toLowerCase().includes(search.toLowerCase())
-
-    const matchFiltro =
-      filtro === 'Todos' || p.category === filtro
-
-    return matchSearch && matchFiltro
-  })
 
   return (
-    <div style={styles.container}>
+
+    <div style={styles.page}>
 
       {/* HEADER */}
-      <h1 style={styles.title}>AR-PRICE</h1>
 
-      <p style={styles.subtitle}>
-        Compará precios entre supermercados
-      </p>
+      <div style={styles.header}>
+
+        <div>
+
+          <h1 style={styles.logo}>
+            ARPRICE
+          </h1>
+
+          <p style={styles.subtitle}>
+            Compará precios
+            entre supermercados
+          </p>
+
+        </div>
+      </div>
 
       {/* SEARCH */}
+
       <input
-        style={styles.search}
-        placeholder="Buscar producto o marca..."
+        placeholder='Buscar producto...'
+
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
+
+        onChange={(e) =>
+          setSearch(
+            e.target.value
+          )
+        }
+
+        style={styles.search}
       />
 
-      {/* FILTROS */}
+      {/* FILTERS */}
+
       <div style={styles.filters}>
-        {categorias.map((cat) => (
+
+        {[
+          'Todos',
+          'Canasta Básica',
+          'Higiene',
+          'Electrónica',
+          'Bebidas',
+        ].map((cat) => (
+
           <button
             key={cat}
-            onClick={() => setFiltro(cat)}
+
+            onClick={() =>
+              setFilter(cat)
+            }
+
             style={{
-              ...styles.button,
-              backgroundColor:
-                filtro === cat ? '#2563EB' : '#eee',
-              color: filtro === cat ? '#fff' : '#000',
+              ...styles.filterButton,
+
+              background:
+                filter === cat
+                  ? '#2563EB'
+                  : 'white',
+
+              color:
+                filter === cat
+                  ? 'white'
+                  : '#111827',
             }}
           >
             {cat}
@@ -75,134 +152,467 @@ export default function App() {
         ))}
       </div>
 
-      {/* PRODUCTOS */}
+      {/* PRODUCTS */}
+
       <div style={styles.grid}>
-        {productosFiltrados.map((p) => {
-          
-          // 🧠 MEJOR OFERTA
-          const cheapest = p.offers.reduce((min, o) =>
-            o.cashPrice < min.cashPrice ? o : min
-          )
 
-          const highest = p.offers.reduce((max, o) =>
-            o.cashPrice > max.cashPrice ? o : max
-          )
+        {filteredProducts.map(
+          (product) => {
 
-          const ahorro = highest.cashPrice - cheapest.cashPrice
-          const porcentaje = ((ahorro / highest.cashPrice) * 100).toFixed(1)
+            // =====================
+            // SORT OFFERS
+            // =====================
 
-          return (
-            <div key={p.id} style={styles.card}>
+            const sortedOffers =
 
-              <div style={styles.category}>
-                {p.category}
-              </div>
+              [...product.offers]
 
-              <h3>{p.name}</h3>
+                .sort(
+                  (a, b) =>
 
-              <p style={{ color: '#666' }}>
-                ⭐ {p.rating || 4.5} • {p.brand}
-              </p>
+                    a.cash_price -
+                    b.cash_price
+                )
 
-              {/* MEJOR PRECIO */}
-              <div style={styles.bestPrice}>
-                <p>Mejor precio</p>
-                <h2>${cheapest.cashPrice}</h2>
-                <p>en {cheapest.supermarket}</p>
-              </div>
+            const cheapest =
+              sortedOffers[0]
 
-              {/* AHORRO */}
-              <div style={styles.savings}>
-                Ahorrás ${ahorro} ({porcentaje}%)
-              </div>
+            const secondCheapest =
+              sortedOffers[1]
 
-              {/* TODAS LAS OFERTAS */}
-              <div style={{ marginTop: '10px' }}>
-                {p.offers.map((o, i) => (
-                  <div key={i} style={styles.offer}>
-                    <strong>{o.supermarket}</strong> - ${o.cashPrice}
+            // =====================
+            // SAVINGS
+            // =====================
+
+            let savings = 0
+            let savingsPercent = 0
+
+            if (
+              cheapest &&
+              secondCheapest
+            ) {
+
+              savings =
+
+                secondCheapest.cash_price
+
+                -
+
+                cheapest.cash_price
+
+              savingsPercent =
+
+                (
+                  savings /
+
+                  secondCheapest.cash_price
+                )
+
+                * 100
+            }
+
+            return (
+
+              <div
+                key={product.id}
+                style={styles.card}
+              >
+
+                {/* IMAGE */}
+
+                <img
+
+                  src={
+                    product.image ||
+
+                    'https://placehold.co/400x300'
+                  }
+
+                  alt={product.name}
+
+                  style={styles.image}
+                />
+
+                {/* INFO */}
+
+                <div style={styles.info}>
+
+                  <h2 style={styles.name}>
+                    {product.name}
+                  </h2>
+
+                  <p style={styles.brand}>
+                    {product.brand}
+                  </p>
+
+                  <p style={styles.category}>
+                    {product.category}
+                  </p>
+
+                  <p style={styles.rating}>
+                    ⭐ {product.rating}
+                  </p>
+
+                  {/* BEST PRICE */}
+
+                  {cheapest && (
+
+                    <div
+                      style={styles.bestPrice}
+                    >
+
+                      Mejor precio:
+
+                      <strong>
+
+                        {' '}
+                        $
+
+                        {
+                          cheapest.cash_price
+                        }
+                      </strong>
+
+                      <div>
+
+                        {
+                          cheapest.supermarket
+                        }
+
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SAVINGS */}
+
+                  {secondCheapest && (
+
+                    <div
+                      style={styles.savings}
+                    >
+
+                      Ahorrás:
+
+                      <strong>
+
+                        {' '}
+                        $
+
+                        {
+                          savings
+                        }
+
+                      </strong>
+
+                      {' '}
+                      (
+
+                      {
+                        savingsPercent.toFixed(
+                          1
+                        )
+                      }
+
+                      %)
+
+                    </div>
+                  )}
+
+                  {/* OFFERS */}
+
+                  <div
+                    style={{
+                      marginTop: '20px',
+                    }}
+                  >
+
+                    {sortedOffers.map(
+                      (offer) => {
+
+                        const financedTotal =
+
+                          offer.installments_quantity
+
+                          *
+
+                          offer.installment_price
+
+                        return (
+
+                          <div
+                            key={offer.id}
+
+                            style={styles.offer}
+                          >
+
+                            <div>
+
+                              <strong>
+
+                                {
+                                  offer.supermarket
+                                }
+
+                              </strong>
+
+                              <div>
+
+                                Contado:
+
+                                {' '}
+
+                                $
+
+                                {
+                                  offer.cash_price
+                                }
+                              </div>
+
+                              {/* INSTALLMENTS */}
+
+                              {offer.installments_quantity && (
+
+                                <div
+                                  style={{
+                                    marginTop: '6px',
+                                  }}
+                                >
+
+                                  {
+
+                                    offer.installments_quantity
+                                  }
+
+                                  {' '}
+                                  cuotas de
+
+                                  {' '}
+                                  $
+
+                                  {
+                                    offer.installment_price
+                                  }
+
+                                  <div
+                                    style={{
+                                      color:
+                                        '#2563EB',
+                                    }}
+                                  >
+
+                                    Total:
+
+                                    {' '}
+
+                                    $
+
+                                    {
+                                      financedTotal
+                                    }
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      }
+                    )}
                   </div>
-                ))}
+                </div>
               </div>
-
-            </div>
-          )
-        })}
+            )
+          }
+        )}
       </div>
-
     </div>
   )
 }
 
+// =========================
+// STYLES
+// =========================
+
 const styles = {
-  container: {
-    padding: '30px',
-    fontFamily: 'Arial',
-    backgroundColor: '#F3F4F6',
+
+  page: {
+
+    background:
+      '#F3F4F6',
+
     minHeight: '100vh',
+
+    padding: '40px',
+
+    fontFamily:
+      'Arial',
   },
-  title: {
-    textAlign: 'center',
-    fontSize: '3rem',
-    fontWeight: '800',
-    color: '#2563EB',
-  },
-  subtitle: {
-    textAlign: 'center',
-    color: '#6B7280',
-    marginBottom: '20px',
-  },
-  search: {
-    width: '100%',
-    padding: '12px',
-    margin: '20px 0',
-    fontSize: '16px',
-    borderRadius: '10px',
-    border: '1px solid #ccc',
-  },
-  filters: {
+
+  header: {
+
     display: 'flex',
-    gap: '10px',
-    marginBottom: '25px',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
+
+    justifyContent:
+      'space-between',
+
+    alignItems: 'center',
+
+    marginBottom: '30px',
   },
-  button: {
-    padding: '10px 14px',
-    border: 'none',
-    cursor: 'pointer',
-    borderRadius: '8px',
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-    gap: '20px',
-  },
-  card: {
-    backgroundColor: 'white',
-    padding: '18px',
-    borderRadius: '15px',
-    boxShadow: '0 4px 10px rgba(0,0,0,0.08)',
-  },
-  category: {
-    fontSize: '12px',
+
+  logo: {
+
+    fontSize: '52px',
+
     color: '#2563EB',
+
+    margin: 0,
+  },
+
+  subtitle: {
+
+    color: '#6B7280',
+
+    marginTop: '8px',
+  },
+
+  search: {
+
+    width: '100%',
+
+    padding: '18px',
+
+    borderRadius: '16px',
+
+    border:
+      '1px solid #D1D5DB',
+
+    marginBottom: '25px',
+
+    fontSize: '16px',
+  },
+
+  filters: {
+
+    display: 'flex',
+
+    gap: '12px',
+
+    flexWrap: 'wrap',
+
+    marginBottom: '30px',
+  },
+
+  filterButton: {
+
+    padding:
+      '12px 18px',
+
+    borderRadius: '12px',
+
+    border: 'none',
+
+    cursor: 'pointer',
+
     fontWeight: 'bold',
   },
+
+  grid: {
+
+    display: 'grid',
+
+    gridTemplateColumns:
+      'repeat(auto-fit,minmax(340px,1fr))',
+
+    gap: '24px',
+  },
+
+  card: {
+
+    background: 'white',
+
+    borderRadius: '24px',
+
+    overflow: 'hidden',
+
+    boxShadow:
+      '0 4px 18px rgba(0,0,0,0.08)',
+  },
+
+  image: {
+
+    width: '100%',
+
+    height: '260px',
+
+    objectFit: 'cover',
+  },
+
+  info: {
+
+    padding: '24px',
+  },
+
+  name: {
+
+    margin: 0,
+
+    fontSize: '28px',
+  },
+
+  brand: {
+
+    color: '#6B7280',
+
+    marginTop: '8px',
+  },
+
+  category: {
+
+    color: '#2563EB',
+
+    marginTop: '6px',
+  },
+
+  rating: {
+
+    marginTop: '10px',
+  },
+
   bestPrice: {
-    backgroundColor: '#DCFCE7',
-    padding: '10px',
-    borderRadius: '10px',
-    marginTop: '10px',
+
+    marginTop: '18px',
+
+    background:
+      '#DCFCE7',
+
+    padding: '14px',
+
+    borderRadius: '14px',
   },
+
   savings: {
-    marginTop: '10px',
-    color: 'green',
-    fontWeight: 'bold',
+
+    marginTop: '14px',
+
+    background:
+      '#DBEAFE',
+
+    padding: '14px',
+
+    borderRadius: '14px',
   },
+
   offer: {
-    fontSize: '13px',
-    marginTop: '5px',
-    color: '#444',
+
+    background:
+      '#F9FAFB',
+
+    padding: '14px',
+
+    borderRadius: '14px',
+
+    marginBottom: '12px',
   },
 }
+
+export default App
