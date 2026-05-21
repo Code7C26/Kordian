@@ -1,201 +1,526 @@
 const express = require('express')
 const cors = require('cors')
 
+const supabase = require('./supabase')
+
 const app = express()
 
 app.use(cors())
 app.use(express.json())
 
-// =========================
-// BASE TEMPORAL
-// =========================
+// =====================================
+// PRODUCTS
+// =====================================
 
-let products = [
-  {
-    id: 1,
-
-    name: 'Leche La Serenísima 1L',
-
-    category: 'Canasta Básica',
-
-    brand: 'La Serenísima',
-
-    rating: 4.8,
-
-    offers: [
-      {
-        supermarket: 'Carrefour',
-        cashPrice: 1450,
-      },
-
-      {
-        supermarket: 'Coto',
-        cashPrice: 1390,
-      },
-    ],
-  },
-]
-
-// =========================
 // GET PRODUCTS
-// =========================
 
-app.get('/products', (req, res) => {
-  res.json(products)
-})
+app.get('/products', async (req, res) => {
 
-// =========================
-// CREATE PRODUCT
-// =========================
+  const {
+    data: products,
+    error: productsError,
+  } = await supabase
+    .from('products')
+    .select('*')
 
-app.post('/products', (req, res) => {
-  const newProduct = req.body
+  if (productsError) {
 
-  const existingProduct =
-    products.find(
-      (product) =>
-        product.name
-          .toLowerCase()
-          .trim() ===
-          newProduct.name
-            .toLowerCase()
-            .trim() &&
-
-        product.brand
-          .toLowerCase()
-          .trim() ===
-          newProduct.brand
-            .toLowerCase()
-            .trim()
-    )
-
-  // SI EXISTE
-
-  if (existingProduct) {
-    const newOffer =
-      newProduct.offers[0]
-
-    const alreadyExists =
-      existingProduct.offers.some(
-        (offer) =>
-          offer.supermarket ===
-          newOffer.supermarket
-      )
-
-    if (!alreadyExists) {
-      existingProduct.offers.push(
-        newOffer
-      )
-    }
-
-    return res.json({
-      message:
-        'Oferta agregada',
-
-      product:
-        existingProduct,
+    return res.status(500).json({
+      error: productsError.message,
     })
   }
 
-  // SI NO EXISTE
+  const {
+    data: offers,
+    error: offersError,
+  } = await supabase
+    .from('offers')
+    .select('*')
 
-  const productToCreate = {
-    id: products.length + 1,
+  if (offersError) {
 
-    ...newProduct,
+    return res.status(500).json({
+      error: offersError.message,
+    })
   }
 
-  products.push(productToCreate)
+  const finalProducts =
+    products.map((product) => ({
+
+      ...product,
+
+      offers:
+        offers.filter(
+          (offer) =>
+            offer.product_id ===
+            product.id
+        ),
+    }))
+
+  res.json(finalProducts)
+})
+
+// =====================================
+// CREATE PRODUCT / OFFER
+// =====================================
+
+app.post('/products', async (req, res) => {
+
+  const {
+
+    name,
+    category,
+    brand,
+    rating,
+    image,
+
+    supermarket,
+    cashPrice,
+
+    installmentsQuantity,
+    installmentPrice,
+
+  } = req.body
+
+  // =========================
+  // SEARCH PRODUCT
+  // =========================
+
+  const {
+    data: existingProducts,
+    error: searchError,
+  } = await supabase
+    .from('products')
+    .select('*')
+
+  if (searchError) {
+
+    return res.status(500).json({
+      error: searchError.message,
+    })
+  }
+
+  let existingProduct =
+    existingProducts.find(
+      (p) =>
+
+        p.name?.trim().toLowerCase() ===
+          name?.trim().toLowerCase()
+
+        &&
+
+        p.brand?.trim().toLowerCase() ===
+          brand?.trim().toLowerCase()
+    )
+
+  let productId
+
+  // =========================
+  // CREATE PRODUCT
+  // =========================
+
+  if (!existingProduct) {
+
+    const {
+      data: newProduct,
+      error,
+    } = await supabase
+      .from('products')
+      .insert([
+        {
+          name,
+          category,
+          brand,
+          rating,
+          image,
+        },
+      ])
+      .select()
+
+    if (error) {
+
+      return res.status(500).json({
+        error: error.message,
+      })
+    }
+
+    productId =
+      newProduct[0].id
+
+  } else {
+
+    productId =
+      existingProduct.id
+  }
+
+  // =========================
+  // SEARCH OFFER
+  // =========================
+
+  const {
+    data: existingOffers,
+    error: offerSearchError,
+  } = await supabase
+    .from('offers')
+    .select('*')
+
+  if (offerSearchError) {
+
+    return res.status(500).json({
+      error:
+        offerSearchError.message,
+    })
+  }
+
+  const repeatedOffer =
+    existingOffers.find(
+      (offer) =>
+
+        offer.product_id ===
+          productId
+
+        &&
+
+        offer.supermarket
+          ?.trim()
+          .toLowerCase()
+
+        ===
+
+        supermarket
+          ?.trim()
+          .toLowerCase()
+    )
+
+  // =========================
+  // UPDATE OFFER
+  // =========================
+
+  if (repeatedOffer) {
+
+    const {
+      error: updateError,
+    } = await supabase
+      .from('offers')
+      .update({
+
+        cash_price:
+          cashPrice,
+
+        installments_quantity:
+          installmentsQuantity || null,
+
+        installment_price:
+          installmentPrice || null,
+      })
+      .eq(
+        'id',
+        repeatedOffer.id
+      )
+
+    if (updateError) {
+
+      return res.status(500).json({
+        error:
+          updateError.message,
+      })
+    }
+
+  }
+
+  // =========================
+  // CREATE OFFER
+  // =========================
+
+  else {
+
+    const {
+      error: insertOfferError,
+    } = await supabase
+      .from('offers')
+      .insert([
+        {
+          product_id:
+            productId,
+
+          supermarket,
+
+          cash_price:
+            cashPrice,
+
+          installments_quantity:
+            installmentsQuantity || null,
+
+          installment_price:
+            installmentPrice || null,
+        },
+      ])
+
+    if (insertOfferError) {
+
+      return res.status(500).json({
+        error:
+          insertOfferError.message,
+      })
+    }
+  }
 
   res.json({
-    message:
-      'Producto creado',
-
-    product: productToCreate,
+    success: true,
   })
 })
 
-// =========================
+// =====================================
 // UPDATE PRODUCT
-// =========================
+// =====================================
 
 app.put(
   '/products/:id',
-  (req, res) => {
-    const id = Number(
-      req.params.id
-    )
 
-    const updatedProduct =
-      req.body
+  async (req, res) => {
 
-    const productIndex =
-      products.findIndex(
-        (product) =>
-          product.id === id
-      )
+    const { id } = req.params
 
-    if (
-      productIndex === -1
-    ) {
-      return res
-        .status(404)
-        .json({
-          message:
-            'Producto no encontrado',
+    const {
+
+      name,
+      category,
+      brand,
+      rating,
+      image,
+
+    } = req.body
+
+    const { error } =
+      await supabase
+        .from('products')
+        .update({
+
+          name,
+          category,
+          brand,
+          rating,
+          image,
         })
+        .eq('id', id)
+
+    if (error) {
+
+      return res.status(500).json({
+        error: error.message,
+      })
     }
 
-    products[productIndex] =
-      {
-        ...products[
-          productIndex
-        ],
-
-        ...updatedProduct,
-      }
-
     res.json({
-      message:
-        'Producto actualizado',
-
-      product:
-        products[
-          productIndex
-        ],
+      success: true,
     })
   }
 )
 
-// =========================
+// =====================================
 // DELETE PRODUCT
-// =========================
+// =====================================
 
 app.delete(
   '/products/:id',
-  (req, res) => {
-    const id = Number(
-      req.params.id
-    )
 
-    products = products.filter(
-      (product) =>
-        product.id !== id
-    )
+  async (req, res) => {
+
+    const { id } = req.params
+
+    await supabase
+      .from('offers')
+      .delete()
+      .eq(
+        'product_id',
+        id
+      )
+
+    await supabase
+      .from('products')
+      .delete()
+      .eq('id', id)
 
     res.json({
-      message:
-        'Producto eliminado',
+      success: true,
     })
   }
 )
 
-// =========================
+// =====================================
+// UPDATE OFFER
+// =====================================
+
+app.put(
+  '/offers/:id',
+
+  async (req, res) => {
+
+    const { id } = req.params
+
+    const {
+
+      cash_price,
+      installments_quantity,
+      installment_price,
+
+    } = req.body
+
+    const { error } =
+      await supabase
+        .from('offers')
+        .update({
+
+          cash_price,
+
+          installments_quantity,
+
+          installment_price,
+        })
+        .eq('id', id)
+
+    if (error) {
+
+      return res.status(500).json({
+        error: error.message,
+      })
+    }
+
+    res.json({
+      success: true,
+    })
+  }
+)
+
+// =====================================
+// DELETE OFFER
+// =====================================
+
+app.delete(
+  '/offers/:id',
+
+  async (req, res) => {
+
+    const { id } = req.params
+
+    await supabase
+      .from('offers')
+      .delete()
+      .eq('id', id)
+
+    res.json({
+      success: true,
+    })
+  }
+)
+
+// =====================================
+// ADMINS
+// =====================================
+
+// GET ADMINS
+
+app.get('/admins', async (req, res) => {
+
+  const {
+    data,
+    error,
+  } = await supabase
+    .from('admins')
+    .select('*')
+
+  if (error) {
+
+    return res.status(500).json({
+      error: error.message,
+    })
+  }
+
+  res.json(data)
+})
+
+// CREATE ADMIN
+
+app.post('/admins', async (req, res) => {
+
+  const {
+    username,
+    password,
+  } = req.body
+
+  const { error } =
+    await supabase
+      .from('admins')
+      .insert([
+        {
+          username,
+          password,
+        },
+      ])
+
+  if (error) {
+
+    return res.status(500).json({
+      error: error.message,
+    })
+  }
+
+  res.json({
+    success: true,
+  })
+})
+
+// LOGIN
+
+app.post('/login', async (req, res) => {
+
+  const {
+    username,
+    password,
+  } = req.body
+
+  const {
+    data,
+    error,
+  } = await supabase
+    .from('admins')
+    .select('*')
+    .eq(
+      'username',
+      username
+    )
+    .eq(
+      'password',
+      password
+    )
+
+  if (error) {
+
+    return res.status(500).json({
+      error: error.message,
+    })
+  }
+
+  if (data.length === 0) {
+
+    return res.status(401).json({
+      error:
+        'Credenciales incorrectas',
+    })
+  }
+
+  res.json({
+    success: true,
+  })
+})
+
+// =====================================
 // SERVER
-// =========================
+// =====================================
 
 app.listen(3000, () => {
+
   console.log(
-    '🚀 SERVER RUNNING ON 3000'
+    'SERVER RUNNING ON PORT 3000'
   )
 })
