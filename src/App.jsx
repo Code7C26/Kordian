@@ -1,267 +1,208 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 export default function App() {
   const [products, setProducts] = useState([])
-
   const [search, setSearch] = useState('')
-  const [supermarketFilter, setSupermarketFilter] = useState('Todos')
-  const [categoryFilter, setCategoryFilter] = useState('Todas')
+  const [filtro, setFiltro] = useState('Todos')
 
   // =========================
-  // API CALL
+  // TRAER DESDE API
   // =========================
 
   useEffect(() => {
-    const params = new URLSearchParams()
-
-    if (search) params.append('search', search)
-    if (categoryFilter !== 'Todas') params.append('category', categoryFilter)
-    if (supermarketFilter !== 'Todos') params.append('supermarket', supermarketFilter)
-
-    fetch(`http://localhost:3000/products?${params}`)
+    fetch('http://localhost:3000/products')
       .then((res) => res.json())
       .then((data) => setProducts(data))
-  }, [search, categoryFilter, supermarketFilter])
+  }, [])
 
-  // categorías únicas desde API
-  const categories = [
-    'Todas',
-    ...new Set(products.map((product) => product.category)),
+  // =========================
+  // CATEGORÍAS DINÁMICAS
+  // =========================
+
+  const categorias = [
+    'Todos',
+    ...new Set(products.map(p => p.category))
   ]
 
-  // filtrado (ya viene del backend, pero lo mantenemos para UI)
-  const filteredProducts = products.filter((product) => {
-    const matchesSearch =
-      product.name.toLowerCase().includes(search.toLowerCase()) ||
-      product.brand.toLowerCase().includes(search.toLowerCase())
+  // =========================
+  // FILTRO
+  // =========================
 
-    const matchesSupermarket =
-      supermarketFilter === 'Todos' ||
-      product.offers.some(
-        (offer) => offer.supermarket === supermarketFilter
-      )
+  const productosFiltrados = products.filter((p) => {
+    const matchSearch =
+      p.name?.toLowerCase().includes(search.toLowerCase()) ||
+      p.brand?.toLowerCase().includes(search.toLowerCase())
 
-    const matchesCategory =
-      categoryFilter === 'Todas' ||
-      product.category === categoryFilter
+    const matchFiltro =
+      filtro === 'Todos' || p.category === filtro
 
-    return matchesSearch && matchesSupermarket && matchesCategory
+    return matchSearch && matchFiltro
   })
 
   return (
-    <div style={{ backgroundColor: '#F3F4F6', minHeight: '100vh' }}>
-      
-      {/* NAVBAR */}
-      <div
-        style={{
-          backgroundColor: 'white',
-          padding: '20px 40px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '20px',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-        }}
-      >
-        <h1
-          style={{
-            fontSize: '38px',
-            color: '#2563EB',
-            fontWeight: '800',
-          }}
-        >
-          AR-PRICE
-        </h1>
+    <div style={styles.container}>
 
-        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-          
-          {/* BUSCADOR */}
-          <input
-            type="text"
-            placeholder="Buscar producto..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{
-              padding: '12px',
-              borderRadius: '10px',
-              border: '1px solid #D1D5DB',
-              width: '240px',
-            }}
-          />
+      {/* HEADER */}
+      <h1 style={styles.title}>AR-PRICE</h1>
 
-          {/* SUPERMERCADO */}
-          <select
-            value={supermarketFilter}
-            onChange={(e) => setSupermarketFilter(e.target.value)}
+      <p style={styles.subtitle}>
+        Compará precios entre supermercados
+      </p>
+
+      {/* SEARCH */}
+      <input
+        style={styles.search}
+        placeholder="Buscar producto o marca..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
+      {/* FILTROS */}
+      <div style={styles.filters}>
+        {categorias.map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setFiltro(cat)}
             style={{
-              padding: '12px',
-              borderRadius: '10px',
-              border: '1px solid #D1D5DB',
+              ...styles.button,
+              backgroundColor:
+                filtro === cat ? '#2563EB' : '#eee',
+              color: filtro === cat ? '#fff' : '#000',
             }}
           >
-            <option>Todos</option>
-            <option>Carrefour</option>
-            <option>Coto</option>
-            <option>Disco</option>
-            <option>Jumbo</option>
-            <option>Frávega</option>
-            <option>Musimundo</option>
-          </select>
-
-          {/* CATEGORÍA */}
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            style={{
-              padding: '12px',
-              borderRadius: '10px',
-              border: '1px solid #D1D5DB',
-            }}
-          >
-            {categories.map((category) => (
-              <option key={category}>{category}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* HERO */}
-      <div style={{ padding: '60px 40px 20px' }}>
-        <h2 style={{ fontSize: '52px', marginBottom: '15px' }}>
-          Compará precios inteligentes
-        </h2>
-
-        <p style={{ fontSize: '20px', color: '#6B7280' }}>
-          Encontrá el mejor precio y ahorrá automáticamente.
-        </p>
+            {cat}
+          </button>
+        ))}
       </div>
 
       {/* PRODUCTOS */}
-      <div
-        style={{
-          padding: '20px 40px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-          gap: '25px',
-        }}
-      >
-        {filteredProducts.map((product) => {
-          const cheapestOffer = product.offers.reduce((min, offer) =>
-            offer.cashPrice < min.cashPrice ? offer : min
+      <div style={styles.grid}>
+        {productosFiltrados.map((p) => {
+          
+          // 🧠 MEJOR OFERTA
+          const cheapest = p.offers.reduce((min, o) =>
+            o.cashPrice < min.cashPrice ? o : min
           )
 
-          const highestOffer = product.offers.reduce((max, offer) =>
-            offer.cashPrice > max.cashPrice ? offer : max
+          const highest = p.offers.reduce((max, o) =>
+            o.cashPrice > max.cashPrice ? o : max
           )
 
-          const savings =
-            highestOffer.cashPrice - cheapestOffer.cashPrice
-
-          const savingsPercentage = (
-            (savings / highestOffer.cashPrice) *
-            100
-          ).toFixed(1)
+          const ahorro = highest.cashPrice - cheapest.cashPrice
+          const porcentaje = ((ahorro / highest.cashPrice) * 100).toFixed(1)
 
           return (
-            <div
-              key={product.id}
-              style={{
-                backgroundColor: 'white',
-                padding: '25px',
-                borderRadius: '20px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-              }}
-            >
-              <p
-                style={{
-                  color: '#2563EB',
-                  fontWeight: '600',
-                  marginBottom: '10px',
-                }}
-              >
-                {product.category}
-              </p>
+            <div key={p.id} style={styles.card}>
 
-              <h2 style={{ fontSize: '26px', marginBottom: '10px' }}>
-                {product.name}
-              </h2>
+              <div style={styles.category}>
+                {p.category}
+              </div>
 
-              <p style={{ marginBottom: '20px', color: '#666' }}>
-                ⭐ {product.rating} • {product.brand}
+              <h3>{p.name}</h3>
+
+              <p style={{ color: '#666' }}>
+                ⭐ {p.rating || 4.5} • {p.brand}
               </p>
 
               {/* MEJOR PRECIO */}
-              <div
-                style={{
-                  backgroundColor: '#DCFCE7',
-                  padding: '15px',
-                  borderRadius: '14px',
-                  marginBottom: '20px',
-                }}
-              >
+              <div style={styles.bestPrice}>
                 <p>Mejor precio</p>
-
-                <h3 style={{ fontSize: '32px', color: '#16A34A' }}>
-                  ${cheapestOffer.cashPrice}
-                </h3>
-
-                <p>en {cheapestOffer.supermarket}</p>
-
-                <p style={{ marginTop: '10px', fontWeight: '600' }}>
-                  Ahorrás ${savings} ({savingsPercentage}%)
-                </p>
+                <h2>${cheapest.cashPrice}</h2>
+                <p>en {cheapest.supermarket}</p>
               </div>
 
-              {/* OFERTAS */}
-              {product.offers.map((offer, index) => {
-                const totalInstallments = offer.installments
-                  ? offer.installments.quantity *
-                    offer.installments.installmentPrice
-                  : null
+              {/* AHORRO */}
+              <div style={styles.savings}>
+                Ahorrás ${ahorro} ({porcentaje}%)
+              </div>
 
-                return (
-                  <div
-                    key={index}
-                    style={{
-                      marginBottom: '15px',
-                      padding: '15px',
-                      backgroundColor: '#F9FAFB',
-                      borderRadius: '12px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <strong>{offer.supermarket}</strong>
-                      <strong>${offer.cashPrice}</strong>
-                    </div>
-
-                    {offer.installments && (
-                      <>
-                        <p style={{ marginTop: '10px' }}>
-                          {offer.installments.quantity} cuotas de $
-                          {offer.installments.installmentPrice}
-                        </p>
-
-                        <p style={{ fontWeight: '600' }}>
-                          Total: ${totalInstallments}
-                        </p>
-                      </>
-                    )}
+              {/* TODAS LAS OFERTAS */}
+              <div style={{ marginTop: '10px' }}>
+                {p.offers.map((o, i) => (
+                  <div key={i} style={styles.offer}>
+                    <strong>{o.supermarket}</strong> - ${o.cashPrice}
                   </div>
-                )
-              })}
+                ))}
+              </div>
+
             </div>
           )
         })}
       </div>
+
     </div>
   )
+}
+
+const styles = {
+  container: {
+    padding: '30px',
+    fontFamily: 'Arial',
+    backgroundColor: '#F3F4F6',
+    minHeight: '100vh',
+  },
+  title: {
+    textAlign: 'center',
+    fontSize: '3rem',
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  subtitle: {
+    textAlign: 'center',
+    color: '#6B7280',
+    marginBottom: '20px',
+  },
+  search: {
+    width: '100%',
+    padding: '12px',
+    margin: '20px 0',
+    fontSize: '16px',
+    borderRadius: '10px',
+    border: '1px solid #ccc',
+  },
+  filters: {
+    display: 'flex',
+    gap: '10px',
+    marginBottom: '25px',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  },
+  button: {
+    padding: '10px 14px',
+    border: 'none',
+    cursor: 'pointer',
+    borderRadius: '8px',
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+    gap: '20px',
+  },
+  card: {
+    backgroundColor: 'white',
+    padding: '18px',
+    borderRadius: '15px',
+    boxShadow: '0 4px 10px rgba(0,0,0,0.08)',
+  },
+  category: {
+    fontSize: '12px',
+    color: '#2563EB',
+    fontWeight: 'bold',
+  },
+  bestPrice: {
+    backgroundColor: '#DCFCE7',
+    padding: '10px',
+    borderRadius: '10px',
+    marginTop: '10px',
+  },
+  savings: {
+    marginTop: '10px',
+    color: 'green',
+    fontWeight: 'bold',
+  },
+  offer: {
+    fontSize: '13px',
+    marginTop: '5px',
+    color: '#444',
+  },
 }
