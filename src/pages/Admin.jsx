@@ -1,824 +1,1163 @@
-import {
+import React,
+{
   useEffect,
   useState,
 } from 'react'
 
-import { useNavigate } from 'react-router-dom'
-
 export default function Admin() {
-  const navigate = useNavigate()
 
-  // =========================
-  // AUTH
-  // =========================
-
-  const logout = () => {
-    localStorage.removeItem(
-      'adminAuth'
-    )
-
-    navigate('/login')
-  }
-
-  // =========================
-  // ADMIN USERS
-  // =========================
-
-  const savedAdmins =
-    JSON.parse(
-      localStorage.getItem(
-        'admins'
-      )
-    ) || [
-      {
-        username: 'admin',
-        password: '1234',
-      },
-    ]
-
-  const [admins, setAdmins] =
-    useState(savedAdmins)
-
-  const [
-    newAdminUser,
-    setNewAdminUser,
-  ] = useState('')
-
-  const [
-    newAdminPassword,
-    setNewAdminPassword,
-  ] = useState('')
-
-  const createAdmin = () => {
-    if (
-      !newAdminUser ||
-      !newAdminPassword
-    ) {
-      return
-    }
-
-    const updatedAdmins = [
-      ...admins,
-
-      {
-        username:
-          newAdminUser,
-
-        password:
-          newAdminPassword,
-      },
-    ]
-
-    setAdmins(updatedAdmins)
-
-    localStorage.setItem(
-      'admins',
-      JSON.stringify(
-        updatedAdmins
-      )
-    )
-
-    setNewAdminUser('')
-    setNewAdminPassword('')
-  }
-
-  // =========================
-  // PRODUCT STATES
-  // =========================
+  // ====================================
+  // STATES
+  // ====================================
 
   const [products, setProducts] =
     useState([])
 
-  const [editingId, setEditingId] =
+  const [admins, setAdmins] =
+    useState([])
+
+  const [editingProduct, setEditingProduct] =
     useState(null)
 
-  const [name, setName] =
-    useState('')
+  const [form, setForm] =
+    useState({
 
-  const [brand, setBrand] =
-    useState('')
+      name: '',
+      brand: '',
+      category: 'Canasta Básica',
+      rating: 5,
+      image: '',
 
-  const [category, setCategory] =
-    useState('Canasta Básica')
+      supermarket: 'Carrefour',
 
-  const [rating, setRating] =
-    useState('5')
+      cashPrice: '',
 
-  const [
-    supermarket,
-    setSupermarket,
-  ] = useState('Carrefour')
+      installmentsQuantity: '',
 
-  const [cashPrice, setCashPrice] =
-    useState('')
+      installmentPrice: '',
+    })
 
-  const [
-    installmentsQuantity,
-    setInstallmentsQuantity,
-  ] = useState('')
+  const [adminForm, setAdminForm] =
+    useState({
 
-  const [
-    installmentPrice,
-    setInstallmentPrice,
-  ] = useState('')
+      username: '',
+      password: '',
+    })
 
-  const [message, setMessage] =
-    useState('')
+  // ====================================
+  // LOAD DATA
+  // ====================================
 
-  // =========================
-  // GET PRODUCTS
-  // =========================
+  const loadProducts =
+    async () => {
 
-  const fetchProducts = async () => {
-    const response = await fetch(
-      'http://localhost:3000/products'
-    )
+      const res =
+        await fetch(
+          'http://localhost:3000/products'
+        )
 
-    const data =
-      await response.json()
+      const data =
+        await res.json()
 
-    setProducts(data)
-  }
+      setProducts(data)
+    }
+
+  const loadAdmins =
+    async () => {
+
+      const res =
+        await fetch(
+          'http://localhost:3000/admins'
+        )
+
+      const data =
+        await res.json()
+
+      setAdmins(data)
+    }
 
   useEffect(() => {
-    fetchProducts()
+
+    loadProducts()
+    loadAdmins()
+
   }, [])
 
-  // =========================
-  // SUBMIT PRODUCT
-  // =========================
+  // ====================================
+  // CREATE PRODUCT/OFFER
+  // ====================================
 
-  const handleSubmit = async (
-    e
-  ) => {
-    e.preventDefault()
+  const createProduct =
+    async () => {
 
-    const productData = {
-      name,
-      brand,
-      category,
-      rating: Number(rating),
+      await fetch(
+        'http://localhost:3000/products',
 
-      offers: [
         {
-          supermarket,
+          method: 'POST',
 
-          cashPrice:
-            Number(cashPrice),
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
 
-          installments:
-            installmentsQuantity &&
-            installmentPrice
-              ? {
-                  quantity:
-                    Number(
-                      installmentsQuantity
-                    ),
+          body: JSON.stringify(form),
+        }
+      )
 
-                  installmentPrice:
-                    Number(
-                      installmentPrice
-                    ),
-                }
-              : null,
-        },
-      ],
+      setForm({
+
+        name: '',
+        brand: '',
+        category:
+          'Canasta Básica',
+        rating: 5,
+        image: '',
+
+        supermarket:
+          'Carrefour',
+
+        cashPrice: '',
+
+        installmentsQuantity:
+          '',
+
+        installmentPrice: '',
+      })
+
+      loadProducts()
     }
 
-    try {
-      // =========================
-      // EDIT
-      // =========================
+  // ====================================
+  // DELETE PRODUCT
+  // ====================================
 
-      if (editingId) {
-        await fetch(
-          `http://localhost:3000/products/${editingId}`,
-          {
-            method: 'PUT',
+  const deleteProduct =
+    async (id) => {
 
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
+      await fetch(
+        `http://localhost:3000/products/${id}`,
 
-            body: JSON.stringify(
-              productData
-            ),
-          }
-        )
-
-        setMessage(
-          '✅ Producto actualizado'
-        )
-
-        setEditingId(null)
-      }
-
-      // =========================
-      // CREATE
-      // =========================
-
-      else {
-        await fetch(
-          'http://localhost:3000/products',
-          {
-            method: 'POST',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body: JSON.stringify(
-              productData
-            ),
-          }
-        )
-
-        setMessage(
-          '✅ Producto agregado'
-        )
-      }
-
-      // =========================
-      // RESET
-      // =========================
-
-      setName('')
-      setBrand('')
-      setCategory(
-        'Canasta Básica'
+        {
+          method: 'DELETE',
+        }
       )
-      setRating('5')
-      setCashPrice('')
-      setInstallmentsQuantity(
-        ''
-      )
-      setInstallmentPrice('')
 
-      fetchProducts()
-
-      setTimeout(() => {
-        setMessage('')
-      }, 3000)
-    } catch (error) {
-      console.log(error)
-
-      setMessage(
-        '❌ Error'
-      )
+      loadProducts()
     }
-  }
 
-  // =========================
-  // DELETE
-  // =========================
+  // ====================================
+  // DELETE OFFER
+  // ====================================
 
-  const deleteProduct = async (
-    id
-  ) => {
-    await fetch(
-      `http://localhost:3000/products/${id}`,
-      {
-        method: 'DELETE',
-      }
-    )
+  const deleteOffer =
+    async (id) => {
 
-    fetchProducts()
-  }
+      await fetch(
+        `http://localhost:3000/offers/${id}`,
 
-  // =========================
+        {
+          method: 'DELETE',
+        }
+      )
+
+      loadProducts()
+    }
+
+  // ====================================
+  // EDIT PRODUCT
+  // ====================================
+
+  const startEdit =
+    (product) => {
+
+      setEditingProduct({
+
+        id: product.id,
+
+        name: product.name,
+        brand: product.brand,
+        category:
+          product.category,
+        rating:
+          product.rating,
+        image:
+          product.image,
+      })
+    }
+
+  const saveEdit =
+    async () => {
+
+      await fetch(
+
+        `http://localhost:3000/products/${editingProduct.id}`,
+
+        {
+          method: 'PUT',
+
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+
+          body: JSON.stringify(
+            editingProduct
+          ),
+        }
+      )
+
+      setEditingProduct(null)
+
+      loadProducts()
+    }
+
+  // ====================================
+  // CREATE ADMIN
+  // ====================================
+
+  const createAdmin =
+    async () => {
+
+      await fetch(
+        'http://localhost:3000/admins',
+
+        {
+          method: 'POST',
+
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+
+          body: JSON.stringify(
+            adminForm
+          ),
+        }
+      )
+
+      setAdminForm({
+
+        username: '',
+        password: '',
+      })
+
+      loadAdmins()
+    }
+
+  // ====================================
   // UI
-  // =========================
+  // ====================================
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor:
-          '#F3F4F6',
-        padding: '40px',
-      }}
-    >
+
+    <div style={styles.page}>
+
       {/* HEADER */}
 
-      <div
-        style={{
-          display: 'flex',
-          justifyContent:
-            'space-between',
-          alignItems: 'center',
-          marginBottom: '40px',
-        }}
-      >
-        <div>
-          <h1
-            style={{
-              fontSize: '42px',
-              color: '#2563EB',
-              fontWeight: '800',
-            }}
-          >
-            PANEL ADMIN
-          </h1>
+      <div style={styles.header}>
 
-          <p
-            style={{
-              color: '#6B7280',
-              marginTop: '10px',
-              fontSize: '18px',
-            }}
+        <h1 style={styles.title}>
+          PANEL ADMIN
+        </h1>
+
+      </div>
+
+      {/* ================================= */}
+      {/* CREATE PRODUCT */}
+      {/* ================================= */}
+
+      <div style={styles.section}>
+
+        <h2>
+          Agregar Producto / Oferta
+        </h2>
+
+        <div style={styles.grid}>
+
+          <input
+            placeholder='Nombre'
+
+            value={form.name}
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                name:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
+
+          <input
+            placeholder='Marca'
+
+            value={form.brand}
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                brand:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
+
+          <select
+            value={form.category}
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                category:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
           >
-            Gestioná productos y
-            ofertas
-          </p>
+
+            <option>
+              Canasta Básica
+            </option>
+
+            <option>
+              Higiene
+            </option>
+
+            <option>
+              Electrónica
+            </option>
+
+            <option>
+              Bebidas
+            </option>
+
+          </select>
+
+          <input
+            type='number'
+
+            placeholder='Calificación'
+
+            value={form.rating}
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                rating:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
+
+          <input
+            placeholder='URL Imagen'
+
+            value={form.image}
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                image:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
+
+          <select
+            value={form.supermarket}
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                supermarket:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          >
+
+            <option>
+              Carrefour
+            </option>
+
+            <option>
+              Coto
+            </option>
+
+            <option>
+              Jumbo
+            </option>
+
+            <option>
+              Disco
+            </option>
+
+          </select>
+
+          <input
+            type='number'
+
+            placeholder='Precio contado'
+
+            value={form.cashPrice}
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                cashPrice:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
+
+          <input
+            type='number'
+
+            placeholder='Cantidad cuotas'
+
+            value={
+              form.installmentsQuantity
+            }
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                installmentsQuantity:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
+
+          <input
+            type='number'
+
+            placeholder='Valor cuota'
+
+            value={
+              form.installmentPrice
+            }
+
+            onChange={(e) =>
+              setForm({
+
+                ...form,
+
+                installmentPrice:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
         </div>
 
+        {/* TOTAL */}
+
+        {form.installmentsQuantity &&
+          form.installmentPrice && (
+
+            <div
+              style={styles.totalBox}
+            >
+
+              Total financiado:
+
+              <strong>
+
+                {' '}
+                $
+
+                {
+                  Number(
+                    form.installmentsQuantity
+                  )
+
+                  *
+
+                  Number(
+                    form.installmentPrice
+                  )
+                }
+              </strong>
+            </div>
+          )}
+
         <button
-          onClick={logout}
-          style={{
-            padding: '12px 20px',
-            backgroundColor:
-              '#DC2626',
-            border: 'none',
-            borderRadius: '10px',
-            color: 'white',
-            fontWeight: '700',
-            cursor: 'pointer',
-          }}
+          onClick={createProduct}
+
+          style={styles.button}
         >
-          Cerrar sesión
+          Agregar producto
         </button>
       </div>
 
-      {/* CREATE ADMIN */}
-
-      <div
-        style={{
-          backgroundColor:
-            'white',
-          padding: '30px',
-          borderRadius: '20px',
-          marginBottom: '40px',
-          boxShadow:
-            '0 4px 20px rgba(0,0,0,0.08)',
-        }}
-      >
-        <h2
-          style={{
-            marginBottom: '20px',
-          }}
-        >
-          Crear nuevo admin
-        </h2>
-
-        <div
-          style={{
-            display: 'flex',
-            gap: '15px',
-            flexWrap: 'wrap',
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Usuario"
-            value={newAdminUser}
-            onChange={(e) =>
-              setNewAdminUser(
-                e.target.value
-              )
-            }
-            style={inputStyle}
-          />
-
-          <input
-            type="password"
-            placeholder="Contraseña"
-            value={
-              newAdminPassword
-            }
-            onChange={(e) =>
-              setNewAdminPassword(
-                e.target.value
-              )
-            }
-            style={inputStyle}
-          />
-
-          <button
-            onClick={createAdmin}
-            style={{
-              backgroundColor:
-                '#2563EB',
-              color: 'white',
-              border: 'none',
-              borderRadius: '10px',
-              padding:
-                '14px 20px',
-              cursor: 'pointer',
-              fontWeight: '700',
-            }}
-          >
-            Crear admin
-          </button>
-        </div>
-      </div>
-
-      {/* PRODUCT FORM */}
-
-      <div
-        style={{
-          backgroundColor:
-            'white',
-          maxWidth: '900px',
-          borderRadius: '25px',
-          padding: '35px',
-          boxShadow:
-            '0 8px 25px rgba(0,0,0,0.08)',
-        }}
-      >
-        <form
-          onSubmit={handleSubmit}
-        >
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns:
-                '1fr 1fr',
-              gap: '20px',
-            }}
-          >
-            <div>
-              <label>
-                Nombre del
-                producto
-              </label>
-
-              <input
-                type="text"
-                value={name}
-                onChange={(e) =>
-                  setName(
-                    e.target.value
-                  )
-                }
-                required
-                style={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label>
-                Marca
-              </label>
-
-              <input
-                type="text"
-                value={brand}
-                onChange={(e) =>
-                  setBrand(
-                    e.target.value
-                  )
-                }
-                required
-                style={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label>
-                Categoría
-              </label>
-
-              <select
-                value={category}
-                onChange={(e) =>
-                  setCategory(
-                    e.target.value
-                  )
-                }
-                style={inputStyle}
-              >
-                <option>
-                  Canasta Básica
-                </option>
-
-                <option>
-                  Carnes
-                </option>
-
-                <option>
-                  Verdulería
-                </option>
-
-                <option>
-                  Bebidas
-                </option>
-
-                <option>
-                  Limpieza
-                </option>
-
-                <option>
-                  Electrodomésticos
-                </option>
-
-                <option>
-                  Tecnología
-                </option>
-
-                <option>
-                  Ropa
-                </option>
-
-                <option>
-                  Hogar
-                </option>
-
-                <option>
-                  Farmacia
-                </option>
-
-                <option>
-                  Mascotas
-                </option>
-              </select>
-            </div>
-
-            <div>
-              <label>
-                Rating
-              </label>
-
-              <select
-                value={rating}
-                onChange={(e) =>
-                  setRating(
-                    e.target.value
-                  )
-                }
-                style={inputStyle}
-              >
-                <option>
-                  5
-                </option>
-
-                <option>
-                  4.5
-                </option>
-
-                <option>
-                  4
-                </option>
-
-                <option>
-                  3.5
-                </option>
-
-                <option>
-                  3
-                </option>
-              </select>
-            </div>
-
-            <div>
-              <label>
-                Supermercado
-              </label>
-
-              <select
-                value={
-                  supermarket
-                }
-                onChange={(e) =>
-                  setSupermarket(
-                    e.target.value
-                  )
-                }
-                style={inputStyle}
-              >
-                <option>
-                  Carrefour
-                </option>
-
-                <option>
-                  Coto
-                </option>
-
-                <option>
-                  Disco
-                </option>
-
-                <option>
-                  Jumbo
-                </option>
-
-                <option>
-                  Frávega
-                </option>
-
-                <option>
-                  Musimundo
-                </option>
-
-                <option>
-                  Mercado Libre
-                </option>
-              </select>
-            </div>
-
-            <div>
-              <label>
-                Precio contado
-              </label>
-
-              <input
-                type="number"
-                value={cashPrice}
-                onChange={(e) =>
-                  setCashPrice(
-                    e.target.value
-                  )
-                }
-                required
-                style={inputStyle}
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            style={{
-              marginTop: '35px',
-              width: '100%',
-              padding: '18px',
-              border: 'none',
-              borderRadius: '15px',
-              backgroundColor:
-                editingId
-                  ? '#F59E0B'
-                  : '#2563EB',
-              color: 'white',
-              fontSize: '18px',
-              fontWeight: '700',
-              cursor: 'pointer',
-            }}
-          >
-            {editingId
-              ? 'Guardar cambios'
-              : 'Agregar producto'}
-          </button>
-
-          {message && (
-            <p
-              style={{
-                marginTop: '20px',
-                textAlign: 'center',
-                fontWeight: '600',
-              }}
-            >
-              {message}
-            </p>
-          )}
-        </form>
-      </div>
-
+      {/* ================================= */}
       {/* PRODUCTS */}
+      {/* ================================= */}
 
-      <div
-        style={{
-          marginTop: '40px',
-        }}
-      >
-        <h2
-          style={{
-            marginBottom: '20px',
-          }}
-        >
-          Productos cargados
+      <div style={styles.section}>
+
+        <h2>
+          Productos
         </h2>
 
-        <div
-          style={{
-            display: 'grid',
-            gap: '20px',
-          }}
-        >
-          {products.map(
-            (product) => (
-              <div
-                key={product.id}
-                style={{
-                  backgroundColor:
-                    'white',
-                  padding: '20px',
-                  borderRadius:
-                    '15px',
-                  boxShadow:
-                    '0 4px 10px rgba(0,0,0,0.08)',
-                }}
-              >
-                <h3>
+        {products.map((product) => (
+
+          <div
+            key={product.id}
+            style={styles.productCard}
+          >
+
+            <div style={styles.productTop}>
+
+              <img
+                src={
+                  product.image ||
+                  'https://placehold.co/300x200'
+                }
+
+                alt={product.name}
+
+                style={styles.image}
+              />
+
+              <div>
+
+                <h2>
                   {product.name}
-                </h3>
+                </h2>
 
                 <p>
+                  Marca:
+                  {' '}
                   {product.brand}
                 </p>
 
                 <p>
+                  Categoría:
+                  {' '}
                   {product.category}
                 </p>
 
-                <div
-                  style={{
-                    marginTop:
-                      '15px',
-                    display:
-                      'flex',
-                    gap: '10px',
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      setEditingId(
-                        product.id
-                      )
+                <p>
+                  ⭐
+                  {' '}
+                  {product.rating}
+                </p>
 
-                      setName(
-                        product.name
-                      )
-
-                      setBrand(
-                        product.brand
-                      )
-
-                      setCategory(
-                        product.category
-                      )
-
-                      setRating(
-                        product.rating
-                      )
-                    }}
-                    style={{
-                      backgroundColor:
-                        '#F59E0B',
-                      border:
-                        'none',
-                      color:
-                        'white',
-                      padding:
-                        '10px 15px',
-                      borderRadius:
-                        '10px',
-                      cursor:
-                        'pointer',
-                    }}
-                  >
-                    Editar
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      deleteProduct(
-                        product.id
-                      )
-                    }
-                    style={{
-                      backgroundColor:
-                        '#DC2626',
-                      border:
-                        'none',
-                      color:
-                        'white',
-                      padding:
-                        '10px 15px',
-                      borderRadius:
-                        '10px',
-                      cursor:
-                        'pointer',
-                    }}
-                  >
-                    Eliminar
-                  </button>
-                </div>
               </div>
-            )
-          )}
+            </div>
+
+            {/* OFFERS */}
+
+            <div
+              style={{
+                marginTop: '20px',
+              }}
+            >
+
+              {product.offers?.map(
+                (offer) => (
+
+                  <div
+                    key={offer.id}
+                    style={styles.offer}
+                  >
+
+                    <div>
+
+                      <strong>
+                        {
+                          offer.supermarket
+                        }
+                      </strong>
+
+                      <p>
+                        Contado:
+                        {' '}
+                        $
+                        {
+                          offer.cash_price
+                        }
+                      </p>
+
+                      {offer.installments_quantity && (
+
+                        <p>
+
+                          {
+                            offer.installments_quantity
+                          }
+
+                          x $
+
+                          {
+                            offer.installment_price
+                          }
+
+                          {' '}
+                          = $
+
+                          {
+                            offer.installments_quantity *
+
+                            offer.installment_price
+                          }
+                        </p>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() =>
+                        deleteOffer(
+                          offer.id
+                        )
+                      }
+
+                      style={
+                        styles.deleteSmall
+                      }
+                    >
+                      X
+                    </button>
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* ACTIONS */}
+
+            <div style={styles.actions}>
+
+              <button
+                onClick={() =>
+                  startEdit(product)
+                }
+
+                style={styles.editButton}
+              >
+                Editar
+              </button>
+
+              <button
+                onClick={() =>
+                  deleteProduct(
+                    product.id
+                  )
+                }
+
+                style={
+                  styles.deleteButton
+                }
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ================================= */}
+      {/* EDIT MODAL */}
+      {/* ================================= */}
+
+      {editingProduct && (
+
+        <div style={styles.modal}>
+
+          <div
+            style={styles.modalContent}
+          >
+
+            <h2>
+              Editar Producto
+            </h2>
+
+            <div style={styles.grid}>
+
+              <input
+                value={
+                  editingProduct.name
+                }
+
+                onChange={(e) =>
+                  setEditingProduct({
+
+                    ...editingProduct,
+
+                    name:
+                      e.target.value,
+                  })
+                }
+
+                style={styles.input}
+              />
+
+              <input
+                value={
+                  editingProduct.brand
+                }
+
+                onChange={(e) =>
+                  setEditingProduct({
+
+                    ...editingProduct,
+
+                    brand:
+                      e.target.value,
+                  })
+                }
+
+                style={styles.input}
+              />
+
+              <input
+                value={
+                  editingProduct.category
+                }
+
+                onChange={(e) =>
+                  setEditingProduct({
+
+                    ...editingProduct,
+
+                    category:
+                      e.target.value,
+                  })
+                }
+
+                style={styles.input}
+              />
+
+              <input
+                type='number'
+
+                value={
+                  editingProduct.rating
+                }
+
+                onChange={(e) =>
+                  setEditingProduct({
+
+                    ...editingProduct,
+
+                    rating:
+                      e.target.value,
+                  })
+                }
+
+                style={styles.input}
+              />
+
+              <input
+                value={
+                  editingProduct.image
+                }
+
+                onChange={(e) =>
+                  setEditingProduct({
+
+                    ...editingProduct,
+
+                    image:
+                      e.target.value,
+                  })
+                }
+
+                style={styles.input}
+              />
+            </div>
+
+            <div style={styles.actions}>
+
+              <button
+                onClick={saveEdit}
+
+                style={styles.button}
+              >
+                Guardar
+              </button>
+
+              <button
+                onClick={() =>
+                  setEditingProduct(
+                    null
+                  )
+                }
+
+                style={
+                  styles.deleteButton
+                }
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================= */}
+      {/* ADMINS */}
+      {/* ================================= */}
+
+      <div style={styles.section}>
+
+        <h2>
+          Administradores
+        </h2>
+
+        <div style={styles.grid}>
+
+          <input
+            placeholder='Usuario'
+
+            value={
+              adminForm.username
+            }
+
+            onChange={(e) =>
+              setAdminForm({
+
+                ...adminForm,
+
+                username:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
+
+          <input
+            placeholder='Contraseña'
+
+            value={
+              adminForm.password
+            }
+
+            onChange={(e) =>
+              setAdminForm({
+
+                ...adminForm,
+
+                password:
+                  e.target.value,
+              })
+            }
+
+            style={styles.input}
+          />
+        </div>
+
+        <button
+          onClick={createAdmin}
+
+          style={styles.button}
+        >
+          Crear admin
+        </button>
+
+        <div
+          style={{
+            marginTop: '20px',
+          }}
+        >
+
+          {admins.map((admin) => (
+
+            <div
+              key={admin.id}
+              style={styles.adminCard}
+            >
+
+              👤 {admin.username}
+            </div>
+          ))}
         </div>
       </div>
     </div>
   )
 }
 
-const inputStyle = {
-  width: '100%',
-  padding: '14px',
-  marginTop: '8px',
-  borderRadius: '12px',
-  border: '1px solid #D1D5DB',
-  fontSize: '15px',
-  outline: 'none',
-  boxSizing: 'border-box',
+const styles = {
+
+  page: {
+
+    padding: '40px',
+
+    background:
+      '#F3F4F6',
+
+    minHeight: '100vh',
+
+    fontFamily:
+      'Arial',
+  },
+
+  header: {
+
+    display: 'flex',
+
+    justifyContent:
+      'space-between',
+
+    alignItems: 'center',
+  },
+
+  title: {
+
+    fontSize: '44px',
+
+    color: '#2563EB',
+  },
+
+  section: {
+
+    background: 'white',
+
+    padding: '30px',
+
+    borderRadius: '24px',
+
+    marginTop: '30px',
+
+    boxShadow:
+      '0 4px 16px rgba(0,0,0,0.08)',
+  },
+
+  grid: {
+
+    display: 'grid',
+
+    gridTemplateColumns:
+      'repeat(auto-fit,minmax(220px,1fr))',
+
+    gap: '16px',
+
+    marginTop: '20px',
+  },
+
+  input: {
+
+    padding: '14px',
+
+    borderRadius: '12px',
+
+    border:
+      '1px solid #D1D5DB',
+  },
+
+  button: {
+
+    marginTop: '20px',
+
+    background:
+      '#2563EB',
+
+    color: 'white',
+
+    border: 'none',
+
+    padding:
+      '14px 20px',
+
+    borderRadius: '12px',
+
+    cursor: 'pointer',
+  },
+
+  totalBox: {
+
+    marginTop: '20px',
+
+    background:
+      '#DCFCE7',
+
+    padding: '14px',
+
+    borderRadius: '12px',
+  },
+
+  productCard: {
+
+    background:
+      '#F9FAFB',
+
+    padding: '24px',
+
+    borderRadius: '18px',
+
+    marginTop: '20px',
+  },
+
+  productTop: {
+
+    display: 'flex',
+
+    gap: '20px',
+  },
+
+  image: {
+
+    width: '160px',
+
+    height: '160px',
+
+    objectFit: 'cover',
+
+    borderRadius: '16px',
+  },
+
+  offer: {
+
+    background:
+      'white',
+
+    padding: '14px',
+
+    borderRadius: '12px',
+
+    marginBottom: '10px',
+
+    display: 'flex',
+
+    justifyContent:
+      'space-between',
+
+    alignItems: 'center',
+  },
+
+  deleteSmall: {
+
+    background:
+      '#EF4444',
+
+    color: 'white',
+
+    border: 'none',
+
+    width: '34px',
+
+    height: '34px',
+
+    borderRadius: '8px',
+
+    cursor: 'pointer',
+  },
+
+  actions: {
+
+    display: 'flex',
+
+    gap: '12px',
+
+    marginTop: '20px',
+  },
+
+  editButton: {
+
+    background:
+      '#F59E0B',
+
+    color: 'white',
+
+    border: 'none',
+
+    padding:
+      '12px 16px',
+
+    borderRadius: '10px',
+
+    cursor: 'pointer',
+  },
+
+  deleteButton: {
+
+    background:
+      '#DC2626',
+
+    color: 'white',
+
+    border: 'none',
+
+    padding:
+      '12px 16px',
+
+    borderRadius: '10px',
+
+    cursor: 'pointer',
+  },
+
+  modal: {
+
+    position: 'fixed',
+
+    inset: 0,
+
+    background:
+      'rgba(0,0,0,0.5)',
+
+    display: 'flex',
+
+    justifyContent:
+      'center',
+
+    alignItems: 'center',
+  },
+
+  modalContent: {
+
+    background: 'white',
+
+    padding: '30px',
+
+    borderRadius: '20px',
+
+    width: '700px',
+
+    maxWidth: '95%',
+  },
+
+  adminCard: {
+
+    background:
+      '#EFF6FF',
+
+    padding: '14px',
+
+    borderRadius: '10px',
+
+    marginBottom: '10px',
+  },
 }
