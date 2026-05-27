@@ -1,274 +1,427 @@
 const express = require('express')
 const cors = require('cors')
 
+const multer = require('multer')
+const csv = require('csv-parser')
+const fs = require('fs')
+
 const supabase = require('./supabase')
 
 const app = express()
+// =====================================
+// CACHE
+// =====================================
 
+let productsCache = null
+
+let cacheTimestamp = 0
+
+const CACHE_DURATION =
+  30000 // 30 segundos
 app.use(cors())
 app.use(express.json())
+
+// =====================================
+// MULTER
+// =====================================
+
+const upload = multer({
+  storage: multer.diskStorage({
+
+    destination: function (
+      req,
+      file,
+      cb
+    ) {
+
+      cb(null, 'uploads/')
+    },
+
+    filename: function (
+      req,
+      file,
+      cb
+    ) {
+
+      cb(
+        null,
+
+        Date.now() +
+          '-' +
+          file.originalname
+      )
+    },
+  }),
+})
 
 // =====================================
 // PRODUCTS
 // =====================================
 
+// =====================================
 // GET PRODUCTS
+// PAGINATION + SEARCH + CACHE
+// =====================================
 
 app.get('/products', async (req, res) => {
 
-  const {
-    data: products,
-    error: productsError,
-  } = await supabase
-    .from('products')
-    .select('*')
+  try {
 
-  if (productsError) {
+    // =====================================
+    // QUERY PARAMS
+    // =====================================
 
-    return res.status(500).json({
-      error: productsError.message,
-    })
-  }
+    const page =
+      parseInt(req.query.page) || 1
 
-  const {
-    data: offers,
-    error: offersError,
-  } = await supabase
-    .from('offers')
-    .select('*')
+    const limit =
+      parseInt(req.query.limit) || 20
 
-  if (offersError) {
+    const search =
+      req.query.search || ''
 
-    return res.status(500).json({
-      error: offersError.message,
-    })
-  }
+    const start =
+      (page - 1) * limit
 
-  const finalProducts =
-    products.map((product) => ({
+    const end =
+      start + limit - 1
 
-      ...product,
+    // =====================================
+    // CACHE KEY
+    // =====================================
 
-      offers:
-        offers.filter(
-          (offer) =>
-            offer.product_id ===
-            product.id
-        ),
-    }))
+    const cacheKey =
+      `${page}-${limit}-${search}`
 
-  res.json(finalProducts)
-})
+    // =====================================
+    // INIT CACHE OBJECT
+    // =====================================
 
-// =====================================
-// CREATE PRODUCT / OFFER
-// =====================================
+    if (!global.productsCache) {
 
-app.post('/products', async (req, res) => {
-
-  const {
-
-    name,
-    category,
-    brand,
-    rating,
-    image,
-
-    supermarket,
-    cashPrice,
-
-    installmentsQuantity,
-    installmentPrice,
-
-  } = req.body
-
-  // =========================
-  // SEARCH PRODUCT
-  // =========================
-
-  const {
-    data: existingProducts,
-    error: searchError,
-  } = await supabase
-    .from('products')
-    .select('*')
-
-  if (searchError) {
-
-    return res.status(500).json({
-      error: searchError.message,
-    })
-  }
-
-  let existingProduct =
-    existingProducts.find(
-      (p) =>
-
-        p.name?.trim().toLowerCase() ===
-          name?.trim().toLowerCase()
-
-        &&
-
-        p.brand?.trim().toLowerCase() ===
-          brand?.trim().toLowerCase()
-    )
-
-  let productId
-
-  // =========================
-  // CREATE PRODUCT
-  // =========================
-
-  if (!existingProduct) {
-
-    const {
-      data: newProduct,
-      error,
-    } = await supabase
-      .from('products')
-      .insert([
-        {
-          name,
-          category,
-          brand,
-          rating,
-          image,
-        },
-      ])
-      .select()
-
-    if (error) {
-
-      return res.status(500).json({
-        error: error.message,
-      })
+      global.productsCache = {}
     }
 
-    productId =
-      newProduct[0].id
+    // =====================================
+    // RETURN CACHE
+    // =====================================
 
-  } else {
+    const cache =
+      global.productsCache[
+        cacheKey
+      ]
 
-    productId =
-      existingProduct.id
-  }
+    if (
 
-  // =========================
-  // SEARCH OFFER
-  // =========================
+      cache &&
 
-  const {
-    data: existingOffers,
-    error: offerSearchError,
-  } = await supabase
-    .from('offers')
-    .select('*')
+      Date.now() -
+        cache.timestamp <
+        30000
 
-  if (offerSearchError) {
+    ) {
 
-    return res.status(500).json({
-      error:
-        offerSearchError.message,
-    })
-  }
-
-  const repeatedOffer =
-    existingOffers.find(
-      (offer) =>
-
-        offer.product_id ===
-          productId
-
-        &&
-
-        offer.supermarket
-          ?.trim()
-          .toLowerCase()
-
-        ===
-
-        supermarket
-          ?.trim()
-          .toLowerCase()
-    )
-
-  // =========================
-  // UPDATE OFFER
-  // =========================
-
-  if (repeatedOffer) {
-
-    const {
-      error: updateError,
-    } = await supabase
-      .from('offers')
-      .update({
-
-        cash_price:
-          cashPrice,
-
-        installments_quantity:
-          installmentsQuantity || null,
-
-        installment_price:
-          installmentPrice || null,
-      })
-      .eq(
-        'id',
-        repeatedOffer.id
+      console.log(
+        'RETURNING CACHE'
       )
 
-    if (updateError) {
-
-      return res.status(500).json({
-        error:
-          updateError.message,
-      })
+      return res.json(
+        cache.data
+      )
     }
 
-  }
+    // =====================================
+    // GET PRODUCTS
+    // =====================================
 
-  // =========================
-  // CREATE OFFER
-  // =========================
+    let query = supabase
 
-  else {
+      .from('products')
+
+      .select('*')
+
+    // SEARCH
+
+    if (search) {
+
+      query =
+        query.or(
+          `name.ilike.%${search}%,
+           brand.ilike.%${search}%`
+        )
+    }
+
+    // PAGINATION
+
+    query =
+      query.range(
+        start,
+        end
+      )
 
     const {
-      error: insertOfferError,
-    } = await supabase
-      .from('offers')
-      .insert([
-        {
-          product_id:
-            productId,
+      data: products,
+      error: productsError,
+    } = await query
 
-          supermarket,
-
-          cash_price:
-            cashPrice,
-
-          installments_quantity:
-            installmentsQuantity || null,
-
-          installment_price:
-            installmentPrice || null,
-        },
-      ])
-
-    if (insertOfferError) {
+    if (productsError) {
 
       return res.status(500).json({
         error:
-          insertOfferError.message,
+          productsError.message,
       })
     }
+
+    // =====================================
+    // GET OFFERS
+    // =====================================
+
+    const productIds =
+      products.map(
+        (p) => p.id
+      )
+
+    const {
+      data: offers,
+      error: offersError,
+    } = await supabase
+
+      .from('offers')
+
+      .select('*')
+
+      .in(
+        'product_id',
+        productIds
+      )
+
+    if (offersError) {
+
+      return res.status(500).json({
+        error:
+          offersError.message,
+      })
+    }
+
+    // =====================================
+    // OFFERS MAP
+    // =====================================
+
+    const offersMap = {}
+
+    offers.forEach((offer) => {
+
+      if (
+        !offersMap[
+          offer.product_id
+        ]
+      ) {
+
+        offersMap[
+          offer.product_id
+        ] = []
+      }
+
+      offersMap[
+        offer.product_id
+      ].push(offer)
+    })
+
+    // =====================================
+    // FINAL PRODUCTS
+    // =====================================
+
+    const finalProducts =
+      products.map((product) => ({
+
+        ...product,
+
+        offers:
+          offersMap[
+            product.id
+          ] || [],
+      }))
+
+    // =====================================
+    // SAVE CACHE
+    // =====================================
+
+    global.productsCache[
+      cacheKey
+    ] = {
+
+      data:
+        finalProducts,
+
+      timestamp:
+        Date.now(),
+    }
+
+    console.log(
+      'CACHE UPDATED'
+    )
+
+    res.json(finalProducts)
+
   }
 
-  res.json({
-    success: true,
-  })
+  catch (err) {
+
+    console.log(err)
+
+    res.status(500).json({
+      error:
+        'Internal server error',
+    })
+  }
 })
+// =====================================
+// CSV UPLOAD
+// =====================================
+
+app.post(
+  '/upload-csv',
+  upload.single('file'),
+
+  async (req, res) => {
+
+    const results = []
+
+    fs.createReadStream(req.file.path)
+      .pipe(csv({
+        separator: ';',
+        skipLines: 0
+      }))
+      .on('data', (data) => {
+        results.push(data)
+      })
+      .on('end', async () => {
+
+        try {
+
+          const { data: allProducts } =
+            await supabase.from('products').select('*')
+
+          const { data: allOffers } =
+            await supabase.from('offers').select('*')
+
+          for (const row of results) {
+
+            // =====================================
+            // VALIDACIÓN REAL
+            // =====================================
+
+            const name = row.name?.trim()
+            const brand = row.brand?.trim()
+            const category = row.category?.trim()
+            const rating = row.rating
+            const image = row.image
+            const supermarket = row.supermarket?.trim()
+            const cashPrice = row.cashPrice
+            const installmentsQuantity = row.installmentsQuantity
+            const installmentPrice = row.installmentPrice
+
+            if (!name || !brand || !supermarket) {
+              console.log('FILA INVALIDA IGNORADA')
+              continue
+            }
+
+            // =====================================
+            // PRODUCTO EXISTENTE
+            // =====================================
+
+            let existingProduct = allProducts.find(
+              (p) =>
+                p.name?.toLowerCase() === name.toLowerCase() &&
+                p.brand?.toLowerCase() === brand.toLowerCase()
+            )
+
+            let productId
+
+            // =====================================
+            // CREAR PRODUCTO
+            // =====================================
+
+            if (!existingProduct) {
+
+              const { data: newProduct, error } =
+                await supabase.from('products')
+                  .insert([{
+                    name,
+                    category,
+                    brand,
+                    rating,
+                    image
+                  }])
+                  .select()
+
+              if (error || !newProduct?.length) {
+                console.log('ERROR PRODUCTO:', error)
+                continue
+              }
+
+              productId = newProduct[0].id
+
+            } else {
+              productId = existingProduct.id
+            }
+
+            // =====================================
+            // OFFER EXISTENTE
+            // =====================================
+
+            let repeatedOffer = allOffers.find(
+              (o) =>
+                o.product_id === productId &&
+                o.supermarket?.toLowerCase() === supermarket.toLowerCase()
+            )
+
+            // =====================================
+            // UPDATE OFFER
+            // =====================================
+
+            if (repeatedOffer) {
+
+              await supabase
+                .from('offers')
+                .update({
+                  cash_price: cashPrice,
+                  installments_quantity: installmentsQuantity || null,
+                  installment_price: installmentPrice || null,
+                })
+                .eq('id', repeatedOffer.id)
+
+            } else {
+
+              // =====================================
+              // CREATE OFFER
+              // =====================================
+
+              await supabase
+                .from('offers')
+                .insert([{
+                  product_id: productId,
+                  supermarket,
+                  cash_price: cashPrice,
+                  installments_quantity: installmentsQuantity || null,
+                  installment_price: installmentPrice || null,
+                }])
+            }
+          }
+
+          fs.unlinkSync(req.file.path)
+
+          global.productsCache = {}
+
+          res.json({ success: true })
+
+        } catch (err) {
+          console.log(err)
+          res.status(500).json({ error: err.message })
+        }
+      })
+  }
+)
 
 // =====================================
 // UPDATE PRODUCT
@@ -310,7 +463,7 @@ app.put(
         error: error.message,
       })
     }
-
+    global.productsCache = {}
     res.json({
       success: true,
     })
@@ -340,7 +493,7 @@ app.delete(
       .from('products')
       .delete()
       .eq('id', id)
-
+    global.productsCache = {}
     res.json({
       success: true,
     })
@@ -385,7 +538,7 @@ app.put(
         error: error.message,
       })
     }
-
+    global.productsCache = {}
     res.json({
       success: true,
     })
@@ -407,7 +560,7 @@ app.delete(
       .from('offers')
       .delete()
       .eq('id', id)
-
+    global.productsCache = {}
     res.json({
       success: true,
     })
@@ -417,8 +570,6 @@ app.delete(
 // =====================================
 // ADMINS
 // =====================================
-
-// GET ADMINS
 
 app.get('/admins', async (req, res) => {
 
@@ -438,8 +589,6 @@ app.get('/admins', async (req, res) => {
 
   res.json(data)
 })
-
-// CREATE ADMIN
 
 app.post('/admins', async (req, res) => {
 
@@ -464,13 +613,15 @@ app.post('/admins', async (req, res) => {
       error: error.message,
     })
   }
-
+  global.productsCache = {}
   res.json({
     success: true,
   })
 })
 
+// =====================================
 // LOGIN
+// =====================================
 
 app.post('/login', async (req, res) => {
 
@@ -508,7 +659,7 @@ app.post('/login', async (req, res) => {
         'Credenciales incorrectas',
     })
   }
-
+  global.productsCache = {}
   res.json({
     success: true,
   })
