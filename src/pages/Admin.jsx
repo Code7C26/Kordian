@@ -272,7 +272,81 @@ export default function Admin() {
         <h2>
           Agregar Producto / Oferta
         </h2>
+<div
+  style={{
+    marginBottom: '20px',
+    background: '#fff',
+    padding: '15px',
+    borderRadius: '12px',
+  }}
+>
 
+  <h3>
+    Importar CSV
+  </h3>
+
+  <input
+    type='file'
+
+    accept='.csv'
+
+    onChange={async (e) => {
+
+      const file =
+        e.target.files[0]
+
+      if (!file) return
+
+      const formData =
+        new FormData()
+
+      formData.append(
+        'file',
+        file
+      )
+
+      try {
+
+        const response =
+          await fetch(
+
+            'http://localhost:3000/upload-csv',
+
+            {
+              method: 'POST',
+              body: formData,
+            }
+          )
+
+        const data =
+          await response.json()
+
+        if (data.success) {
+
+          alert(
+            'CSV importado correctamente'
+          )
+
+          window.location.reload()
+
+        } else {
+
+          alert(
+            'Error importando CSV'
+          )
+        }
+
+      } catch (err) {
+
+        console.log(err)
+
+        alert(
+          'Error subiendo archivo'
+        )
+      }
+    }}
+  />
+</div>
         <div style={styles.grid}>
 
           <input
@@ -638,19 +712,15 @@ export default function Admin() {
                       )}
                     </div>
 
-                    <button
-                      onClick={() =>
-                        deleteOffer(
-                          offer.id
-                        )
-                      }
+                   <button
+                    onClick={() =>
+                      getProducts()
+                    }
+                  >
 
-                      style={
-                        styles.deleteSmall
-                      }
-                    >
-                      X
-                    </button>
+                    Cargar más
+
+                  </button>
                   </div>
                 )
               )}
