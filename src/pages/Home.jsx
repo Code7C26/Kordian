@@ -67,14 +67,15 @@ export default function Home() {
       const matchesSearch =
         product.name
           ?.toLowerCase()
-          .includes(
-            search.toLowerCase()
-          ) ||
-        product.brand
+          .includes(search.toLowerCase()) ||
+
+        product.brands?.name
           ?.toLowerCase()
-          .includes(
-            search.toLowerCase()
-          )
+          .includes(search.toLowerCase()) ||
+
+        product.categories?.name
+          ?.toLowerCase()
+          .includes(search.toLowerCase())
 
       const matchesSupermarket =
         supermarketFilter ===
@@ -413,14 +414,10 @@ export default function Home() {
                       '#666',
                   }}
                 >
-                  ⭐{' '}
-                  {
-                    product.rating
-                  }{' '}
-                  •{' '}
-                  {
-                    product.brand
-                  }
+                  ⭐ {product.rating} {' '}
+                  •
+                  {' '}
+                  {product.brands?.name}
                 </p>
 
                 {/* MEJOR PRECIO */}
