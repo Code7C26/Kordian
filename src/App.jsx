@@ -8,11 +8,11 @@ function App() {
   const [products, setProducts] = useState([])
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState('Todos')
+  const [loading, setLoading] = useState(false)
 
   // =========================
-  // GET PRODUCTS
+  // FETCH PRODUCTS
   // =========================
 
   const getProducts = async (reset = false) => {
@@ -21,11 +21,13 @@ function App() {
 
       const currentPage = reset ? 1 : page
 
-      const response = await fetch(
+      const res = await fetch(
         `http://localhost:3000/products?page=${currentPage}&limit=20&search=${search}`
       )
 
-      const data = await response.json()
+      const data = await res.json()
+
+      if (!Array.isArray(data)) return
 
       if (reset) {
         setProducts(data)
@@ -34,6 +36,7 @@ function App() {
         setProducts((prev) => [...prev, ...data])
         setPage((prev) => prev + 1)
       }
+
     } catch (err) {
       console.log(err)
     } finally {
@@ -42,7 +45,7 @@ function App() {
   }
 
   // =========================
-  // LOAD INITIAL
+  // INIT
   // =========================
 
   useEffect(() => {
@@ -56,7 +59,7 @@ function App() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       getProducts(true)
-    }, 500)
+    }, 400)
 
     return () => clearTimeout(timeout)
   }, [search])
@@ -66,10 +69,9 @@ function App() {
   // =========================
 
   const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
-      const matchSearch = product.name
-        ?.toLowerCase()
-        .includes(search.toLowerCase())
+    return (products || []).filter((product) => {
+      const matchSearch =
+        product.name?.toLowerCase().includes(search.toLowerCase())
 
       const matchFilter =
         filter === 'Todos' || product.category === filter
@@ -84,49 +86,39 @@ function App() {
 
   return (
     <div style={styles.page}>
-      {/* HEADER */}
+
       <div style={styles.header}>
-        <div>
-          <h1 style={styles.logo}>ARPRICE</h1>
-          <p style={styles.subtitle}>
-            Compará precios entre supermercados
-          </p>
-        </div>
+        <h1 style={styles.logo}>ARPRICE</h1>
+        <p style={styles.subtitle}>
+          Compará precios entre supermercados
+        </p>
       </div>
 
-      {/* SEARCH */}
       <input
-        type="text"
-        placeholder="Buscar productos"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
         style={styles.search}
+        value={search}
+        placeholder="Buscar productos"
+        onChange={(e) => setSearch(e.target.value)}
       />
 
-      {/* FILTERS */}
       <div style={styles.filters}>
-        {[
-          'Todos',
-          'Canasta Básica',
-          'Higiene',
-          'Electrónica',
-          'Bebidas',
-        ].map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setFilter(cat)}
-            style={{
-              ...styles.filterButton,
-              background: filter === cat ? '#2563EB' : 'white',
-              color: filter === cat ? 'white' : '#111827',
-            }}
-          >
-            {cat}
-          </button>
-        ))}
+        {['Todos', 'Canasta Básica', 'Higiene', 'Electrónica', 'Bebidas'].map(
+          (cat) => (
+            <button
+              key={cat}
+              onClick={() => setFilter(cat)}
+              style={{
+                ...styles.filterButton,
+                background: filter === cat ? '#2563EB' : 'white',
+                color: filter === cat ? 'white' : '#111',
+              }}
+            >
+              {cat}
+            </button>
+          )
+        )}
       </div>
 
-      {/* PRODUCTS */}
       <div style={styles.grid}>
         {filteredProducts.map((product) => {
           const sortedOffers = [...(product.offers || [])].sort(
@@ -134,78 +126,74 @@ function App() {
           )
 
           const cheapest = sortedOffers[0]
-          const secondCheapest = sortedOffers[1]
+          const second = sortedOffers[1]
 
           let savings = 0
-          let savingsPercent = 0
+          let percent = 0
 
-          if (cheapest && secondCheapest) {
-            savings = secondCheapest.cash_price - cheapest.cash_price
-            savingsPercent =
-              (savings / secondCheapest.cash_price) * 100
+          if (cheapest && second) {
+            savings = second.cash_price - cheapest.cash_price
+            percent = (savings / second.cash_price) * 100
           }
 
           return (
             <div key={product.id} style={styles.card}>
+
               <img
-                src={
-                  product.image ||
-                  'https://placehold.co/400x300'
-                }
-                alt={product.name}
+                src={product.image || 'https://placehold.co/400x300'}
                 style={styles.image}
+                alt={product.name}
               />
 
               <div style={styles.info}>
-                <h2 style={styles.name}>{product.name}</h2>
-                <p style={styles.brand}>{product.brand}</p>
-                <p style={styles.category}>{product.category}</p>
-                <p style={styles.rating}>⭐ {product.rating}</p>
+                <h2>{product.name}</h2>
+                <p>{product.brands?.name}</p>
+                <p>{product.categories?.name}</p>
 
+                <p>⭐ {product.rating}</p>
+
+                {/* MEJOR PRECIO */}
                 {cheapest && (
                   <div style={styles.bestPrice}>
-                    Mejor precio:{' '}
-                    <strong>${cheapest.cash_price}</strong>
+                    Mejor precio: <b>${cheapest.cash_price}</b>
                     <div>{cheapest.supermarket}</div>
                   </div>
                 )}
 
-                {secondCheapest && (
+                {/* AHORRO */}
+                {second && (
                   <div style={styles.savings}>
-                    Ahorrás:{' '}
-                    <strong>${savings}</strong> (
-                    {savingsPercent.toFixed(1)}%)
+                    Ahorrás: <b>${savings}</b> ({percent.toFixed(1)}%)
                   </div>
                 )}
 
-                <div style={{ marginTop: '20px' }}>
-                  {sortedOffers.map((offer) => {
-                    const total =
-                      (offer.installments_quantity || 0) *
-                      (offer.installment_price || 0)
+                {/* TODAS LAS OFERTAS */}
+                <div style={{ marginTop: '15px' }}>
+                  <h4>Opciones:</h4>
 
-                    return (
-                      <div key={offer.id} style={styles.offer}>
+                  {sortedOffers.map((offer) => (
+                    <div key={offer.id} style={styles.offer}>
+                      <div>
+                        <strong>{offer.supermarket}</strong>
+
                         <div>
-                          <strong>{offer.supermarket}</strong>
-                          <div>
-                            Contado: ${offer.cash_price}
-                          </div>
-
-                          {offer.installments_quantity && (
-                            <div style={{ marginTop: 6 }}>
-                              {offer.installments_quantity} cuotas de $
-                              {offer.installment_price}
-                              <div style={{ color: '#2563EB' }}>
-                                Total: ${total}
-                              </div>
-                            </div>
-                          )}
+                          Contado: ${offer.cash_price}
                         </div>
+
+                        {offer.installments_quantity && (
+                          <div>
+                            {offer.installments_quantity} cuotas de ${offer.installment_price}
+                            <div>
+                              Total: $
+                              {offer.installments_quantity * offer.installment_price}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )
-                  })}
+                    </div>
+                  ))}
                 </div>
+
               </div>
             </div>
           )
@@ -236,81 +224,63 @@ const styles = {
   },
   subtitle: {
     color: '#6B7280',
-    marginTop: '8px',
   },
   search: {
     width: '100%',
     padding: '18px',
     borderRadius: '16px',
     border: '1px solid #D1D5DB',
-    marginBottom: '25px',
-    fontSize: '16px',
+    marginBottom: '20px',
   },
   filters: {
     display: 'flex',
-    gap: '12px',
+    gap: '10px',
     flexWrap: 'wrap',
     marginBottom: '30px',
   },
   filterButton: {
-    padding: '12px 18px',
-    borderRadius: '12px',
+    padding: '10px 16px',
+    borderRadius: '10px',
     border: 'none',
     cursor: 'pointer',
     fontWeight: 'bold',
   },
   grid: {
     display: 'grid',
-    gridTemplateColumns:
-      'repeat(auto-fit,minmax(340px,1fr))',
-    gap: '24px',
+    gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))',
+    gap: '20px',
   },
   card: {
     background: 'white',
-    borderRadius: '24px',
+    borderRadius: '20px',
     overflow: 'hidden',
-    boxShadow: '0 4px 18px rgba(0,0,0,0.08)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
   },
   image: {
     width: '100%',
-    height: '260px',
+    height: '220px',
     objectFit: 'cover',
   },
   info: {
-    padding: '24px',
-  },
-  name: {
-    margin: 0,
-    fontSize: '28px',
-  },
-  brand: {
-    color: '#6B7280',
-    marginTop: '8px',
-  },
-  category: {
-    color: '#2563EB',
-    marginTop: '6px',
-  },
-  rating: {
-    marginTop: '10px',
+    padding: '20px',
   },
   bestPrice: {
-    marginTop: '18px',
+    marginTop: '10px',
     background: '#DCFCE7',
-    padding: '14px',
-    borderRadius: '14px',
+    padding: '10px',
+    borderRadius: '10px',
   },
   savings: {
-    marginTop: '14px',
+    marginTop: '10px',
     background: '#DBEAFE',
-    padding: '14px',
-    borderRadius: '14px',
+    padding: '10px',
+    borderRadius: '10px',
   },
   offer: {
     background: '#F9FAFB',
-    padding: '14px',
-    borderRadius: '14px',
-    marginBottom: '12px',
+    padding: '12px',
+    borderRadius: '12px',
+    marginBottom: '10px',
   },
 }
 
