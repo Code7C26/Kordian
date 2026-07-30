@@ -1,428 +1,203 @@
-import React,
-{
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 
 function App() {
+  // =========================
+  // STATES
+  // =========================
 
-  const [products, setProducts] =
-    useState([])
-
-  const [search, setSearch] =
-    useState('')
-
-  const [filter, setFilter] =
-    useState('Todos')
+  const [products, setProducts] = useState([])
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('Todos')
+  const [loading, setLoading] = useState(false)
 
   // =========================
-  // LOAD PRODUCTS
+  // FETCH PRODUCTS
+  // =========================
+
+  const getProducts = async (reset = false) => {
+    try {
+      setLoading(true)
+
+      const currentPage = reset ? 1 : page
+
+      const res = await fetch(
+        `http://localhost:3000/products?page=${currentPage}&limit=20&search=${search}`
+      )
+
+      const data = await res.json()
+
+      if (!Array.isArray(data)) return
+
+      if (reset) {
+        setProducts(data)
+        setPage(2)
+      } else {
+        setProducts((prev) => [...prev, ...data])
+        setPage((prev) => prev + 1)
+      }
+
+    } catch (err) {
+      console.log(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // =========================
+  // INIT
   // =========================
 
   useEffect(() => {
-
-    fetch(
-      'http://localhost:3000/products'
-    )
-      .then((res) => res.json())
-      .then((data) =>
-        setProducts(data)
-      )
-
+    getProducts(true)
   }, [])
 
   // =========================
-  // FILTER PRODUCTS
+  // SEARCH
   // =========================
 
-  const filteredProducts =
-    useMemo(() => {
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      getProducts(true)
+    }, 400)
 
-      return products.filter(
-        (product) => {
+    return () => clearTimeout(timeout)
+  }, [search])
 
-          const matchSearch =
+  // =========================
+  // FILTER
+  // =========================
 
-            product.name
-              ?.toLowerCase()
-              .includes(
-                search.toLowerCase()
-              )
+  const filteredProducts = useMemo(() => {
+    return (products || []).filter((product) => {
+      const matchSearch =
+        product.name?.toLowerCase().includes(search.toLowerCase())
 
-          const matchFilter =
+      const matchFilter =
+        filter === 'Todos' || product.category === filter
 
-            filter === 'Todos'
-
-            ||
-
-            product.category ===
-              filter
-
-          return (
-            matchSearch &&
-            matchFilter
-          )
-        }
-      )
-
-    }, [
-      products,
-      search,
-      filter,
-    ])
+      return matchSearch && matchFilter
+    })
+  }, [products, search, filter])
 
   // =========================
   // UI
   // =========================
 
   return (
-
     <div style={styles.page}>
 
-      {/* HEADER */}
-
       <div style={styles.header}>
-
-        <div>
-
-          <h1 style={styles.logo}>
-            ARPRICE
-          </h1>
-
-          <p style={styles.subtitle}>
-            Compará precios
-            entre supermercados
-          </p>
-
-        </div>
+        <h1 style={styles.logo}>ARPRICE</h1>
+        <p style={styles.subtitle}>
+          Compará precios entre supermercados
+        </p>
       </div>
-
-      {/* SEARCH */}
 
       <input
-        placeholder='Buscar producto...'
-
-        value={search}
-
-        onChange={(e) =>
-          setSearch(
-            e.target.value
-          )
-        }
-
         style={styles.search}
+        value={search}
+        placeholder="Buscar productos"
+        onChange={(e) => setSearch(e.target.value)}
       />
 
-      {/* FILTERS */}
-
       <div style={styles.filters}>
-
-        {[
-          'Todos',
-          'Canasta Básica',
-          'Higiene',
-          'Electrónica',
-          'Bebidas',
-        ].map((cat) => (
-
-          <button
-            key={cat}
-
-            onClick={() =>
-              setFilter(cat)
-            }
-
-            style={{
-              ...styles.filterButton,
-
-              background:
-                filter === cat
-                  ? '#2563EB'
-                  : 'white',
-
-              color:
-                filter === cat
-                  ? 'white'
-                  : '#111827',
-            }}
-          >
-            {cat}
-          </button>
-        ))}
+        {['Todos', 'Canasta Básica', 'Higiene', 'Electrónica', 'Bebidas'].map(
+          (cat) => (
+            <button
+              key={cat}
+              onClick={() => setFilter(cat)}
+              style={{
+                ...styles.filterButton,
+                background: filter === cat ? '#2563EB' : 'white',
+                color: filter === cat ? 'white' : '#111',
+              }}
+            >
+              {cat}
+            </button>
+          )
+        )}
       </div>
 
-      {/* PRODUCTS */}
-
       <div style={styles.grid}>
+        {filteredProducts.map((product) => {
+          const sortedOffers = [...(product.offers || [])].sort(
+            (a, b) => a.cash_price - b.cash_price
+          )
 
-        {filteredProducts.map(
-          (product) => {
+          const cheapest = sortedOffers[0]
+          const second = sortedOffers[1]
 
-            // =====================
-            // SORT OFFERS
-            // =====================
+          let savings = 0
+          let percent = 0
 
-            const sortedOffers =
+          if (cheapest && second) {
+            savings = second.cash_price - cheapest.cash_price
+            percent = (savings / second.cash_price) * 100
+          }
 
-              [...product.offers]
+          return (
+            <div key={product.id} style={styles.card}>
 
-                .sort(
-                  (a, b) =>
+              <img
+                src={product.image || 'https://placehold.co/400x300'}
+                style={styles.image}
+                alt={product.name}
+              />
 
-                    a.cash_price -
-                    b.cash_price
-                )
+              <div style={styles.info}>
+                <h2>{product.name}</h2>
+                <p>{product.brands?.name}</p>
+                <p>{product.categories?.name}</p>
 
-            const cheapest =
-              sortedOffers[0]
+                <p>⭐ {product.rating}</p>
 
-            const secondCheapest =
-              sortedOffers[1]
+                {/* MEJOR PRECIO */}
+                {cheapest && (
+                  <div style={styles.bestPrice}>
+                    Mejor precio: <b>${cheapest.cash_price}</b>
+                    <div>{cheapest.supermarket}</div>
+                  </div>
+                )}
 
-            // =====================
-            // SAVINGS
-            // =====================
+                {/* AHORRO */}
+                {second && (
+                  <div style={styles.savings}>
+                    Ahorrás: <b>${savings}</b> ({percent.toFixed(1)}%)
+                  </div>
+                )}
 
-            let savings = 0
-            let savingsPercent = 0
+                {/* TODAS LAS OFERTAS */}
+                <div style={{ marginTop: '15px' }}>
+                  <h4>Opciones:</h4>
 
-            if (
-              cheapest &&
-              secondCheapest
-            ) {
-
-              savings =
-
-                secondCheapest.cash_price
-
-                -
-
-                cheapest.cash_price
-
-              savingsPercent =
-
-                (
-                  savings /
-
-                  secondCheapest.cash_price
-                )
-
-                * 100
-            }
-
-            return (
-
-              <div
-                key={product.id}
-                style={styles.card}
-              >
-
-                {/* IMAGE */}
-
-                <img
-
-                  src={
-                    product.image ||
-
-                    'https://placehold.co/400x300'
-                  }
-
-                  alt={product.name}
-
-                  style={styles.image}
-                />
-
-                {/* INFO */}
-
-                <div style={styles.info}>
-
-                  <h2 style={styles.name}>
-                    {product.name}
-                  </h2>
-
-                  <p style={styles.brand}>
-                    {product.brand}
-                  </p>
-
-                  <p style={styles.category}>
-                    {product.category}
-                  </p>
-
-                  <p style={styles.rating}>
-                    ⭐ {product.rating}
-                  </p>
-
-                  {/* BEST PRICE */}
-
-                  {cheapest && (
-
-                    <div
-                      style={styles.bestPrice}
-                    >
-
-                      Mejor precio:
-
-                      <strong>
-
-                        {' '}
-                        $
-
-                        {
-                          cheapest.cash_price
-                        }
-                      </strong>
-
+                  {sortedOffers.map((offer) => (
+                    <div key={offer.id} style={styles.offer}>
                       <div>
+                        <strong>{offer.supermarket}</strong>
 
-                        {
-                          cheapest.supermarket
-                        }
+                        <div>
+                          Contado: ${offer.cash_price}
+                        </div>
 
-                      </div>
-                    </div>
-                  )}
-
-                  {/* SAVINGS */}
-
-                  {secondCheapest && (
-
-                    <div
-                      style={styles.savings}
-                    >
-
-                      Ahorrás:
-
-                      <strong>
-
-                        {' '}
-                        $
-
-                        {
-                          savings
-                        }
-
-                      </strong>
-
-                      {' '}
-                      (
-
-                      {
-                        savingsPercent.toFixed(
-                          1
-                        )
-                      }
-
-                      %)
-
-                    </div>
-                  )}
-
-                  {/* OFFERS */}
-
-                  <div
-                    style={{
-                      marginTop: '20px',
-                    }}
-                  >
-
-                    {sortedOffers.map(
-                      (offer) => {
-
-                        const financedTotal =
-
-                          offer.installments_quantity
-
-                          *
-
-                          offer.installment_price
-
-                        return (
-
-                          <div
-                            key={offer.id}
-
-                            style={styles.offer}
-                          >
-
+                        {offer.installments_quantity && (
+                          <div>
+                            {offer.installments_quantity} cuotas de ${offer.installment_price}
                             <div>
-
-                              <strong>
-
-                                {
-                                  offer.supermarket
-                                }
-
-                              </strong>
-
-                              <div>
-
-                                Contado:
-
-                                {' '}
-
-                                $
-
-                                {
-                                  offer.cash_price
-                                }
-                              </div>
-
-                              {/* INSTALLMENTS */}
-
-                              {offer.installments_quantity && (
-
-                                <div
-                                  style={{
-                                    marginTop: '6px',
-                                  }}
-                                >
-
-                                  {
-
-                                    offer.installments_quantity
-                                  }
-
-                                  {' '}
-                                  cuotas de
-
-                                  {' '}
-                                  $
-
-                                  {
-                                    offer.installment_price
-                                  }
-
-                                  <div
-                                    style={{
-                                      color:
-                                        '#2563EB',
-                                    }}
-                                  >
-
-                                    Total:
-
-                                    {' '}
-
-                                    $
-
-                                    {
-                                      financedTotal
-                                    }
-                                  </div>
-                                </div>
-                              )}
+                              Total: $
+                              {offer.installments_quantity * offer.installment_price}
                             </div>
                           </div>
-                        )
-                      }
-                    )}
-                  </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
+
               </div>
-            )
-          }
-        )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -433,185 +208,79 @@ function App() {
 // =========================
 
 const styles = {
-
   page: {
-
-    background:
-      '#F3F4F6',
-
+    background: '#F3F4F6',
     minHeight: '100vh',
-
     padding: '40px',
-
-    fontFamily:
-      'Arial',
+    fontFamily: 'Arial',
   },
-
   header: {
-
-    display: 'flex',
-
-    justifyContent:
-      'space-between',
-
-    alignItems: 'center',
-
     marginBottom: '30px',
   },
-
   logo: {
-
     fontSize: '52px',
-
     color: '#2563EB',
-
     margin: 0,
   },
-
   subtitle: {
-
     color: '#6B7280',
-
-    marginTop: '8px',
   },
-
   search: {
-
     width: '100%',
-
     padding: '18px',
-
     borderRadius: '16px',
-
-    border:
-      '1px solid #D1D5DB',
-
-    marginBottom: '25px',
-
-    fontSize: '16px',
+    border: '1px solid #D1D5DB',
+    marginBottom: '20px',
   },
-
   filters: {
-
     display: 'flex',
-
-    gap: '12px',
-
+    gap: '10px',
     flexWrap: 'wrap',
-
     marginBottom: '30px',
   },
-
   filterButton: {
-
-    padding:
-      '12px 18px',
-
-    borderRadius: '12px',
-
+    padding: '10px 16px',
+    borderRadius: '10px',
     border: 'none',
-
     cursor: 'pointer',
-
     fontWeight: 'bold',
   },
-
   grid: {
-
     display: 'grid',
-
-    gridTemplateColumns:
-      'repeat(auto-fit,minmax(340px,1fr))',
-
-    gap: '24px',
+    gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))',
+    gap: '20px',
   },
-
   card: {
-
     background: 'white',
-
-    borderRadius: '24px',
-
+    borderRadius: '20px',
     overflow: 'hidden',
-
-    boxShadow:
-      '0 4px 18px rgba(0,0,0,0.08)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
   },
-
   image: {
-
     width: '100%',
-
-    height: '260px',
-
+    height: '220px',
     objectFit: 'cover',
   },
-
   info: {
-
-    padding: '24px',
+    padding: '20px',
   },
-
-  name: {
-
-    margin: 0,
-
-    fontSize: '28px',
-  },
-
-  brand: {
-
-    color: '#6B7280',
-
-    marginTop: '8px',
-  },
-
-  category: {
-
-    color: '#2563EB',
-
-    marginTop: '6px',
-  },
-
-  rating: {
-
-    marginTop: '10px',
-  },
-
   bestPrice: {
-
-    marginTop: '18px',
-
-    background:
-      '#DCFCE7',
-
-    padding: '14px',
-
-    borderRadius: '14px',
+    marginTop: '10px',
+    background: '#DCFCE7',
+    padding: '10px',
+    borderRadius: '10px',
   },
-
   savings: {
-
-    marginTop: '14px',
-
-    background:
-      '#DBEAFE',
-
-    padding: '14px',
-
-    borderRadius: '14px',
+    marginTop: '10px',
+    background: '#DBEAFE',
+    padding: '10px',
+    borderRadius: '10px',
   },
-
   offer: {
-
-    background:
-      '#F9FAFB',
-
-    padding: '14px',
-
-    borderRadius: '14px',
-
-    marginBottom: '12px',
+    background: '#F9FAFB',
+    padding: '12px',
+    borderRadius: '12px',
+    marginBottom: '10px',
   },
 }
 
