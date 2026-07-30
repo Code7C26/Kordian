@@ -263,7 +263,9 @@ app.get('/products', async (req, res) => {
 
     }
 
-  }
+    console.log(
+      'CACHE UPDATED'
+    )
 
 // =====================================
 // SAVE CACHE
