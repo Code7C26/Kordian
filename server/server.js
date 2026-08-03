@@ -6,6 +6,10 @@ const csv = require('csv-parser')
 const fs = require('fs')
 
 const supabase = require('./supabase')
+const bcrypt = require('bcryptjs')
+
+// Set DEBUG=true to enable verbose logs (avoid in production)
+const DEBUG = process.env.DEBUG === 'true'
 
 const app = express()
 // =====================================
@@ -117,7 +121,7 @@ app.get('/products', async (req, res) => {
 
       Date.now() -
         cache.timestamp <
-        30000
+        5000
 
     ) {
 
@@ -234,61 +238,45 @@ app.get('/products', async (req, res) => {
       ].push(offer)
     })
 
-// =====================================
-// PRODUCTOS AGRUPADOS
-// =====================================
+    // =====================================
+    // PRODUCTOS AGRUPADOS
+    // =====================================
 
-  const groupedProducts = []
+    const groupedProducts = []
 
-  for (const product of products) {
-
-    const existing = groupedProducts.find(
-      (p) =>
-        p.name.trim().toLowerCase() ===
-        product.name.trim().toLowerCase()
-    )
-
-    if (!existing) {
-
-      groupedProducts.push({
-        ...product,
-        offers: offersMap[product.id] || [],
-      })
-
-    } else {
-
-      existing.offers.push(
-        ...(offersMap[product.id] || [])
+    for (const product of products) {
+      const existing = groupedProducts.find(
+        (p) =>
+          p.name.trim().toLowerCase() ===
+          product.name.trim().toLowerCase()
       )
 
+      if (!existing) {
+        groupedProducts.push({
+          ...product,
+          offers: offersMap[product.id] || [],
+        })
+      } else {
+        existing.offers.push(...(offersMap[product.id] || []))
+      }
     }
 
-    console.log(
-      'CACHE UPDATED'
-    )
+    // =====================================
+    // SAVE CACHE
+    // =====================================
+    global.productsCache[cacheKey] = {
+      data: groupedProducts,
+      timestamp: Date.now(),
+    }
 
-// =====================================
-// SAVE CACHE
-// =====================================
-
-global.productsCache[cacheKey] = {
-  data: groupedProducts,
-  timestamp: Date.now(),
-}
-
-console.log("CACHE UPDATED")
-
-res.json(groupedProducts)
-
-} catch (err) {
-
-  console.log(err)
-
-  res.status(500).json({
-    error:
-      'Internal server error',
-  })
-}
+    console.log('CACHE UPDATED')
+    return res.json(groupedProducts)
+  } catch (err) {
+    console.log(err)
+    return res.status(500).json({
+      error: 'Internal server error',
+    })
+  }
 })
 // =====================================
 // CSV UPLOAD
@@ -308,10 +296,10 @@ app.post(
         skipLines: 0
       }))
       .on('data', (data) => {
-
-          console.log("FILA CSV RECIBIDA:")
-          console.log(data)
-
+          if (DEBUG) {
+            console.log('FILA CSV RECIBIDA:')
+            console.log(data)
+          }
           results.push(data)
         })
       .on('end', async () => {
@@ -335,7 +323,7 @@ app.post(
             // =====================================
             // VALIDACIÓN REAL
             // =====================================
-            console.log(Object.keys(row))
+            if (DEBUG) console.log(Object.keys(row))
             const name =
               (row.name ||
               row['\uFEFFname'])?.trim()
@@ -372,15 +360,7 @@ app.post(
           .single()
 
         if (brandError) {
-
-          console.log(
-            "ERROR CREANDO MARCA:"
-          )
-
-          console.log(
-            brandError.message
-          )
-
+          console.error('ERROR CREANDO MARCA:', brandError.message)
           continue
         }
 
@@ -423,15 +403,7 @@ app.post(
           .single()
 
         if (categoryError) {
-
-          console.log(
-            "ERROR CREANDO CATEGORIA:"
-          )
-
-          console.log(
-            categoryError.message
-          )
-
+          console.error('ERROR CREANDO CATEGORIA:', categoryError.message)
           continue
         }
 
@@ -454,15 +426,12 @@ app.post(
             const installmentsQuantity = row.installmentsQuantity
             const installmentPrice = row.installmentPrice
 
-            console.log({
-              name,
-              brand,
-              supermarket
-          })
-
-          console.log("name vacío:", !name)
-          console.log("brand vacío:", !brand)
-          console.log("supermarket vacío:", !supermarket)
+            if (DEBUG) console.log({ name, brand, supermarket })
+            if (DEBUG) {
+              console.log('name vacío:', !name)
+              console.log('brand vacío:', !brand)
+              console.log('supermarket vacío:', !supermarket)
+            }
 
           if (!name || !brand || !supermarket) {
               console.log("FILA INVALIDA IGNORADA")
@@ -472,32 +441,18 @@ app.post(
             // =====================================
             // PRODUCTO EXISTENTE
             // =====================================
-            console.log(
-              "PASO MARCA Y CATEGORIA OK"
-            )
-
-            console.log({
-              name,
-              brand_id,
-              category_id,
-              rating
-            })
-          
-            console.log("TODOS LOS PRODUCTOS:");
-            console.log(allProducts);
-
-            console.log("CANTIDAD:");
-            console.log(allProducts.length);
-            console.log("BUSCANDO:", name)
+            if (DEBUG) console.log('PASO MARCA Y CATEGORIA OK')
+            if (DEBUG) console.log({ name, brand_id, category_id, rating })
+            if (DEBUG) console.log('TODOS LOS PRODUCTOS:', allProducts.length)
+            if (DEBUG) console.log('BUSCANDO:', name)
 
             const existingProduct = allProducts.find((p) => {
-              console.log("----------------");
-              console.log("BD:", p.name);
-              console.log("CSV:", name);
-              console.log(
-                p.name?.trim().toLowerCase() ===
-                name.trim().toLowerCase()
-              );
+              if (DEBUG) {
+                console.log('----------------')
+                console.log('BD:', p.name)
+                console.log('CSV:', name)
+                console.log(p.name?.trim().toLowerCase() === name.trim().toLowerCase())
+              }
 
               return (
                 p.name?.trim().toLowerCase() ===
@@ -505,8 +460,7 @@ app.post(
               );
             });
 
-            console.log("ENCONTRADO:")
-            console.log(existingProduct)
+            if (DEBUG) console.log('ENCONTRADO:', existingProduct)
             let productId
 
             // =====================================
@@ -530,22 +484,10 @@ app.post(
                 }])
                 .select()
 
-              console.log("INTENTO CREAR PRODUCTO")
-              console.log({
-                name,
-                category_id,
-                brand_id,
-                rating,
-                image
-              })
-
-              console.log("RESULTADO PRODUCTO")
-              console.log(newProduct)
-
-              console.log("ERROR PRODUCTO")
-              console.log(error)
+              if (DEBUG) console.log('INTENTO CREAR PRODUCTO', { name, category_id, brand_id, rating, image })
+              if (DEBUG) console.log('RESULTADO PRODUCTO', newProduct)
               if (error || !newProduct?.length) {
-                console.log('ERROR PRODUCTO:', error)
+                console.error('ERROR PRODUCTO:', error)
                 continue
               }
 
@@ -756,13 +698,10 @@ app.post('/products', async (req, res) => {
 
       .select()
 
-      .single()
-
     if (productError) {
 
       return res.status(500).json({
-        error:
-          productError.message,
+        error: productError.message,
       })
     }
 
@@ -797,8 +736,7 @@ app.post('/products', async (req, res) => {
     if (offerError) {
 
       return res.status(500).json({
-        error:
-          offerError.message,
+        error: offerError.message,
       })
     }
 
@@ -807,19 +745,39 @@ app.post('/products', async (req, res) => {
     res.json({
       success: true,
     })
-
-  }
-
-  catch (err) {
+  } catch (err) {
 
     console.log(err)
 
     res.status(500).json({
-      error:
-        err.message,
+      error: err.message,
     })
   }
 })
+
+app.put('/products/:id', async (req, res) => {
+  const { id } = req.params
+  const {
+    name,
+    category_id,
+    brand_id,
+    rating,
+    image,
+  } = req.body
+
+  const { error } = await supabase
+    .from('products')
+    .update({ name, category_id, brand_id, rating, image })
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  global.productsCache = {}
+  res.json({ success: true })
+})
+
 // =====================================
 // UPDATE OFFER
 // =====================================
@@ -930,6 +888,36 @@ app.post('/categories', async (req, res) => {
     success: true,
   })
 })
+
+app.put('/categories/:id', async (req, res) => {
+  const { id } = req.params
+  const { name } = req.body
+
+  const { error } = await supabase
+    .from('categories')
+    .update({ name })
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  res.json({ success: true })
+})
+
+app.delete('/categories/:id', async (req, res) => {
+  const { id } = req.params
+  const { error } = await supabase
+    .from('categories')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  res.json({ success: true })
+})
 // =====================================
 // BRANDS
 // =====================================
@@ -974,56 +962,67 @@ app.post('/brands', async (req, res) => {
     success: true,
   })
 })
+
+app.put('/brands/:id', async (req, res) => {
+  const { id } = req.params
+  const { name } = req.body
+
+  const { error } = await supabase
+    .from('brands')
+    .update({ name })
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  res.json({ success: true })
+})
+
+app.delete('/brands/:id', async (req, res) => {
+  const { id } = req.params
+  const { error } = await supabase
+    .from('brands')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  res.json({ success: true })
+})
 // =====================================
 // ADMINS
 // =====================================
 
 app.get('/admins', async (req, res) => {
-
-  const {
-    data,
-    error,
-  } = await supabase
-    .from('admins')
-    .select('*')
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
+  try {
+    // Do NOT return passwords
+    const { data, error } = await supabase.from('admins').select('id,username')
+    if (error) return res.status(500).json({ error: error.message })
+    res.json(data)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Internal server error' })
   }
-
-  res.json(data)
 })
 
 app.post('/admins', async (req, res) => {
+  try {
+    const { username, password } = req.body
+    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' })
 
-  const {
-    username,
-    password,
-  } = req.body
+    const hashed = await bcrypt.hash(String(password), 10)
 
-  const { error } =
-    await supabase
-      .from('admins')
-      .insert([
-        {
-          username,
-          password,
-        },
-      ])
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
+    const { error } = await supabase.from('admins').insert([{ username, password: hashed }])
+    if (error) return res.status(500).json({ error: error.message })
+    global.productsCache = {}
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Internal server error' })
   }
-  global.productsCache = {}
-  res.json({
-    success: true,
-  })
 })
 
 // =====================================
@@ -1031,45 +1030,38 @@ app.post('/admins', async (req, res) => {
 // =====================================
 
 app.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body
+    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' })
 
-  const {
-    username,
-    password,
-  } = req.body
+    const { data, error } = await supabase.from('admins').select('*').eq('username', username).limit(1)
+    if (error) return res.status(500).json({ error: error.message })
+    if (!data || data.length === 0) return res.status(401).json({ error: 'Credenciales incorrectas' })
 
-  const {
-    data,
-    error,
-  } = await supabase
-    .from('admins')
-    .select('*')
-    .eq(
-      'username',
-      username
-    )
-    .eq(
-      'password',
-      password
-    )
+    const admin = data[0]
+    const stored = admin.password || ''
 
-  if (error) {
+    // if stored password is hashed, compare with bcrypt
+    let match = false
+    if (stored.startsWith('$2')) {
+      match = await bcrypt.compare(String(password), stored)
+    } else {
+      // legacy plaintext entry - accept and migrate to hashed
+      if (stored === String(password)) {
+        match = true
+        const hashed = await bcrypt.hash(String(password), 10)
+        await supabase.from('admins').update({ password: hashed }).eq('id', admin.id)
+      }
+    }
 
-    return res.status(500).json({
-      error: error.message,
-    })
+    if (!match) return res.status(401).json({ error: 'Credenciales incorrectas' })
+
+    global.productsCache = {}
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Internal server error' })
   }
-
-  if (data.length === 0) {
-
-    return res.status(401).json({
-      error:
-        'Credenciales incorrectas',
-    })
-  }
-  global.productsCache = {}
-  res.json({
-    success: true,
-  })
 })
 
 // =====================================
