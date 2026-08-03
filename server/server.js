@@ -6,6 +6,13 @@ const csv = require('csv-parser')
 const fs = require('fs')
 
 const supabase = require('./supabase')
+<<<<<<< HEAD
+=======
+const bcrypt = require('bcryptjs')
+
+// Set DEBUG=true to enable verbose logs (avoid in production)
+const DEBUG = process.env.DEBUG === 'true'
+>>>>>>> origin/main
 
 const app = express()
 // =====================================
@@ -117,7 +124,11 @@ app.get('/products', async (req, res) => {
 
       Date.now() -
         cache.timestamp <
+<<<<<<< HEAD
         30000
+=======
+        5000
+>>>>>>> origin/main
 
     ) {
 
@@ -227,6 +238,36 @@ app.get('/products', async (req, res) => {
         offersMap[
           offer.product_id
         ] = []
+<<<<<<< HEAD
+=======
+      }
+
+      offersMap[
+        offer.product_id
+      ].push(offer)
+    })
+
+    // =====================================
+    // PRODUCTOS AGRUPADOS
+    // =====================================
+
+    const groupedProducts = []
+
+    for (const product of products) {
+      const existing = groupedProducts.find(
+        (p) =>
+          p.name.trim().toLowerCase() ===
+          product.name.trim().toLowerCase()
+      )
+
+      if (!existing) {
+        groupedProducts.push({
+          ...product,
+          offers: offersMap[product.id] || [],
+        })
+      } else {
+        existing.offers.push(...(offersMap[product.id] || []))
+>>>>>>> origin/main
       }
 
       offersMap[
@@ -263,6 +304,7 @@ app.get('/products', async (req, res) => {
 
     }
 
+<<<<<<< HEAD
   }
 
 // =====================================
@@ -292,6 +334,29 @@ res.json(groupedProducts)
 // CSV UPLOAD
 // =====================================
 
+=======
+    // =====================================
+    // SAVE CACHE
+    // =====================================
+    global.productsCache[cacheKey] = {
+      data: groupedProducts,
+      timestamp: Date.now(),
+    }
+
+    console.log('CACHE UPDATED')
+    return res.json(groupedProducts)
+  } catch (err) {
+    console.log(err)
+    return res.status(500).json({
+      error: 'Internal server error',
+    })
+  }
+})
+// =====================================
+// CSV UPLOAD
+// =====================================
+
+>>>>>>> origin/main
 app.post(
   '/upload-csv',
   upload.single('file'),
@@ -306,10 +371,17 @@ app.post(
         skipLines: 0
       }))
       .on('data', (data) => {
+<<<<<<< HEAD
 
           console.log("FILA CSV RECIBIDA:")
           console.log(data)
 
+=======
+          if (DEBUG) {
+            console.log('FILA CSV RECIBIDA:')
+            console.log(data)
+          }
+>>>>>>> origin/main
           results.push(data)
         })
       .on('end', async () => {
@@ -333,7 +405,11 @@ app.post(
             // =====================================
             // VALIDACIÓN REAL
             // =====================================
+<<<<<<< HEAD
             console.log(Object.keys(row))
+=======
+            if (DEBUG) console.log(Object.keys(row))
+>>>>>>> origin/main
             const name =
               (row.name ||
               row['\uFEFFname'])?.trim()
@@ -370,6 +446,7 @@ app.post(
           .single()
 
         if (brandError) {
+<<<<<<< HEAD
 
           console.log(
             "ERROR CREANDO MARCA:"
@@ -379,6 +456,9 @@ app.post(
             brandError.message
           )
 
+=======
+          console.error('ERROR CREANDO MARCA:', brandError.message)
+>>>>>>> origin/main
           continue
         }
 
@@ -421,6 +501,7 @@ app.post(
           .single()
 
         if (categoryError) {
+<<<<<<< HEAD
 
           console.log(
             "ERROR CREANDO CATEGORIA:"
@@ -430,6 +511,9 @@ app.post(
             categoryError.message
           )
 
+=======
+          console.error('ERROR CREANDO CATEGORIA:', categoryError.message)
+>>>>>>> origin/main
           continue
         }
 
@@ -452,6 +536,7 @@ app.post(
             const installmentsQuantity = row.installmentsQuantity
             const installmentPrice = row.installmentPrice
 
+<<<<<<< HEAD
             console.log({
               name,
               brand,
@@ -461,6 +546,14 @@ app.post(
           console.log("name vacío:", !name)
           console.log("brand vacío:", !brand)
           console.log("supermarket vacío:", !supermarket)
+=======
+            if (DEBUG) console.log({ name, brand, supermarket })
+            if (DEBUG) {
+              console.log('name vacío:', !name)
+              console.log('brand vacío:', !brand)
+              console.log('supermarket vacío:', !supermarket)
+            }
+>>>>>>> origin/main
 
           if (!name || !brand || !supermarket) {
               console.log("FILA INVALIDA IGNORADA")
@@ -470,6 +563,7 @@ app.post(
             // =====================================
             // PRODUCTO EXISTENTE
             // =====================================
+<<<<<<< HEAD
             console.log(
               "PASO MARCA Y CATEGORIA OK"
             )
@@ -496,6 +590,20 @@ app.post(
                 p.name?.trim().toLowerCase() ===
                 name.trim().toLowerCase()
               );
+=======
+            if (DEBUG) console.log('PASO MARCA Y CATEGORIA OK')
+            if (DEBUG) console.log({ name, brand_id, category_id, rating })
+            if (DEBUG) console.log('TODOS LOS PRODUCTOS:', allProducts.length)
+            if (DEBUG) console.log('BUSCANDO:', name)
+
+            const existingProduct = allProducts.find((p) => {
+              if (DEBUG) {
+                console.log('----------------')
+                console.log('BD:', p.name)
+                console.log('CSV:', name)
+                console.log(p.name?.trim().toLowerCase() === name.trim().toLowerCase())
+              }
+>>>>>>> origin/main
 
               return (
                 p.name?.trim().toLowerCase() ===
@@ -503,8 +611,12 @@ app.post(
               );
             });
 
+<<<<<<< HEAD
             console.log("ENCONTRADO:")
             console.log(existingProduct)
+=======
+            if (DEBUG) console.log('ENCONTRADO:', existingProduct)
+>>>>>>> origin/main
             let productId
 
             // =====================================
@@ -528,6 +640,7 @@ app.post(
                 }])
                 .select()
 
+<<<<<<< HEAD
               console.log("INTENTO CREAR PRODUCTO")
               console.log({
                 name,
@@ -544,6 +657,12 @@ app.post(
               console.log(error)
               if (error || !newProduct?.length) {
                 console.log('ERROR PRODUCTO:', error)
+=======
+              if (DEBUG) console.log('INTENTO CREAR PRODUCTO', { name, category_id, brand_id, rating, image })
+              if (DEBUG) console.log('RESULTADO PRODUCTO', newProduct)
+              if (error || !newProduct?.length) {
+                console.error('ERROR PRODUCTO:', error)
+>>>>>>> origin/main
                 continue
               }
 
@@ -754,6 +873,7 @@ app.post('/products', async (req, res) => {
 
       .select()
 
+<<<<<<< HEAD
       .single()
 
     if (productError) {
@@ -761,6 +881,12 @@ app.post('/products', async (req, res) => {
       return res.status(500).json({
         error:
           productError.message,
+=======
+    if (productError) {
+
+      return res.status(500).json({
+        error: productError.message,
+>>>>>>> origin/main
       })
     }
 
@@ -795,8 +921,12 @@ app.post('/products', async (req, res) => {
     if (offerError) {
 
       return res.status(500).json({
+<<<<<<< HEAD
         error:
           offerError.message,
+=======
+        error: offerError.message,
+>>>>>>> origin/main
       })
     }
 
@@ -805,19 +935,140 @@ app.post('/products', async (req, res) => {
     res.json({
       success: true,
     })
+<<<<<<< HEAD
 
   }
 
   catch (err) {
+=======
+  } catch (err) {
+>>>>>>> origin/main
 
     console.log(err)
 
     res.status(500).json({
+<<<<<<< HEAD
       error:
         err.message,
+=======
+      error: err.message,
+>>>>>>> origin/main
     })
   }
 })
+// =====================================
+// UPDATE OFFER
+// =====================================
+
+<<<<<<< HEAD
+app.put(
+  '/offers/:id',
+
+  async (req, res) => {
+
+    const { id } = req.params
+
+    const {
+
+      cash_price,
+      installments_quantity,
+      installment_price,
+
+    } = req.body
+
+    const { error } =
+      await supabase
+        .from('offers')
+        .update({
+
+          cash_price,
+
+          installments_quantity,
+
+          installment_price,
+        })
+        .eq('id', id)
+
+    if (error) {
+
+      return res.status(500).json({
+        error: error.message,
+      })
+    }
+    global.productsCache = {}
+    res.json({
+      success: true,
+    })
+  }
+)
+
+// =====================================
+// DELETE OFFER
+// =====================================
+
+app.delete(
+  '/offers/:id',
+
+  async (req, res) => {
+
+    const { id } = req.params
+
+    await supabase
+      .from('offers')
+      .delete()
+      .eq('id', id)
+    global.productsCache = {}
+    res.json({
+      success: true,
+    })
+  }
+)
+// =====================================
+// CATEGORIES
+// =====================================
+
+app.get('/categories', async (req, res) => {
+
+  const { data, error } =
+    await supabase
+      .from('categories')
+      .select('*')
+      .order('name')
+
+  if (error) {
+
+    return res.status(500).json({
+      error: error.message,
+    })
+  }
+
+  res.json(data)
+})
+
+=======
+app.put('/products/:id', async (req, res) => {
+  const { id } = req.params
+  const {
+    name,
+    category_id,
+    brand_id,
+    rating,
+    image,
+  } = req.body
+
+  const { error } = await supabase
+    .from('products')
+    .update({ name, category_id, brand_id, rating, image })
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  global.productsCache = {}
+  res.json({ success: true })
+})
+
 // =====================================
 // UPDATE OFFER
 // =====================================
@@ -906,6 +1157,7 @@ app.get('/categories', async (req, res) => {
   res.json(data)
 })
 
+>>>>>>> origin/main
 app.post('/categories', async (req, res) => {
 
   const { name } = req.body
@@ -928,6 +1180,39 @@ app.post('/categories', async (req, res) => {
     success: true,
   })
 })
+<<<<<<< HEAD
+=======
+
+app.put('/categories/:id', async (req, res) => {
+  const { id } = req.params
+  const { name } = req.body
+
+  const { error } = await supabase
+    .from('categories')
+    .update({ name })
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  res.json({ success: true })
+})
+
+app.delete('/categories/:id', async (req, res) => {
+  const { id } = req.params
+  const { error } = await supabase
+    .from('categories')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  res.json({ success: true })
+})
+>>>>>>> origin/main
 // =====================================
 // BRANDS
 // =====================================
@@ -972,11 +1257,45 @@ app.post('/brands', async (req, res) => {
     success: true,
   })
 })
+<<<<<<< HEAD
+=======
+
+app.put('/brands/:id', async (req, res) => {
+  const { id } = req.params
+  const { name } = req.body
+
+  const { error } = await supabase
+    .from('brands')
+    .update({ name })
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  res.json({ success: true })
+})
+
+app.delete('/brands/:id', async (req, res) => {
+  const { id } = req.params
+  const { error } = await supabase
+    .from('brands')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    return res.status(500).json({ error: error.message })
+  }
+
+  res.json({ success: true })
+})
+>>>>>>> origin/main
 // =====================================
 // ADMINS
 // =====================================
 
 app.get('/admins', async (req, res) => {
+<<<<<<< HEAD
 
   const {
     data,
@@ -1022,6 +1341,34 @@ app.post('/admins', async (req, res) => {
   res.json({
     success: true,
   })
+=======
+  try {
+    // Do NOT return passwords
+    const { data, error } = await supabase.from('admins').select('id,username')
+    if (error) return res.status(500).json({ error: error.message })
+    res.json(data)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.post('/admins', async (req, res) => {
+  try {
+    const { username, password } = req.body
+    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' })
+
+    const hashed = await bcrypt.hash(String(password), 10)
+
+    const { error } = await supabase.from('admins').insert([{ username, password: hashed }])
+    if (error) return res.status(500).json({ error: error.message })
+    global.productsCache = {}
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+>>>>>>> origin/main
 })
 
 // =====================================
@@ -1029,6 +1376,7 @@ app.post('/admins', async (req, res) => {
 // =====================================
 
 app.post('/login', async (req, res) => {
+<<<<<<< HEAD
 
   const {
     username,
@@ -1068,6 +1416,40 @@ app.post('/login', async (req, res) => {
   res.json({
     success: true,
   })
+=======
+  try {
+    const { username, password } = req.body
+    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' })
+
+    const { data, error } = await supabase.from('admins').select('*').eq('username', username).limit(1)
+    if (error) return res.status(500).json({ error: error.message })
+    if (!data || data.length === 0) return res.status(401).json({ error: 'Credenciales incorrectas' })
+
+    const admin = data[0]
+    const stored = admin.password || ''
+
+    // if stored password is hashed, compare with bcrypt
+    let match = false
+    if (stored.startsWith('$2')) {
+      match = await bcrypt.compare(String(password), stored)
+    } else {
+      // legacy plaintext entry - accept and migrate to hashed
+      if (stored === String(password)) {
+        match = true
+        const hashed = await bcrypt.hash(String(password), 10)
+        await supabase.from('admins').update({ password: hashed }).eq('id', admin.id)
+      }
+    }
+
+    if (!match) return res.status(401).json({ error: 'Credenciales incorrectas' })
+
+    global.productsCache = {}
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+>>>>>>> origin/main
 })
 
 // =====================================
