@@ -19,6 +19,7 @@ export function Header({
   onOpenFavorites,
   onResetView,
 }) {
+  const devToolsEnabled = !!import.meta.env.VITE_DEV_ADMIN_TOOLS
   const [showAdminPanel, setShowAdminPanel] = React.useState(false)
   const [panelCategories, setPanelCategories] = React.useState([])
   const [panelBrands, setPanelBrands] = React.useState([])
@@ -149,7 +150,7 @@ export function Header({
       </div>
 
       {/* Floating admin quick panel */}
-      {showAdminPanel && (
+      {devToolsEnabled && showAdminPanel && (
         <div className="fixed right-4 bottom-4 z-50 w-80 bg-white dark:bg-stone-800 border rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <strong>Actualizar precios (rápido)</strong>
