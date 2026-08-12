@@ -21,7 +21,7 @@ export function Header({
   onResetView,
 }) {
   const devToolsEnabled = !!import.meta.env.VITE_DEV_ADMIN_TOOLS
-  const [showAdminPanel, setShowAdminPanel] = React.useState(false)
+  const [showAdminPanel, setShowAdminPanel] = React.useState(devToolsEnabled)
   const [panelCategories, setPanelCategories] = React.useState([])
   const [panelBrands, setPanelBrands] = React.useState([])
   const [panelTarget, setPanelTarget] = React.useState('category')
@@ -152,7 +152,7 @@ export function Header({
 
       {/* Floating admin quick panel */}
       {devToolsEnabled && showAdminPanel && (
-        <div className="fixed right-4 bottom-4 z-50 w-80 bg-white dark:bg-stone-800 border rounded-xl p-4 shadow-lg">
+        <div className="fixed right-4 top-4 z-50 w-72 max-h-[60vh] overflow-auto bg-white dark:bg-stone-800 border rounded-xl p-3 shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <strong>Actualizar precios (rápido)</strong>
             <button onClick={() => setShowAdminPanel(false)} className="text-sm text-stone-500">Cerrar</button>
