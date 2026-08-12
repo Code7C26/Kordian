@@ -19,6 +19,33 @@ export function Header({
   onOpenFavorites,
   onResetView,
 }) {
+  const [showAdminPanel, setShowAdminPanel] = React.useState(false)
+  const [panelCategories, setPanelCategories] = React.useState([])
+  const [panelBrands, setPanelBrands] = React.useState([])
+  const [panelTarget, setPanelTarget] = React.useState('category')
+  const [panelCategoryId, setPanelCategoryId] = React.useState('')
+  const [panelBrandId, setPanelBrandId] = React.useState('')
+  const [panelPercentage, setPanelPercentage] = React.useState(5)
+
+  React.useEffect(() => {
+    // load categories and brands for the floating panel
+    ;(async () => {
+      try {
+        const cRes = await fetch('http://localhost:62752/categories')
+        const cats = await cRes.json()
+        setPanelCategories(cats.value || cats)
+      } catch (e) {
+        // ignore
+      }
+      try {
+        const bRes = await fetch('http://localhost:62752/brands')
+        const bs = await bRes.json()
+        setPanelBrands(bs.value || bs)
+      } catch (e) {
+        // ignore
+      }
+    })()
+  }, [])
   return (
     <header className="sticky top-0 z-40 w-full border-b border-stone-800 bg-gradient-to-r from-stone-900/95 to-stone-900/95 dark:bg-gradient-to-r dark:from-stone-950 dark:to-stone-900 backdrop-blur-md transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 md:h-20 flex items-center justify-between gap-4">
@@ -120,6 +147,53 @@ export function Header({
         </div>
 
       </div>
+
+      {/* Floating admin quick panel */}
+      {showAdminPanel && (
+        <div className="fixed right-4 bottom-4 z-50 w-80 bg-white dark:bg-stone-800 border rounded-xl p-4 shadow-lg">
+          <div className="flex items-center justify-between mb-2">
+            <strong>Actualizar precios (rápido)</strong>
+            <button onClick={() => setShowAdminPanel(false)} className="text-sm text-stone-500">Cerrar</button>
+          </div>
+          <div className="space-y-2 text-sm">
+            <label className="block">Aplicar a</label>
+            <select value={panelTarget} onChange={(e) => setPanelTarget(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
+              <option value="category">Categoría</option>
+              <option value="brand">Marca</option>
+            </select>
+
+            <select disabled={panelTarget !== 'category'} value={panelCategoryId} onChange={(e) => setPanelCategoryId(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
+              <option value="">Seleccionar categoría</option>
+              {panelCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+
+            <select disabled={panelTarget !== 'brand'} value={panelBrandId} onChange={(e) => setPanelBrandId(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
+              <option value="">Seleccionar marca</option>
+              {panelBrands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+
+            <input type="number" value={panelPercentage} onChange={(e) => setPanelPercentage(Number(e.target.value))} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900" />
+
+            <div className="flex gap-2">
+              <button onClick={async () => {
+                if (panelTarget === 'category' && !panelCategoryId) { alert('Elige categoría'); return }
+                if (panelTarget === 'brand' && !panelBrandId) { alert('Elige marca'); return }
+                try {
+                  const body = { percentage: Number(panelPercentage) }
+                  if (panelTarget === 'category') body.categoryId = panelCategoryId
+                  else body.brandId = panelBrandId
+                  const res = await fetch('http://localhost:62752/admin/update-prices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+                  const data = await res.json()
+                  if (!res.ok) alert('Error: ' + (data.error || 'no especificado'))
+                  else alert('Aplicado: ' + (data.updated || 0) + ' precios')
+                } catch (e) { console.error(e); alert('Error de red') }
+              }} className="flex-1 px-3 py-1 bg-emerald-600 text-white rounded">Aplicar</button>
+              <button onClick={() => { setPanelCategoryId(''); setPanelBrandId(''); setPanelPercentage(5) }} className="px-3 py-1 bg-stone-200 rounded">Limpiar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </header>
   );
 }
