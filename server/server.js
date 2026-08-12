@@ -401,9 +401,9 @@ app.post('/login', async (req, res) => {
 // Admin: update offers prices by category with a percentage
 app.post('/admin/update-prices', async (req, res) => {
   try {
-    const { categoryId, brandId, percentage } = req.body || {}
-    if ((!categoryId && !brandId) || typeof percentage !== 'number') {
-      return res.status(400).json({ error: 'categoryId or brandId and numeric percentage required' })
+    const { categoryId, percentage } = req.body || {}
+    if (!categoryId || typeof percentage !== 'number') {
+      return res.status(400).json({ error: 'categoryId and numeric percentage required' })
     }
 
     // fetch products with offers and filter locally by multiple possible category fields
@@ -414,25 +414,14 @@ app.post('/admin/update-prices', async (req, res) => {
     }
 
     const products = (allProducts || []).filter((p) => {
-      if (categoryId) {
-        const catCandidates = []
-        if (p.category_id) catCandidates.push(p.category_id)
-        if (p.category) catCandidates.push(p.category)
-        if (p['category.id']) catCandidates.push(p['category.id'])
-        if (p['category.name']) catCandidates.push(p['category.name'])
-        if (p.categories && p.categories.name) catCandidates.push(p.categories.name)
-        if (catCandidates.some((c) => c && String(c) === String(categoryId))) return true
-      }
-      if (brandId) {
-        const brandCandidates = []
-        if (p.brand_id) brandCandidates.push(p.brand_id)
-        if (p.brand) brandCandidates.push(p.brand)
-        if (p['brand.id']) brandCandidates.push(p['brand.id'])
-        if (p['brand.name']) brandCandidates.push(p['brand.name'])
-        if (p.brands && p.brands.name) brandCandidates.push(p.brands.name)
-        if (brandCandidates.some((b) => b && String(b) === String(brandId))) return true
-      }
-      return false
+      const catCandidates = []
+      if (p.category_id) catCandidates.push(p.category_id)
+      if (p.category) catCandidates.push(p.category)
+      if (p['category.id']) catCandidates.push(p['category.id'])
+      if (p['category.name']) catCandidates.push(p['category.name'])
+      if (p.categories && p.categories.name) catCandidates.push(p.categories.name)
+      // compare as strings
+      return catCandidates.some((c) => c && String(c) === String(categoryId))
     })
 
     const productIds = products.map((p) => p.id).filter(Boolean)

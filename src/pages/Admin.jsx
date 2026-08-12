@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react'
 import { Header } from '../components/Header.jsx'
 import ProductForm from '../components/ProductForm.jsx'
@@ -47,6 +48,8 @@ export default function Admin() {
   const [newBrand, setNewBrand] = useState('')
   const [editingCategory, setEditingCategory] = useState(null)
   const [editingBrand, setEditingBrand] = useState(null)
+  const [bulkCategoryId, setBulkCategoryId] = useState('')
+  const [bulkPercentage, setBulkPercentage] = useState(0)
   const [productSearch, setProductSearch] = useState('')
   const [productCategoryFilter, setProductCategoryFilter] = useState('')
   const [productBrandFilter, setProductBrandFilter] = useState('')
@@ -61,7 +64,7 @@ export default function Admin() {
   // data loaders
   const loadProducts = async () => {
     try {
-      const res = await fetch('http://localhost:3000/products')
+      const res = await fetch('http://localhost:62752/products')
       const data = await res.json()
       setProducts(data)
     } catch (error) {
@@ -71,7 +74,7 @@ export default function Admin() {
 
   const loadAdmins = async () => {
     try {
-      const res = await fetch('http://localhost:3000/admins')
+      const res = await fetch('http://localhost:62752/admins')
       const data = await res.json()
       setAdmins(data)
     } catch (err) {
@@ -81,7 +84,7 @@ export default function Admin() {
 
   const loadCategories = async () => {
     try {
-      const res = await fetch('http://localhost:3000/categories')
+      const res = await fetch('http://localhost:62752/categories')
       const data = await res.json()
       setCategories(data)
     } catch (err) {
@@ -91,7 +94,7 @@ export default function Admin() {
 
   const loadBrands = async () => {
     try {
-      const res = await fetch('http://localhost:3000/brands')
+      const res = await fetch('http://localhost:62752/brands')
       const data = await res.json()
       setBrands(data)
     } catch (err) {
@@ -129,7 +132,7 @@ export default function Admin() {
     }
 
     try {
-      const res = await fetch('http://localhost:3000/products', {
+      const res = await fetch('http://localhost:62752/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
@@ -153,7 +156,7 @@ export default function Admin() {
 
   const deleteProduct = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3000/products/${id}`, { method: 'DELETE' })
+      const res = await fetch(`http://localhost:62752/products/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json()
         showToast(err.error || 'Error eliminando producto', 'error')
@@ -169,7 +172,7 @@ export default function Admin() {
 
   const deleteOffer = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3000/offers/${id}`, { method: 'DELETE' })
+      const res = await fetch(`http://localhost:62752/offers/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json()
         showToast(err.error || 'Error eliminando oferta', 'error')
@@ -217,7 +220,7 @@ export default function Admin() {
     if (!editingProduct) return
 
     try {
-      const res = await fetch(`http://localhost:3000/products/${editingProduct.id}`, {
+      const res = await fetch(`http://localhost:62752/products/${editingProduct.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -236,10 +239,11 @@ export default function Admin() {
       }
 
       if (editingOfferId) {
-        const offerRes = await fetch(`http://localhost:3000/offers/${editingOfferId}`, {
+        const offerRes = await fetch(`http://localhost:62752/offers/${editingOfferId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            supermarket: form.supermarket,
             cash_price: form.cashPrice,
             installments_quantity: form.installmentsQuantity || null,
             installment_price: form.installmentPrice || null,
@@ -251,9 +255,32 @@ export default function Admin() {
           showToast(err.error || 'Error actualizando oferta', 'error')
           return
         }
+
+        showToast('Oferta actualizada', 'success')
+      } else if (form.cashPrice || form.installmentsQuantity || form.installmentPrice) {
+        const offerRes = await fetch('http://localhost:62752/offers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product_id: editingProduct.id,
+            supermarket: form.supermarket,
+            cash_price: form.cashPrice,
+            installments_quantity: form.installmentsQuantity || null,
+            installment_price: form.installmentPrice || null,
+          }),
+        })
+
+        if (!offerRes.ok) {
+          const err = await offerRes.json()
+          showToast(err.error || 'Error agregando oferta', 'error')
+          return
+        }
+
+        showToast('Precio agregado al producto', 'success')
+      } else {
+        showToast('Producto actualizado', 'success')
       }
 
-      showToast('Producto actualizado', 'success')
       resetProductForm()
     } catch (err) {
       console.error(err)
@@ -265,7 +292,7 @@ export default function Admin() {
 
   const createAdmin = async () => {
     try {
-      const res = await fetch('http://localhost:3000/admins', {
+      const res = await fetch('http://localhost:62752/admins', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(adminForm),
@@ -286,7 +313,7 @@ export default function Admin() {
 
   const createCategory = async () => {
     if (!newCategory) return
-    const endpoint = editingCategory ? `http://localhost:3000/categories/${editingCategory.id}` : 'http://localhost:3000/categories'
+    const endpoint = editingCategory ? `http://localhost:62752/categories/${editingCategory.id}` : 'http://localhost:62752/categories'
     const method = editingCategory ? 'PUT' : 'POST'
     const res = await fetch(endpoint, {
       method,
@@ -306,7 +333,7 @@ export default function Admin() {
 
   const createBrand = async () => {
     if (!newBrand) return
-    const endpoint = editingBrand ? `http://localhost:3000/brands/${editingBrand.id}` : 'http://localhost:3000/brands'
+    const endpoint = editingBrand ? `http://localhost:62752/brands/${editingBrand.id}` : 'http://localhost:62752/brands'
     const method = editingBrand ? 'PUT' : 'POST'
     const res = await fetch(endpoint, {
       method,
@@ -326,7 +353,7 @@ export default function Admin() {
 
   const deleteCategory = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3000/categories/${id}`, { method: 'DELETE' })
+      const res = await fetch(`http://localhost:62752/categories/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json()
         showToast(err.error || 'Error eliminando categoría', 'error')
@@ -342,7 +369,7 @@ export default function Admin() {
 
   const deleteBrand = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3000/brands/${id}`, { method: 'DELETE' })
+      const res = await fetch(`http://localhost:62752/brands/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json()
         showToast(err.error || 'Error eliminando marca', 'error')
@@ -390,6 +417,15 @@ export default function Admin() {
     return true
   })
 
+  const groupedOffersBySupermarket = (offers = []) => {
+    return offers.reduce((acc, offer) => {
+      const supermarket = offer.supermarket || 'Sin supermercado'
+      acc[supermarket] = acc[supermarket] || []
+      acc[supermarket].push(offer)
+      return acc
+    }, {})
+  }
+
   // ===== UI =====
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100">
@@ -406,8 +442,51 @@ export default function Admin() {
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-extrabold">Panel Admin</h1>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-extrabold">Panel Admin</h1>
+            <p className="mt-2 text-sm text-stone-500 dark:text-stone-400 max-w-2xl">Aquí puedes administrar producto, categorías, marcas y actualizar precios en bloque por categoría.</p>
+          </div>
+          <div className="rounded-2xl bg-sky-900/10 dark:bg-sky-500/10 border border-sky-500/20 dark:border-sky-400/20 p-4">
+            <p className="text-sm font-semibold text-sky-700 dark:text-sky-200">Actualiza precios por categoría</p>
+            <p className="text-xs text-stone-500 dark:text-stone-300 mt-1">Elige una categoría, ingresa un porcentaje y haz clic en aplicar.</p>
+          </div>
+        </div>
+
+        <div className="mt-6 bg-white dark:bg-stone-800 rounded-3xl border border-stone-200/80 dark:border-stone-700 p-6 shadow-sm">
+          <h2 className="text-xl font-bold mb-4">Actualizar precios por categoría</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div>
+              <label className="block mb-2 text-sm font-semibold text-stone-700 dark:text-stone-200">Categoría</label>
+              <select className="w-full px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" value={bulkCategoryId} onChange={(e) => setBulkCategoryId(e.target.value)}>
+                <option value="">Seleccionar categoría</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block mb-2 text-sm font-semibold text-stone-700 dark:text-stone-200">Porcentaje</label>
+              <input type="number" className="w-full px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" value={bulkPercentage} onChange={(e) => setBulkPercentage(Number(e.target.value))} placeholder="-10 para bajar 10%, 5 para subir 5%" />
+            </div>
+            <div className="flex items-end gap-2">
+              <button onClick={async () => {
+                if (!bulkCategoryId) { showToast('Elige una categoría', 'error'); return }
+                try {
+                  const res = await fetch('http://localhost:62752/admin/update-prices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryId: bulkCategoryId, percentage: Number(bulkPercentage) }) })
+                  const data = await res.json()
+                  if (!res.ok) { showToast(data.error || 'Error al actualizar precios', 'error'); return }
+                  showToast(`Precios actualizados: ${data.updated}`, 'success')
+                  setBulkCategoryId('')
+                  setBulkPercentage(0)
+                  loadProducts()
+                } catch (err) {
+                  console.error(err)
+                  showToast('Error de red aplicando actualización', 'error')
+                }
+              }} className="w-full px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 transition">Aplicar porcentaje</button>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
@@ -489,32 +568,53 @@ export default function Admin() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredProducts.map((product) => (
               <div key={product.id} className="bg-white dark:bg-stone-800 rounded-2xl p-4 shadow-sm">
-                <div className="flex gap-4">
-                  <img src={product.image || 'https://placehold.co/300x200'} alt={product.name} className="w-28 h-28 object-cover rounded-lg" />
-                  <div>
-                    <h3 className="font-bold">{product.name}</h3>
-                    <p className="text-sm text-stone-500">Marca: {product.brands?.name}</p>
-                    <p className="text-sm text-stone-500">Categoría: {product.categories?.name}</p>
-                    <p className="text-sm">⭐ {product.rating}</p>
+                <div className="flex flex-col gap-4">
+                  <div className="flex gap-4">
+                    <img src={product.image || 'https://placehold.co/300x200'} alt={product.name} className="w-28 h-28 object-cover rounded-lg" />
+                    <div className="flex-1">
+                      <h3 className="font-bold">{product.name}</h3>
+                      <p className="text-sm text-stone-500">Marca: {product.brands?.name}</p>
+                      <p className="text-sm text-stone-500">Categoría: {product.categories?.name}</p>
+                      <p className="text-sm">⭐ {product.rating}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button onClick={() => startEdit(product)} className="px-4 py-2 bg-sky-600 text-white rounded-lg">Agregar precio</button>
+                    <button onClick={() => deleteProduct(product.id)} className="px-4 py-2 bg-red-600 text-white rounded-lg">Eliminar producto</button>
                   </div>
                 </div>
 
                 <div className="mt-3 space-y-2">
-                  {product.offers?.map((offer) => (
-                    <div key={offer.id} className="p-3 bg-stone-50 dark:bg-stone-900 rounded-lg flex items-center justify-between">
-                      <div>
-                        <strong>{offer.supermarket}</strong>
-                        <div className="text-sm text-stone-500">Contado: ${offer.cash_price}</div>
-                        {offer.installments_quantity && (
-                          <div className="text-sm text-stone-500">{offer.installments_quantity} x ${offer.installment_price} = ${offer.installments_quantity * offer.installment_price}</div>
-                        )}
+                  {Object.entries(groupedOffersBySupermarket(product.offers)).length > 0 ? (
+                    Object.entries(groupedOffersBySupermarket(product.offers)).map(([supermarket, offers]) => (
+                      <div key={supermarket} className="p-3 bg-stone-50 dark:bg-stone-900 rounded-lg space-y-3">
+                        <div className="flex items-center justify-between gap-4">
+                          <strong>{supermarket}</strong>
+                          <span className="text-xs uppercase tracking-wide text-stone-500">{offers.length} registro{offers.length > 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {offers.map((offer) => (
+                            <div key={offer.id} className="rounded-xl border border-stone-200 dark:border-stone-700 p-3 bg-white dark:bg-stone-950 flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-sm text-stone-700 dark:text-stone-200">Contado: ${offer.cash_price}</div>
+                                {offer.installments_quantity && (
+                                  <div className="text-xs text-stone-500">{offer.installments_quantity} x ${offer.installment_price} = ${offer.installments_quantity * offer.installment_price}</div>
+                                )}
+                              </div>
+                              <button onClick={() => deleteOffer(offer.id)} className="px-3 py-1 bg-rose-600 text-white rounded">Eliminar</button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-2">
-                        <button onClick={() => startEdit(product, offer)} className="px-3 py-1 bg-yellow-500 text-white rounded">Editar</button>
-                        <button onClick={() => deleteProduct(product.id)} className="px-3 py-1 bg-red-600 text-white rounded">Eliminar</button>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-lg text-sm text-stone-500">Este producto no tiene precios registrados aún.</div>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button onClick={() => startEdit(product)} className="px-3 py-2 bg-sky-600 text-white rounded">Agregar precio</button>
+                    <button onClick={() => deleteProduct(product.id)} className="px-3 py-2 bg-red-600 text-white rounded">Eliminar producto</button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -581,4 +681,5 @@ export default function Admin() {
       </main>
     </div>
   )
+
 }

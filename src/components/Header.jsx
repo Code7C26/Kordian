@@ -1,4 +1,5 @@
-import React from 'react'
+import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { 
   TrendingDown, 
   MapPin, 
@@ -21,27 +22,28 @@ export function Header({
   onResetView,
   isAdminPage = false,
 }) {
-  const devToolsEnabled = isAdminPage && !!import.meta.env.VITE_DEV_ADMIN_TOOLS
-  const [showAdminPanel, setShowAdminPanel] = React.useState(devToolsEnabled)
-  const [panelCategories, setPanelCategories] = React.useState([])
-  const [panelBrands, setPanelBrands] = React.useState([])
-  const [panelTarget, setPanelTarget] = React.useState('category')
-  const [panelCategoryId, setPanelCategoryId] = React.useState('')
-  const [panelBrandId, setPanelBrandId] = React.useState('')
-  const [panelPercentage, setPanelPercentage] = React.useState(5)
+  const location = useLocation()
+  const isAdminHeader = isAdminPage || location.pathname === '/admin'
+  const [showAdminPanel, setShowAdminPanel] = useState(false)
+  const [panelCategories, setPanelCategories] = useState([])
+  const [panelBrands, setPanelBrands] = useState([])
+  const [panelTarget, setPanelTarget] = useState('category')
+  const [panelCategoryId, setPanelCategoryId] = useState('')
+  const [panelBrandId, setPanelBrandId] = useState('')
+  const [panelPercentage, setPanelPercentage] = useState(5)
 
-  React.useEffect(() => {
+  useEffect(() => {
     // load categories and brands for the floating panel
     ;(async () => {
       try {
-        const cRes = await fetch('http://localhost:62752/categories')
+        const cRes = await fetch('http://localhost:3000/categories')
         const cats = await cRes.json()
         setPanelCategories(cats.value || cats)
       } catch (e) {
         // ignore
       }
       try {
-        const bRes = await fetch('http://localhost:62752/brands')
+        const bRes = await fetch('http://localhost:3000/brands')
         const bs = await bRes.json()
         setPanelBrands(bs.value || bs)
       } catch (e) {
@@ -83,38 +85,42 @@ export function Header({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <button
-            onClick={onOpenFavorites}
-            className="relative p-2 rounded-lg text-stone-600 dark:text-stone-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
-            title="Ver Favoritos"
-          >
-            <Heart className="w-5 h-5" />
-            {favoritesCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
-                {favoritesCount}
-              </span>
-            )}
-          </button>
+          {!isAdminHeader && (
+            <>
+              <button
+                onClick={onOpenFavorites}
+                className="relative p-2 rounded-lg text-stone-600 dark:text-stone-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+                title="Ver Favoritos"
+              >
+                <Heart className="w-5 h-5" />
+                {favoritesCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                    {favoritesCount}
+                  </span>
+                )}
+              </button>
 
-          <button
-            onClick={onOpenBasket}
-            className="relative flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 text-white rounded-2xl text-sm font-bold shadow-lg transition-transform hover:scale-105 cursor-pointer"
-            title="Canasta Ahorro"
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span className="hidden md:inline">Canasta</span>
-            {basketCount > 0 && (
-              <span className="ml-2 px-2 py-0.5 bg-white text-indigo-700 text-xs font-black rounded-full min-w-[20px] text-center">
-                {basketCount}
-              </span>
-            )}
-          </button>
+              <button
+                onClick={onOpenBasket}
+                className="relative flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 text-white rounded-2xl text-sm font-bold shadow-lg transition-transform hover:scale-105 cursor-pointer"
+                title="Canasta Ahorro"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span className="hidden md:inline">Canasta</span>
+                {basketCount > 0 && (
+                  <span className="ml-2 px-2 py-0.5 bg-white text-indigo-700 text-xs font-black rounded-full min-w-[20px] text-center">
+                    {basketCount}
+                  </span>
+                )}
+              </button>
+            </>
+          )}
 
-          {/* Dev helper: open quick admin panel */}
-          {isAdminPage && (
+          {/* Admin action button in header */}
+          {isAdminHeader && (
             <button
               onClick={() => setShowAdminPanel(true)}
-              className="hidden md:inline-block px-3 py-1 text-xs bg-yellow-500 text-black rounded hover:brightness-90 ml-2"
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold bg-yellow-500 text-black rounded-2xl hover:brightness-90 transition-all duration-150 ml-2"
               title="Abrir panel rápido de actualización de precios"
             >
               Actualizar Precios
@@ -137,7 +143,7 @@ export function Header({
       </div>
 
       {/* Floating admin quick panel */}
-      {isAdminPage && devToolsEnabled && showAdminPanel && (
+      {isAdminHeader && showAdminPanel && (
         <div className="fixed right-4 top-4 z-50 w-72 max-h-[60vh] overflow-auto bg-white dark:bg-stone-800 border rounded-xl p-3 shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <strong>Actualizar precios (rápido)</strong>
@@ -170,13 +176,13 @@ export function Header({
                   const body = { percentage: Number(panelPercentage) }
                   if (panelTarget === 'category') body.categoryId = panelCategoryId
                   else body.brandId = panelBrandId
-                  const res = await fetch('http://localhost:62752/admin/update-prices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+                  const res = await fetch('http://localhost:3000/admin/update-prices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
                   const data = await res.json()
                   if (!res.ok) alert('Error: ' + (data.error || 'no especificado'))
                   else alert('Aplicado: ' + (data.updated || 0) + ' precios')
                 } catch (e) { console.error(e); alert('Error de red') }
               }} className="flex-1 px-3 py-1 bg-emerald-600 text-white rounded">Aplicar</button>
-              <button onClick={() => { setPanelCategoryId(''); setPanelBrandId(''); setPanelPercentage(5) }} className="px-3 py-1 bg-stone-200 rounded">Limpiar</button>
+              <button onClick={() => { setPanelCategoryId(''); setPanelBrandId(''); setPanelPercentage(5) }} className="px-3 py-1 bg-stone-900 text-white dark:bg-stone-200 dark:text-stone-900 rounded">Limpiar</button>
             </div>
           </div>
         </div>

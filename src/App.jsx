@@ -1,4 +1,6 @@
+
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
 import { Header } from './components/Header.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
 import { DealsSummaryBanner } from './components/DealsSummaryBanner.jsx';
@@ -19,7 +21,7 @@ export default function App() {
     );
   });
 
-  const [selectedCity, setSelectedCity] = useState('Alta Gracia');
+  const { selectedCity, setSelectedCity } = useSelectedCity();
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState([])
   const [storesList, setStoresList] = useState([])
@@ -94,7 +96,12 @@ export default function App() {
         // enrich products with derived fields for the UI (defensive)
         const enriched = (prods || []).map((p) => {
           const offers = p.offers || []
-          const otherStores = offers.map((o) => ({ id: o.id, price: Number(o.cash_price) || 0, supermarket: o.supermarket || '' }))
+          const otherStores = offers.map((o) => ({
+            id: o.id,
+            // handle either snake_case (cash_price) or camelCase (cashPrice) coming from different imports
+            price: Number(o.cash_price ?? o.cashPrice) || 0,
+            supermarket: o.supermarket || o.supermarket_name || o.storeName || ''
+          }))
           const primary = otherStores.reduce((best, s) => {
             if (!best) return s
             return s.price && s.price < best.price ? s : best
@@ -180,11 +187,18 @@ export default function App() {
   };
 
   const addToBasket = (product, selectedOffer = null) => {
-    const offer = selectedOffer || {
-      price: Number(product.currentPrice || 0),
-      storeId: product.primaryStore?.id || 'default',
-      storeName: product.primaryStore?.name || 'Precio actual',
-    };
+    // Normalize selectedOffer shapes coming from different places
+    const offer = selectedOffer
+      ? {
+          price: Number(selectedOffer.price ?? selectedOffer.cash_price ?? selectedOffer.cashPrice ?? product.currentPrice || 0),
+          storeId: selectedOffer.id ?? selectedOffer.storeId ?? (selectedOffer.supermarket || selectedOffer.storeName) ?? 'default',
+          storeName: selectedOffer.supermarket ?? selectedOffer.storeName ?? product.primaryStore?.name ?? 'Precio actual',
+        }
+      : {
+          price: Number(product.currentPrice || 0),
+          storeId: product.primaryStore?.id || 'default',
+          storeName: product.primaryStore?.name || 'Precio actual',
+        };
 
     const itemId = `${product.id}-${offer.storeId}-${offer.price}`;
 
@@ -323,6 +337,7 @@ export default function App() {
           setViewMode('products');
         }}
         onResetView={resetFilters}
+        isAdminPage={false}
       />
 
       {viewMode === 'categories' ? (
@@ -511,6 +526,7 @@ export default function App() {
                   <option value="price-desc">💰 Mayor Precio primero</option>
                   <option value="name-asc">🔤 Orden Alfabético (A-Z)</option>
                 </select>
+
               </div>
             </div>
 
@@ -642,5 +658,6 @@ export default function App() {
         <ReportPriceModal onClose={() => setReportModalOpen(false)} selectedCity={selectedCity} />
       )}
     </div>
+
   );
 }

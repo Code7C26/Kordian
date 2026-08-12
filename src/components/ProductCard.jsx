@@ -85,15 +85,9 @@ export function ProductCard({
       <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
         <div className="space-y-1">
           <div className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider flex items-center justify-between">
-            <span>{product.brand || 'N/A'}</span>
+            <span>{product.brand}</span>
             <span>{product.unit}</span>
           </div>
-
-          {product.subcategory && (
-            <div className="text-[9px] text-stone-500 dark:text-stone-400 capitalize">
-              Categoría: {product.subcategory}
-            </div>
-          )}
 
           <h3 className="text-sm font-bold text-stone-900 dark:text-white line-clamp-2 h-10 leading-snug group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
             {product.name}
@@ -129,7 +123,19 @@ export function ProductCard({
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 pt-2">
+        <div className="space-y-2 pt-2">
+          <div className="text-[10px] uppercase tracking-[0.24em] text-stone-400 font-bold">Mejor oferta</div>
+          <div className="flex items-center justify-between bg-stone-50 dark:bg-stone-900/60 p-3 rounded-xl border border-stone-200/50 dark:border-stone-800/80">
+            <div className="text-sm text-stone-700 dark:text-stone-300">
+              {selectedOffer ? (selectedOffer.supermarket || selectedOffer.storeName || 'Tienda') : (product.primaryStore?.name || 'Precio actual')}
+            </div>
+            <div className="text-lg font-black text-stone-900 dark:text-white">
+              {formatCurrency(selectedOffer ? (selectedOffer.price || selectedOffer.cash_price || selectedOffer.cashPrice || 0) : product.currentPrice)}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             onClick={() => onCompare(product)}
             className="flex items-center justify-center gap-1 px-2.5 py-2.5 bg-stone-100 dark:bg-stone-700/80 hover:bg-sky-50 dark:hover:bg-sky-950/60 text-stone-800 dark:text-stone-200 hover:text-sky-700 dark:hover:text-sky-300 rounded-xl text-xs font-bold transition-colors border border-stone-200/80 dark:border-stone-600 cursor-pointer"
