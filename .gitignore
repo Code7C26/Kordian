@@ -3,3 +3,6 @@ server/node_modules/
 
 .env
 server/.env
+
+# Ignore generated admin HMR artifact
+admin_src.txt

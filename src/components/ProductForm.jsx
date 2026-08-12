@@ -4,7 +4,7 @@ import { Save } from 'lucide-react'
 export default function ProductForm({ form, setForm, brands, categories, createProduct, editingProduct, saveEdit, cancelEdit }) {
   return (
     <section className="mt-6 bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm">
-      <h2 className="text-lg font-bold mb-4">{editingProduct ? 'Editar Producto / Oferta' : 'Agregar Producto / Oferta'}</h2>
+      <h2 className="text-lg font-bold mb-4">{editingProduct ? 'Editar Producto u Oferta existente' : 'Agregar Producto y/o Precio'}</h2>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" placeholder="Nombre" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <select className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: e.target.value })}>

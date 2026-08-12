@@ -1,15 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 
-<<<<<<< HEAD
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-
-=======
 import './index.css'
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 
->>>>>>> origin/main
 import App from './App'
 import Admin from './pages/Admin'
 import Login from './pages/Login'

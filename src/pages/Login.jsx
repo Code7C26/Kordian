@@ -16,55 +16,6 @@ export default function Login() {
 
   const handleLogin = (e) => {
     e.preventDefault()
-<<<<<<< HEAD
-
-    // =========================
-    // ADMINS GUARDADOS
-    // =========================
-
-    const admins =
-      JSON.parse(
-        localStorage.getItem(
-          'admins'
-        )
-      ) || [
-        {
-          username: 'admin',
-          password: '1234',
-        },
-      ]
-
-    // =========================
-    // VALIDAR LOGIN
-    // =========================
-
-    const validAdmin =
-      admins.find(
-        (admin) =>
-          admin.username ===
-            username &&
-          admin.password ===
-            password
-      )
-
-    if (validAdmin) {
-      localStorage.setItem(
-        'adminAuth',
-        'true'
-      )
-
-      localStorage.setItem(
-        'currentAdmin',
-        username
-      )
-
-      navigate('/admin')
-    } else {
-      setError(
-        'Usuario o contraseña incorrectos'
-      )
-    }
-=======
     ;(async () => {
       try {
         const res = await fetch('http://localhost:3000/login', {
@@ -87,7 +38,6 @@ export default function Login() {
         setError('Error de red')
       }
     })()
->>>>>>> origin/main
   }
 
   return (

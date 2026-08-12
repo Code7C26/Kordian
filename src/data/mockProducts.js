@@ -1,10 +1,5 @@
 export const CITIES_LIST = [
-  'Buenos Aires - CABA',
-  'Buenos Aires - Zona Norte',
-  'Rosario',
-  'Córdoba',
-  'Mendoza',
-  'La Plata',
+  'Alta Gracia',
 ];
 
 export const CATEGORIES = [

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   TrendingDown, 
   MapPin, 
@@ -6,8 +6,6 @@ import {
   Moon, 
   ShoppingBag, 
   Heart, 
-  ChevronDown, 
-  Check, 
   Sparkles
 } from 'lucide-react';
 import { CITIES_LIST } from '../data/mockProducts';
@@ -35,8 +33,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenFavorites,
   onResetView,
 }) => {
-  const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
-
   return (
     <header className="sticky top-0 z-40 w-full border-b border-stone-200/80 dark:border-stone-800 bg-white/90 dark:bg-stone-900/90 backdrop-blur-md transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
@@ -67,49 +63,10 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* Location Dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => setCityDropdownOpen(!cityDropdownOpen)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-200 bg-stone-100 dark:bg-stone-800/80 hover:bg-stone-200/70 dark:hover:bg-stone-700/80 rounded-lg transition-colors border border-stone-200/60 dark:border-stone-700/60 cursor-pointer"
-          >
-            <MapPin className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
-            <span className="max-w-[120px] sm:max-w-[180px] truncate">{selectedCity}</span>
-            <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${cityDropdownOpen ? 'rotate-180' : ''}`} />
-          </button>
-
-          {cityDropdownOpen && (
-            <>
-              <div 
-                className="fixed inset-0 z-10" 
-                onClick={() => setCityDropdownOpen(false)}
-              />
-              <div className="absolute left-0 mt-2 w-64 z-20 bg-white dark:bg-stone-800 rounded-xl shadow-xl border border-stone-200 dark:border-stone-700 py-1.5 overflow-hidden text-sm">
-                <div className="px-3 py-2 text-xs font-semibold text-stone-400 uppercase tracking-wider border-b border-stone-100 dark:border-stone-700/50">
-                  Seleccionar Ubicación
-                </div>
-                <div className="max-h-60 overflow-y-auto custom-scrollbar">
-                  {CITIES_LIST.map((city) => (
-                    <button
-                      key={city}
-                      onClick={() => {
-                        setSelectedCity(city);
-                        setCityDropdownOpen(false);
-                      }}
-                      className="w-full text-left px-3.5 py-2 flex items-center justify-between hover:bg-sky-50 dark:hover:bg-sky-950/40 text-stone-700 dark:text-stone-200 transition-colors cursor-pointer"
-                    >
-                      <span className={city === selectedCity ? 'font-semibold text-sky-600 dark:text-sky-400' : ''}>
-                        {city}
-                      </span>
-                      {city === selectedCity && (
-                        <Check className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+        {/* Location Display */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-200 bg-stone-100 dark:bg-stone-800/80 rounded-lg border border-stone-200/60 dark:border-stone-700/60">
+          <MapPin className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+          <span className="max-w-[120px] sm:max-w-[180px] truncate">{selectedCity}</span>
         </div>
 
         {/* Action Controls */}
