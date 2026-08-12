@@ -109,30 +109,13 @@ export function Header({
             )}
           </button>
 
-          {/* Temporary admin test button: applies +10% to first brand (dev helper) */}
+          {/* Dev helper: open quick admin panel */}
           <button
-            onClick={async () => {
-              try {
-                const brandsRes = await fetch('http://localhost:62752/brands')
-                const brandsJson = await brandsRes.json()
-                const brands = brandsJson.value || brandsJson
-                if (!brands || brands.length === 0) { alert('No hay marcas disponibles'); return }
-                const brandId = brands[0].id || brands[0]
-                const res = await fetch('http://localhost:62752/admin/update-prices', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brandId, percentage: 10 })
-                })
-                const data = await res.json()
-                if (!res.ok) alert('Error: ' + (data.error || 'no especificado'))
-                else alert('Aplicado: ' + (data.updated || 0) + ' precios')
-              } catch (e) {
-                console.error(e)
-                alert('Error de red al aplicar porcentaje')
-              }
-            }}
+            onClick={() => setShowAdminPanel(true)}
             className="hidden md:inline-block px-3 py-1 text-xs bg-yellow-500 text-black rounded hover:brightness-90 ml-2"
-            title="Test aplicar +10% a la primera marca"
+            title="Abrir panel rápido de actualización de precios"
           >
-            Test +10% Marca
+            Actualizar Precios
           </button>
 
           <button
