@@ -19,8 +19,9 @@ export function Header({
   favoritesCount,
   onOpenFavorites,
   onResetView,
+  isAdminPage = false,
 }) {
-  const devToolsEnabled = !!import.meta.env.VITE_DEV_ADMIN_TOOLS
+  const devToolsEnabled = isAdminPage && !!import.meta.env.VITE_DEV_ADMIN_TOOLS
   const [showAdminPanel, setShowAdminPanel] = React.useState(devToolsEnabled)
   const [panelCategories, setPanelCategories] = React.useState([])
   const [panelBrands, setPanelBrands] = React.useState([])
@@ -110,13 +111,15 @@ export function Header({
           </button>
 
           {/* Dev helper: open quick admin panel */}
-          <button
-            onClick={() => setShowAdminPanel(true)}
-            className="hidden md:inline-block px-3 py-1 text-xs bg-yellow-500 text-black rounded hover:brightness-90 ml-2"
-            title="Abrir panel rápido de actualización de precios"
-          >
-            Actualizar Precios
-          </button>
+          {isAdminPage && (
+            <button
+              onClick={() => setShowAdminPanel(true)}
+              className="hidden md:inline-block px-3 py-1 text-xs bg-yellow-500 text-black rounded hover:brightness-90 ml-2"
+              title="Abrir panel rápido de actualización de precios"
+            >
+              Actualizar Precios
+            </button>
+          )}
 
           <button
             onClick={() => setDarkMode(!darkMode)}
@@ -134,7 +137,7 @@ export function Header({
       </div>
 
       {/* Floating admin quick panel */}
-      {devToolsEnabled && showAdminPanel && (
+      {isAdminPage && devToolsEnabled && showAdminPanel && (
         <div className="fixed right-4 top-4 z-50 w-72 max-h-[60vh] overflow-auto bg-white dark:bg-stone-800 border rounded-xl p-3 shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <strong>Actualizar precios (rápido)</strong>
