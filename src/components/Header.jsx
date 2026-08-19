@@ -27,10 +27,21 @@ export function Header({
   const [showAdminPanel, setShowAdminPanel] = useState(false)
   const [panelCategories, setPanelCategories] = useState([])
   const [panelBrands, setPanelBrands] = useState([])
+  const [panelSupermarkets, setPanelSupermarkets] = useState([])
   const [panelTarget, setPanelTarget] = useState('category')
   const [panelCategoryId, setPanelCategoryId] = useState('')
   const [panelBrandId, setPanelBrandId] = useState('')
+  const [panelSupermarket, setPanelSupermarket] = useState('')
   const [panelPercentage, setPanelPercentage] = useState(5)
+  const [panelUpdateDate, setPanelUpdateDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [panelUpdateDates, setPanelUpdateDates] = useState(() => {
+    try {
+      const savedDates = JSON.parse(localStorage.getItem('arprice_update_dates') || '[]')
+      return Array.isArray(savedDates) ? savedDates : []
+    } catch {
+      return []
+    }
+  })
 
   useEffect(() => {
     // load categories and brands for the floating panel
@@ -49,7 +60,30 @@ export function Header({
       } catch (e) {
         // ignore
       }
+      try {
+        const sRes = await fetch('http://localhost:3000/supermarkets')
+        const supermarkets = await sRes.json()
+        const saved = JSON.parse(localStorage.getItem('arprice_custom_supermarkets') || '[]')
+        const combined = [...(Array.isArray(supermarkets) ? supermarkets : []), ...(Array.isArray(saved) ? saved : [])]
+        setPanelSupermarkets([...new Map(combined.map((item) => [item.name.toLowerCase(), item])).values()])
+      } catch (e) {
+        // ignore
+      }
     })()
+  }, [])
+
+  useEffect(() => {
+    const refreshSupermarkets = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('arprice_custom_supermarkets') || '[]')
+        setPanelSupermarkets((current) => [...new Map([...current, ...(Array.isArray(saved) ? saved : [])].map((item) => [item.name.toLowerCase(), item])).values()])
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    window.addEventListener('arprice-supermarkets-changed', refreshSupermarkets)
+    return () => window.removeEventListener('arprice-supermarkets-changed', refreshSupermarkets)
   }, [])
   return (
     <header className="sticky top-0 z-40 w-full border-b border-stone-800 bg-gradient-to-r from-stone-900/95 to-stone-900/95 dark:bg-gradient-to-r dark:from-stone-950 dark:to-stone-900 backdrop-blur-md transition-colors duration-200">
@@ -150,39 +184,107 @@ export function Header({
             <button onClick={() => setShowAdminPanel(false)} className="text-sm text-stone-500">Cerrar</button>
           </div>
           <div className="space-y-2 text-sm">
-            <label className="block">Aplicar a</label>
+            <label className="block">Elegir filtro para agregar</label>
             <select value={panelTarget} onChange={(e) => setPanelTarget(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
               <option value="category">Categoría</option>
               <option value="brand">Marca</option>
+              <option value="supermarket">Supermercado</option>
             </select>
 
-            <select disabled={panelTarget !== 'category'} value={panelCategoryId} onChange={(e) => setPanelCategoryId(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
-              <option value="">Seleccionar categoría</option>
-              {panelCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            {panelTarget === 'category' && (
+              <select value={panelCategoryId} onChange={(e) => setPanelCategoryId(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
+                <option value="">Seleccionar categoría</option>
+                {panelCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
 
-            <select disabled={panelTarget !== 'brand'} value={panelBrandId} onChange={(e) => setPanelBrandId(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
-              <option value="">Seleccionar marca</option>
-              {panelBrands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            {panelTarget === 'brand' && (
+              <select value={panelBrandId} onChange={(e) => setPanelBrandId(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
+                <option value="">Seleccionar marca</option>
+                {panelBrands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+
+            {panelTarget === 'supermarket' && (
+              <select value={panelSupermarket} onChange={(e) => setPanelSupermarket(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
+                <option value="">Seleccionar supermercado</option>
+                {panelSupermarkets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+
+            {(panelCategoryId || panelBrandId || panelSupermarket) && (
+              <div className="rounded border border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/40 px-2 py-1 text-xs text-sky-800 dark:text-sky-200">
+                <span className="font-semibold">Filtros combinados: </span>
+                {[
+                  panelCategoryId && `Categoría: ${panelCategories.find((item) => String(item.id) === String(panelCategoryId))?.name || panelCategoryId}`,
+                  panelBrandId && `Marca: ${panelBrands.find((item) => String(item.id) === String(panelBrandId))?.name || panelBrandId}`,
+                  panelSupermarket && `Supermercado: ${panelSupermarkets.find((item) => String(item.id) === String(panelSupermarket))?.name || panelSupermarket}`,
+                ].filter(Boolean).join(' + ')}
+              </div>
+            )}
 
             <input type="number" value={panelPercentage} onChange={(e) => setPanelPercentage(Number(e.target.value))} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900" />
 
+            <label className="block">Fecha de actualización</label>
+            <input
+              type="date"
+              list="price-update-dates"
+              value={panelUpdateDate}
+              onChange={(e) => setPanelUpdateDate(e.target.value)}
+              className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900"
+            />
+            <datalist id="price-update-dates">
+              {panelUpdateDates.map((date) => <option key={date} value={date} />)}
+            </datalist>
+
             <div className="flex gap-2">
               <button onClick={async () => {
-                if (panelTarget === 'category' && !panelCategoryId) { alert('Elige categoría'); return }
-                if (panelTarget === 'brand' && !panelBrandId) { alert('Elige marca'); return }
+                if (!panelCategoryId && !panelBrandId && !panelSupermarket) { alert('Elige al menos un filtro'); return }
+                if (!panelUpdateDate) { alert('Elige la fecha de actualización'); return }
                 try {
-                  const body = { percentage: Number(panelPercentage) }
-                  if (panelTarget === 'category') body.categoryId = panelCategoryId
-                  else body.brandId = panelBrandId
+                  const body = {
+                    percentage: Number(panelPercentage),
+                    updateDate: panelUpdateDate,
+                    ...(panelCategoryId ? { categoryId: panelCategoryId } : {}),
+                    ...(panelBrandId ? { brandId: panelBrandId } : {}),
+                    ...(panelSupermarket ? { supermarket: panelSupermarket } : {}),
+                  }
                   const res = await fetch('http://localhost:3000/admin/update-prices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
                   const data = await res.json()
                   if (!res.ok) alert('Error: ' + (data.error || 'no especificado'))
-                  else alert('Aplicado: ' + (data.updated || 0) + ' precios')
+                  else {
+                    const selectedFilters = [
+                      panelCategoryId && { type: 'category', label: 'Categoría', value: panelCategories.find((item) => String(item.id) === String(panelCategoryId))?.name || panelCategoryId },
+                      panelBrandId && { type: 'brand', label: 'Marca', value: panelBrands.find((item) => String(item.id) === String(panelBrandId))?.name || panelBrandId },
+                      panelSupermarket && { type: 'supermarket', label: 'Supermercado', value: panelSupermarkets.find((item) => String(item.id) === String(panelSupermarket))?.name || panelSupermarket },
+                    ].filter(Boolean)
+                    const updateRecord = {
+                      id: `${Date.now()}-${selectedFilters.map((filter) => filter.value).join('-')}`,
+                      type: selectedFilters.length === 1 ? selectedFilters[0].type : 'combined',
+                      targetName: selectedFilters.map((filter) => `${filter.label}: ${filter.value}`).join(' + '),
+                      filters: selectedFilters,
+                      percentage: Number(panelPercentage),
+                      date: panelUpdateDate,
+                      changes: data.changes || [],
+                    }
+                    let updateHistory = []
+                    try {
+                      const savedHistory = JSON.parse(localStorage.getItem('arprice_update_history') || '[]')
+                      updateHistory = Array.isArray(savedHistory) ? savedHistory : []
+                    } catch {
+                      updateHistory = []
+                    }
+                    const nextHistory = [updateRecord, ...updateHistory].slice(0, 50)
+                    localStorage.setItem('arprice_update_history', JSON.stringify(nextHistory))
+                    window.dispatchEvent(new CustomEvent('arprice-update-history-changed'))
+                    const nextDates = [panelUpdateDate, ...panelUpdateDates.filter((date) => date !== panelUpdateDate)]
+                    setPanelUpdateDates(nextDates)
+                    localStorage.setItem('arprice_update_dates', JSON.stringify(nextDates))
+                    alert('Aplicado: ' + (data.updated || 0) + ' precios')
+                  }
                 } catch (e) { console.error(e); alert('Error de red') }
               }} className="flex-1 px-3 py-1 bg-emerald-600 text-white rounded">Aplicar</button>
-              <button onClick={() => { setPanelCategoryId(''); setPanelBrandId(''); setPanelPercentage(5) }} className="px-3 py-1 bg-stone-900 text-white dark:bg-stone-200 dark:text-stone-900 rounded">Limpiar</button>
+              <button onClick={() => { setPanelCategoryId(''); setPanelBrandId(''); setPanelSupermarket(''); setPanelPercentage(5); setPanelUpdateDate(new Date().toISOString().slice(0, 10)) }} className="px-3 py-1 bg-stone-900 text-white dark:bg-stone-200 dark:text-stone-900 rounded">Limpiar</button>
             </div>
           </div>
         </div>

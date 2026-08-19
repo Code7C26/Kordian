@@ -39,7 +39,19 @@ app.get('/products', async (req, res) => {
       return res.status(500).json({ error: 'Error fetching products' })
     }
 
-    res.json(data || [])
+    const [{ data: categories }, { data: brands }] = await Promise.all([
+      supabase.from('categories').select('id, name'),
+      supabase.from('brands').select('id, name'),
+    ])
+    const categoriesById = new Map((categories || []).map((categoryItem) => [String(categoryItem.id), categoryItem]))
+    const brandsById = new Map((brands || []).map((brandItem) => [String(brandItem.id), brandItem]))
+    const normalizedProducts = (data || []).map((product) => ({
+      ...product,
+      categories: product.categories || categoriesById.get(String(product.category_id)) || (product['category.id'] ? { name: product['category.id'] } : null),
+      brands: product.brands || brandsById.get(String(product.brand_id)) || (product.id_brands ? { name: product.id_brands } : null),
+    }))
+
+    res.json(normalizedProducts)
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Internal server error' })
@@ -118,6 +130,65 @@ app.get('/brands', async (req, res) => {
   }
 })
 
+app.get('/supermarkets', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('offers').select('supermarket')
+    if (error) {
+      console.error('Error fetching supermarkets', error)
+      return res.status(500).json({ error: 'Error fetching supermarkets' })
+    }
+
+    const supermarkets = [...new Set((data || []).map((offer) => offer.supermarket).filter(Boolean))]
+      .sort((first, second) => first.localeCompare(second))
+      .map((name) => ({ id: name, name }))
+    res.json(supermarkets)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.put('/supermarkets/:name', async (req, res) => {
+  try {
+    const oldName = req.params.name
+    const { name } = req.body || {}
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Supermarket name is required' })
+
+    const { data, error } = await supabase
+      .from('offers')
+      .update({ supermarket: name.trim() })
+      .eq('supermarket', oldName)
+      .select('id, supermarket')
+    if (error) {
+      console.error('Error updating supermarket', error)
+      return res.status(500).json({ error: 'Error updating supermarket' })
+    }
+    res.json({ name: name.trim(), updated: data?.length || 0 })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.delete('/supermarkets/:name', async (req, res) => {
+  try {
+    const supermarketName = req.params.name
+    const { data, error } = await supabase
+      .from('offers')
+      .delete()
+      .eq('supermarket', supermarketName)
+      .select('id')
+    if (error) {
+      console.error('Error deleting supermarket offers', error)
+      return res.status(500).json({ error: 'Error deleting supermarket' })
+    }
+    res.json({ deleted: data?.length || 0 })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 app.post('/brands', async (req, res) => {
   try {
     const { name } = req.body || {}
@@ -180,7 +251,9 @@ app.post('/products', async (req, res) => {
       installmentPrice,
     } = req.body || {}
 
-    if (!name) return res.status(400).json({ error: 'Product name is required' })
+    if (!name || !category_id || !brand_id || !supermarket || cashPrice === undefined || cashPrice === null || Number(cashPrice) <= 0) {
+      return res.status(400).json({ error: 'Name, category, brand, supermarket and a valid cash price are required' })
+    }
 
     const { data: product, error: productError } = await supabase
       .from('products')
@@ -278,6 +351,18 @@ app.post('/offers', async (req, res) => {
     } = req.body || {}
 
     if (!product_id) return res.status(400).json({ error: 'product_id is required' })
+
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select('id')
+      .eq('id', product_id)
+      .maybeSingle()
+
+    if (productError) {
+      console.error('Error checking product for offer', productError)
+      return res.status(500).json({ error: 'Error checking product' })
+    }
+    if (!product) return res.status(404).json({ error: 'Product not found' })
 
     const { data, error } = await supabase
       .from('offers')
@@ -401,9 +486,10 @@ app.post('/login', async (req, res) => {
 // Admin: update offers prices by category with a percentage
 app.post('/admin/update-prices', async (req, res) => {
   try {
-    const { categoryId, percentage } = req.body || {}
-    if (!categoryId || typeof percentage !== 'number') {
-      return res.status(400).json({ error: 'categoryId and numeric percentage required' })
+    const { categoryId, brandId, supermarket, percentage } = req.body || {}
+    const targetCount = [categoryId, brandId, supermarket].filter(Boolean).length
+    if (!targetCount || typeof percentage !== 'number') {
+      return res.status(400).json({ error: 'At least one filter and numeric percentage required' })
     }
 
     // fetch products with offers and filter locally by multiple possible category fields
@@ -414,21 +500,37 @@ app.post('/admin/update-prices', async (req, res) => {
     }
 
     const products = (allProducts || []).filter((p) => {
-      const catCandidates = []
-      if (p.category_id) catCandidates.push(p.category_id)
-      if (p.category) catCandidates.push(p.category)
-      if (p['category.id']) catCandidates.push(p['category.id'])
-      if (p['category.name']) catCandidates.push(p['category.name'])
-      if (p.categories && p.categories.name) catCandidates.push(p.categories.name)
-      // compare as strings
-      return catCandidates.some((c) => c && String(c) === String(categoryId))
+      let categoryMatches = true
+      let brandMatches = true
+      if (categoryId) {
+        const targetCandidates = []
+        if (p.category_id) targetCandidates.push(p.category_id)
+        if (p.category) targetCandidates.push(p.category)
+        if (p['category.id']) targetCandidates.push(p['category.id'])
+        if (p['category.name']) targetCandidates.push(p['category.name'])
+        if (p.categories && p.categories.name) targetCandidates.push(p.categories.name)
+        categoryMatches = targetCandidates.some((candidate) => candidate && String(candidate) === String(categoryId))
+      }
+      if (brandId) {
+        const targetCandidates = []
+        if (p.brand_id) targetCandidates.push(p.brand_id)
+        if (p.brand) targetCandidates.push(p.brand)
+        if (p['brand.id']) targetCandidates.push(p['brand.id'])
+        if (p['brand.name']) targetCandidates.push(p['brand.name'])
+        if (p.brands && p.brands.name) targetCandidates.push(p.brands.name)
+        brandMatches = targetCandidates.some((candidate) => candidate && String(candidate) === String(brandId))
+      }
+      const supermarketMatches = !supermarket || (p.offers || []).some((offer) => String(offer.supermarket) === String(supermarket))
+      return categoryMatches && brandMatches && supermarketMatches
     })
 
     const productIds = products.map((p) => p.id).filter(Boolean)
-    if (!productIds.length) return res.json({ updated: 0 })
+    if (!productIds.length) return res.json({ updated: 0, changes: [] })
 
     // fetch offers for these products
-    const { data: offers, error: offersErr } = await supabase.from('offers').select('*').in('product_id', productIds)
+    let offersQuery = supabase.from('offers').select('*').in('product_id', productIds)
+    if (supermarket) offersQuery = offersQuery.eq('supermarket', supermarket)
+    const { data: offers, error: offersErr } = await offersQuery
     if (offersErr) {
       console.error('Error fetching offers', offersErr)
       return res.status(500).json({ error: 'Error fetching offers' })
@@ -436,15 +538,60 @@ app.post('/admin/update-prices', async (req, res) => {
 
     // update each offer individually with the new price
     let updatedCount = 0
+    const changes = []
     for (const offer of offers || []) {
       const current = Number(offer.cash_price || 0)
       const newPrice = Math.round(current * (1 + percentage / 100))
       const { error: upErr } = await supabase.from('offers').update({ cash_price: newPrice }).eq('id', offer.id)
       if (upErr) console.error('Error updating offer', offer.id, upErr)
-      else updatedCount++
+      else {
+        updatedCount++
+        changes.push({ offerId: offer.id, previousCashPrice: offer.cash_price, updatedCashPrice: newPrice })
+      }
     }
 
-    res.json({ updated: updatedCount })
+    res.json({ updated: updatedCount, changes })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.post('/admin/rollback-price-update', async (req, res) => {
+  try {
+    const { changes } = req.body || {}
+    if (!Array.isArray(changes)) return res.status(400).json({ error: 'changes array required' })
+
+    const offerIds = changes.map((change) => change?.offerId).filter(Boolean)
+    const { data: currentOffers, error: fetchError } = offerIds.length
+      ? await supabase.from('offers').select('id, cash_price').in('id', offerIds)
+      : { data: [], error: null }
+    if (fetchError) {
+      console.error('Error checking current offer prices', fetchError)
+      return res.status(500).json({ error: 'Error checking current prices' })
+    }
+
+    let restoredCount = 0
+    let skippedCount = 0
+    for (const change of changes) {
+      if (!change?.offerId) continue
+      const currentOffer = currentOffers.find((offer) => String(offer.id) === String(change.offerId))
+      if (!currentOffer || Number(currentOffer.cash_price || 0) !== Number(change.updatedCashPrice || 0)) {
+        skippedCount++
+        continue
+      }
+      const { error } = await supabase
+        .from('offers')
+        .update({ cash_price: change.previousCashPrice })
+        .eq('id', change.offerId)
+      if (error) {
+        console.error('Error restoring offer', change.offerId, error)
+        return res.status(500).json({ error: 'Error restoring prices' })
+      }
+      restoredCount++
+    }
+
+    res.json({ restored: restoredCount, skipped: skippedCount })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Internal server error' })

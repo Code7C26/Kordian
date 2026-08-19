@@ -88,13 +88,6 @@ export default function Login() {
               Ingresar
             </button>
 
-            <button
-              type="button"
-              onClick={() => navigate('/admin')}
-              className="w-full rounded-2xl border border-sky-500 bg-sky-500/10 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-500/20"
-            >
-              Actualizar Precios
-            </button>
           </form>
 
           <div className="mt-6 rounded-3xl bg-sky-50 p-4 text-sm text-sky-700 dark:bg-sky-950/40 dark:text-sky-200">

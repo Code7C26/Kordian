@@ -1,5 +1,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
 import { Header } from './components/Header.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
@@ -12,8 +13,47 @@ import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProduct
 // Data will be loaded from backend API
 import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown } from 'lucide-react';
 
+const mergeAdminUpdatesIntoHistory = (offers, baseHistory) => {
+  let updates
+  try {
+    updates = JSON.parse(localStorage.getItem('arprice_update_history') || '[]')
+  } catch {
+    return baseHistory
+  }
+
+  if (!Array.isArray(updates)) return baseHistory
+
+  const offerIds = new Set((offers || []).map((offer) => String(offer.id)))
+  const adminPoints = updates.flatMap((update) => {
+    if (!['category', 'brand', 'supermarket', 'combined'].includes(update.type)) return []
+    const matchingChanges = (update.changes || []).filter((change) => offerIds.has(String(change.offerId)))
+    if (!matchingChanges.length) return []
+    const prices = matchingChanges.map((change) => Number(change.updatedCashPrice) || 0).filter(Boolean)
+    if (!prices.length) return []
+    return [{
+      date: update.date,
+      avgPrice: Math.round(prices.reduce((total, price) => total + price, 0) / prices.length),
+      minPrice: Math.min(...prices),
+      source: 'admin_update',
+      updateType: update.type,
+      targetName: update.targetName,
+    }]
+  })
+
+  const latestDate = adminPoints.reduce((latest, point) => point.date > latest ? point.date : latest, '')
+  const historyLimitDate = latestDate ? new Date(`${latestDate}T00:00:00`) : null
+  if (historyLimitDate) historyLimitDate.setMonth(historyLimitDate.getMonth() - 3)
+
+  return [...baseHistory, ...adminPoints]
+    .filter((point) => point.date)
+    .filter((point) => !historyLimitDate || new Date(`${point.date}T00:00:00`) >= historyLimitDate)
+    .sort((first, second) => first.date.localeCompare(second.date))
+    .slice(-4)
+}
+
 export default function App() {
-  const [viewMode, setViewMode] = useState('categories');
+  const location = useLocation();
+  const navigate = useNavigate();
   const [darkMode, setDarkMode] = useState(() => {
     return (
       localStorage.getItem('arprice_theme') === 'dark' ||
@@ -117,14 +157,17 @@ export default function App() {
 
           return {
             ...p,
-            brand: p.brand || p.brands?.name || '',
-            subcategory: p.subcategory || p.categories?.name || '',
+            brands: p.brands || (p.id_brands ? { name: p.id_brands } : null),
+            categories: p.categories || (p['category.id'] ? { name: p['category.id'] } : null),
+            brand: p.brand || p.brands?.name || p.id_brands || '',
+            subcategory: p.subcategory || p.categories?.name || p['category.id'] || '',
             currentPrice,
             primaryStore: primary ? { name: primary.supermarket, id: primary.id } : { name: '', id: null },
             avgMarketPrice,
             percentageDiff,
             status,
             otherStores,
+            priceHistory: mergeAdminUpdatesIntoHistory(offers, []),
             unit: p.unit || '',
           }
         })
@@ -148,6 +191,7 @@ export default function App() {
 
         const enriched = MOCK_PRODUCTS.map((p) => ({
           ...p,
+          priceHistory: [],
           currentPrice: Number(p.currentPrice || 0),
           avgMarketPrice: Number(p.avgMarketPrice || 0),
           percentageDiff: Number(p.percentageDiff || 0),
@@ -190,7 +234,7 @@ export default function App() {
     // Normalize selectedOffer shapes coming from different places
     const offer = selectedOffer
       ? {
-          price: Number(selectedOffer.price ?? selectedOffer.cash_price ?? selectedOffer.cashPrice ?? product.currentPrice || 0),
+          price: Number((selectedOffer.price ?? selectedOffer.cash_price ?? selectedOffer.cashPrice ?? product.currentPrice) || 0),
           storeId: selectedOffer.id ?? selectedOffer.storeId ?? (selectedOffer.supermarket || selectedOffer.storeName) ?? 'default',
           storeName: selectedOffer.supermarket ?? selectedOffer.storeName ?? product.primaryStore?.name ?? 'Precio actual',
         }
@@ -311,16 +355,21 @@ export default function App() {
       maxPrice: 1000000,
     });
     setFavoritesOnlyView(false);
-    setViewMode('categories');
+    navigate('/');
   };
 
   const handleSelectCategory = (catId) => {
     setFilters((prev) => ({ ...prev, category: catId }));
     setFavoritesOnlyView(false);
-    setViewMode('products');
+    navigate('/buscar');
+  };
+
+  const openSearchResults = () => {
+    navigate('/buscar');
   };
 
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
+  const activeViewMode = location.pathname === '/buscar' ? 'products' : 'categories';
 
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
@@ -334,13 +383,13 @@ export default function App() {
         favoritesCount={favorites.length}
         onOpenFavorites={() => {
           setFavoritesOnlyView((prev) => !prev);
-          setViewMode('products');
+          navigate('/buscar');
         }}
         onResetView={resetFilters}
         isAdminPage={false}
       />
 
-      {viewMode === 'categories' ? (
+      {activeViewMode === 'categories' ? (
         <>
           <HeroCategoryGrid
             categories={categories}
@@ -348,7 +397,7 @@ export default function App() {
             onSelectCategory={handleSelectCategory}
             searchQuery={filters.searchQuery}
             setSearchQuery={(value) => setFilters((prev) => ({ ...prev, searchQuery: value }))}
-            onSearchSubmit={() => setViewMode('products')}
+            onSearchSubmit={openSearchResults}
           />
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -370,7 +419,7 @@ export default function App() {
               products={products}
               onSelectProduct={(product) => {
                 setSelectedProductForComparison(product);
-                setViewMode('products');
+                navigate('/buscar');
               }}
             />
           </div>
@@ -380,7 +429,9 @@ export default function App() {
           <div className="bg-white dark:bg-stone-800 p-4 rounded-3xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <button
-                onClick={() => setViewMode('categories')}
+                onClick={() => {
+                  navigate('/');
+                }}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/80 text-sky-700 dark:text-sky-300 font-bold text-xs sm:text-sm border border-sky-200/80 dark:border-sky-800 transition-all cursor-pointer w-fit"
               >
                 <ArrowLeft className="w-4 h-4 text-sky-600 dark:text-sky-400" />

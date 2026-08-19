@@ -21,6 +21,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         {/* HOME */}
         <Route path="/" element={<App />} />
 
+        {/* SEARCH RESULTS */}
+        <Route path="/buscar" element={<App />} />
+
         {/* LOGIN */}
         <Route path="/login" element={<Login />} />
 

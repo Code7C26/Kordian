@@ -2,8 +2,13 @@ import { useState } from 'react';
 import { Flame, AlertTriangle } from 'lucide-react';
 import { formatCurrency, formatPercentage } from '../utils/formatters';
 
+const cleanProductName = (name) => (name || 'Producto')
+  .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
+  .trim();
+
 export function DealsSummaryBanner({ products, onSelectProduct }) {
   const [activeTab, setActiveTab] = useState('ofertas');
+  const [failedImages, setFailedImages] = useState([]);
 
   const topDeals = [...products]
     .filter((p) => p.status === 'OFERTA' || p.status === 'EN_PRECIO')
@@ -59,11 +64,20 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
             onClick={() => onSelectProduct(product)}
             className="group p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-900/50 hover:bg-sky-50/50 dark:hover:bg-sky-950/30 border border-stone-200/60 dark:border-stone-700/60 hover:border-sky-300 dark:hover:border-sky-600 transition-all cursor-pointer flex items-center gap-3"
           >
-            <img
-              src={product.image}
-              alt={product.name}
-              className="w-14 h-14 rounded-xl object-cover border border-stone-200 dark:border-stone-700 shrink-0 group-hover:scale-105 transition-transform"
-            />
+            {product.image && !failedImages.includes(product.id) ? (
+              <img
+                src={product.image}
+                alt={product.name}
+                onError={() => setFailedImages((current) => current.includes(product.id) ? current : [...current, product.id])}
+                className="w-14 h-14 rounded-xl object-cover border border-stone-200 dark:border-stone-700 shrink-0 group-hover:scale-105 transition-transform"
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-sky-100 via-white to-emerald-100 dark:from-sky-950/70 dark:via-stone-800 dark:to-emerald-950/60 border border-sky-200 dark:border-sky-800 shrink-0 flex items-center justify-center p-1 text-center">
+                <div className="text-[9px] font-black leading-tight bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 dark:from-indigo-300 dark:via-sky-300 dark:to-emerald-300 bg-clip-text text-transparent line-clamp-3">
+                  {cleanProductName(product.name)}
+                </div>
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <span
                 className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase mb-1 ${
