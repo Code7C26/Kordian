@@ -3,17 +3,11 @@ import { useNavigate } from 'react-router-dom'
 
 export default function Login() {
   const navigate = useNavigate()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
 
-  const [username, setUsername] =
-    useState('')
-
-  const [password, setPassword] =
-    useState('')
-
-  const [error, setError] =
-    useState('')
-
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault()
 
     ;(async () => {
@@ -24,18 +18,21 @@ export default function Login() {
           body: JSON.stringify({ username, password }),
         })
 
-        if (res.ok) {
-          localStorage.setItem('adminAuth', 'true')
-          localStorage.setItem('currentAdmin', username)
-          navigate('/admin')
-        } else if (res.status === 401) {
-          setError('Usuario o contraseña incorrectos')
-        } else {
-          setError('Error al autenticar')
-        }
-      } catch (err) {
-        console.error(err)
-        setError('Error de red')
+    try {
+      const res = await fetch('http://localhost:3000/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
+
+      if (res.ok) {
+        localStorage.setItem('adminAuth', 'true')
+        localStorage.setItem('currentAdmin', username)
+        navigate('/admin')
+      } else if (res.status === 401) {
+        setError('Usuario o contraseña incorrectos')
+      } else {
+        setError('Error al autenticar')
       }
     })()
 
