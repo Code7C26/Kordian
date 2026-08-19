@@ -4,14 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ARPRICE</title>
-    <script type="module" crossorigin src="/assets/index-DvitUsxb.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DK4jvn0u.css">
+    <script type="module" crossorigin src="/assets/index-DDNWaOlP.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-IyjKO5sJ.css">
   </head>
 
   <body>
     <!-- Punto donde React monta toda la app -->
     <div id="root"></div>
 
-    <!-- Entrada principal de React -->
+    <!-- Entrada principal de React -->
+    <!-- Global fallback for older HMR bundles that may reference selectedCity directly -->
+    <script>
+      // Provide a global default so legacy/old compiled modules don't throw ReferenceError
+      if (typeof window.selectedCity === 'undefined') {
+        window.selectedCity = 'Alta Gracia'
+      }
+      if (typeof window.setSelectedCity === 'undefined') {
+        window.setSelectedCity = (v) => { window.selectedCity = v }
+      }
+    </script>
+
   </body>
 </html>

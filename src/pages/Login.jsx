@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 export default function Login() {
@@ -9,6 +9,14 @@ export default function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault()
+
+    ;(async () => {
+      try {
+        const res = await fetch('http://localhost:3000/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        })
 
     try {
       const res = await fetch('http://localhost:3000/login', {
@@ -26,10 +34,8 @@ export default function Login() {
       } else {
         setError('Error al autenticar')
       }
-    } catch (err) {
-      console.error(err)
-      setError('Error de red')
-    }
+    })()
+
   }
 
   return (
@@ -79,13 +85,6 @@ export default function Login() {
               Ingresar
             </button>
 
-            <button
-              type="button"
-              onClick={() => navigate('/admin')}
-              className="w-full rounded-2xl border border-sky-500 bg-sky-500/10 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-500/20"
-            >
-              Actualizar Precios
-            </button>
           </form>
 
           <div className="mt-6 rounded-3xl bg-sky-50 p-4 text-sm text-sky-700 dark:bg-sky-950/40 dark:text-sky-200">

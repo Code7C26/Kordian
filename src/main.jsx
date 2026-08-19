@@ -5,18 +5,24 @@ import './index.css'
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 
+
 import App from './App'
 import Admin from './pages/Admin'
 import Login from './pages/Login'
 import ProtectedRoute from './components/ProtectedRoute'
+import { SelectedCityProvider } from './contexts/SelectedCityContext.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <Routes>
+    <SelectedCityProvider>
+      <BrowserRouter>
+        <Routes>
 
         {/* HOME */}
         <Route path="/" element={<App />} />
+
+        {/* SEARCH RESULTS */}
+        <Route path="/buscar" element={<App />} />
 
         {/* LOGIN */}
         <Route path="/login" element={<Login />} />
@@ -32,6 +38,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         />
 
       </Routes>
-    </BrowserRouter>
+      </BrowserRouter>
+    </SelectedCityProvider>
   </React.StrictMode>
 )

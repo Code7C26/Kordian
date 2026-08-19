@@ -469,7 +469,7 @@ export const MOCK_PRODUCTS: Product[] = [
     description: 'Pantalla 6.5" FHD+ 120Hz, cámara principal 50 MP con OIS y batería de 5000 mAh.',
     primaryStore: {
       id: 'fravega',
-      name: 'Frávega CABA',
+      name: 'Frávega',
       badgeColor: 'bg-indigo-600'
     },
     otherStores: [
