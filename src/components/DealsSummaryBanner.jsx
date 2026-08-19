@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Flame, AlertTriangle, Store } from 'lucide-react';
+import { useState } from 'react';
+import { Flame, AlertTriangle } from 'lucide-react';
 import { formatCurrency, formatPercentage } from '../utils/formatters';
 
 export function DealsSummaryBanner({ products, onSelectProduct }) {
@@ -47,7 +47,7 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
           </button>
         </div>
         <span className="text-xs text-stone-400 font-medium hidden sm:inline">
-          Monitoreo en tiempo real de cadenas en CABA/GBA
+          Monitoreo en tiempo real de cadenas
         </span>
       </div>
 

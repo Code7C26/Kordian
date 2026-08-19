@@ -34,7 +34,10 @@ export function ProductCard({
   const selectedOffer = sortedStores.find((store) => store.id === selectedOfferId) || sortedStores[0] || null;
 
   const handleAddToBasket = () => {
-    onAddToBasket(product, selectedOffer || undefined);
+    // Always add the best (cheapest) available offer when clicking +Canasta
+    const best = sortedStores.length ? sortedStores[0] : null;
+    const offerToAdd = best ? { id: best.id, price: best.price, supermarket: best.supermarket || best.storeName } : selectedOffer || undefined;
+    onAddToBasket(product, offerToAdd);
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 2000);
   };
@@ -82,9 +85,15 @@ export function ProductCard({
       <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
         <div className="space-y-1">
           <div className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider flex items-center justify-between">
-            <span>{product.brand}</span>
+            <span>{product.brand || 'N/A'}</span>
             <span>{product.unit}</span>
           </div>
+
+          {product.subcategory && (
+            <div className="text-[9px] text-stone-500 dark:text-stone-400 capitalize">
+              Categoría: {product.subcategory}
+            </div>
+          )}
 
           <h3 className="text-sm font-bold text-stone-900 dark:text-white line-clamp-2 h-10 leading-snug group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
             {product.name}
@@ -120,26 +129,7 @@ export function ProductCard({
           </span>
         </div>
 
-        <div className="space-y-2 pt-2">
-          <label className="block text-[10px] uppercase tracking-[0.24em] text-stone-400 font-bold">Elegir oferta</label>
-          <select
-            value={selectedOfferId || ''}
-            onChange={(e) => setSelectedOfferId(e.target.value)}
-            className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-          >
-            {sortedStores.length ? (
-              sortedStores.map((store) => (
-                <option key={store.id} value={store.id}>
-                  {store.supermarket || store.storeName || 'Tienda'} — {formatCurrency(store.price)}
-                </option>
-              ))
-            ) : (
-              <option value="">Precio actual — {formatCurrency(product.currentPrice)}</option>
-            )}
-          </select>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 pt-1">
+        <div className="grid grid-cols-2 gap-2 pt-2">
           <button
             onClick={() => onCompare(product)}
             className="flex items-center justify-center gap-1 px-2.5 py-2.5 bg-stone-100 dark:bg-stone-700/80 hover:bg-sky-50 dark:hover:bg-sky-950/60 text-stone-800 dark:text-stone-200 hover:text-sky-700 dark:hover:text-sky-300 rounded-xl text-xs font-bold transition-colors border border-stone-200/80 dark:border-stone-600 cursor-pointer"

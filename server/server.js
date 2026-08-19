@@ -1,1464 +1,482 @@
 const express = require('express')
 const cors = require('cors')
-
-const multer = require('multer')
-const csv = require('csv-parser')
-const fs = require('fs')
-
-const supabase = require('./supabase')
-<<<<<<< HEAD
-=======
-const bcrypt = require('bcryptjs')
-
-// Set DEBUG=true to enable verbose logs (avoid in production)
-const DEBUG = process.env.DEBUG === 'true'
->>>>>>> origin/main
-
 const app = express()
-// =====================================
-// CACHE
-// =====================================
 
-let productsCache = null
-
-let cacheTimestamp = 0
-
-const CACHE_DURATION =
-  30000 // 30 segundos
 app.use(cors())
 app.use(express.json())
 
-// =====================================
-// MULTER
-// =====================================
+const supabase = require('./supabase')
 
-const upload = multer({
-  storage: multer.diskStorage({
-
-    destination: function (
-      req,
-      file,
-      cb
-    ) {
-
-      cb(null, 'uploads/')
-    },
-
-    filename: function (
-      req,
-      file,
-      cb
-    ) {
-
-      cb(
-        null,
-
-        Date.now() +
-          '-' +
-          file.originalname
-      )
-    },
-  }),
-})
-
-// =====================================
-// PRODUCTS
-// =====================================
-
-// =====================================
-// GET PRODUCTS
-// PAGINATION + SEARCH + CACHE
-// =====================================
-
+// GET /products - fetch from Supabase with simple filters + pagination
 app.get('/products', async (req, res) => {
-
   try {
+    const page = Number(req.query.page || 1)
+    const limit = Number(req.query.limit || 20)
+    const search = req.query.search || ''
+    const category = req.query.category || ''
+    const brand = req.query.brand || ''
+    const supermarket = req.query.supermarket || ''
 
-    // =====================================
-    // QUERY PARAMS
-    // =====================================
+    // include related offers so frontend can compute prices
+    let query = supabase.from('products').select('*, offers(*)')
 
-    const page =
-      parseInt(req.query.page) || 1
-
-    const limit =
-      parseInt(req.query.limit) || 20
-
-    const search =
-      req.query.search || ''
-
-    const start =
-      (page - 1) * limit
-
-    const end =
-      start + limit - 1
-
-    // =====================================
-    // CACHE KEY
-    // =====================================
-
-    const cacheKey =
-      `${page}-${limit}-${search}`
-
-    // =====================================
-    // INIT CACHE OBJECT
-    // =====================================
-
-    if (!global.productsCache) {
-
-      global.productsCache = {}
+    if (search) {
+      // simple name ilike search
+      query = query.ilike('name', `%${search}%`)
     }
 
-    // =====================================
-    // RETURN CACHE
-    // =====================================
+    if (category) query = query.eq('category_id', category)
+    if (brand) query = query.eq('brand_id', brand)
+    if (supermarket) query = query.eq('supermarket', supermarket)
 
-    const cache =
-      global.productsCache[
-        cacheKey
-      ]
+    const from = (page - 1) * limit
+    const to = from + limit - 1
 
-    if (
+    const { data, error } = await query.range(from, to)
 
-      cache &&
-
-      Date.now() -
-        cache.timestamp <
-<<<<<<< HEAD
-        30000
-=======
-        5000
->>>>>>> origin/main
-
-    ) {
-
-      console.log(
-        'RETURNING CACHE'
-      )
-
-      return res.json(
-        cache.data
-      )
+    if (error) {
+      console.error('Supabase error:', error)
+      return res.status(500).json({ error: 'Error fetching products' })
     }
 
-    // =====================================
-    // GET PRODUCTS
-    // =====================================
-
-    let query = supabase
-
-    .from('products')
-
-    .select(`
-      *,
-      categories (
-        id,
-        name
-      ),
-      brands (
-        id,
-        name
-      )
-    `)
-
-    // SEARCH
-
-    query =
-      query.ilike(
-        'name',
-        `%${search}%`
-      )
-
-    // PAGINATION
-
-    query =
-      query.range(
-        start,
-        end
-      )
-
-    const {
-      data: products,
-      error: productsError,
-    } = await query
-
-    if (productsError) {
-
-      return res.status(500).json({
-        error:
-          productsError.message,
-      })
-    }
-
-    // =====================================
-    // GET OFFERS
-    // =====================================
-
-    const productIds =
-      products.map(
-        (p) => p.id
-      )
-
-    const {
-      data: offers,
-      error: offersError,
-    } = await supabase
-
-      .from('offers')
-
-      .select('*')
-
-      .in(
-        'product_id',
-        productIds
-      )
-      
-    if (offersError) {
-
-      return res.status(500).json({
-        error:
-          offersError.message,
-      })
-    }
-
-    // =====================================
-    // OFFERS MAP
-    // =====================================
-
-    const offersMap = {}
-
-    offers.forEach((offer) => {
-
-      if (
-        !offersMap[
-          offer.product_id
-        ]
-      ) {
-
-        offersMap[
-          offer.product_id
-        ] = []
-<<<<<<< HEAD
-=======
-      }
-
-      offersMap[
-        offer.product_id
-      ].push(offer)
-    })
-
-    // =====================================
-    // PRODUCTOS AGRUPADOS
-    // =====================================
-
-    const groupedProducts = []
-
-    for (const product of products) {
-      const existing = groupedProducts.find(
-        (p) =>
-          p.name.trim().toLowerCase() ===
-          product.name.trim().toLowerCase()
-      )
-
-      if (!existing) {
-        groupedProducts.push({
-          ...product,
-          offers: offersMap[product.id] || [],
-        })
-      } else {
-        existing.offers.push(...(offersMap[product.id] || []))
->>>>>>> origin/main
-      }
-
-      offersMap[
-        offer.product_id
-      ].push(offer)
-    })
-
-// =====================================
-// PRODUCTOS AGRUPADOS
-// =====================================
-
-  const groupedProducts = []
-
-  for (const product of products) {
-
-    const existing = groupedProducts.find(
-      (p) =>
-        p.name.trim().toLowerCase() ===
-        product.name.trim().toLowerCase()
-    )
-
-    if (!existing) {
-
-      groupedProducts.push({
-        ...product,
-        offers: offersMap[product.id] || [],
-      })
-
-    } else {
-
-      existing.offers.push(
-        ...(offersMap[product.id] || [])
-      )
-
-    }
-
-<<<<<<< HEAD
-  }
-
-// =====================================
-// SAVE CACHE
-// =====================================
-
-global.productsCache[cacheKey] = {
-  data: groupedProducts,
-  timestamp: Date.now(),
-}
-
-console.log("CACHE UPDATED")
-
-res.json(groupedProducts)
-
-} catch (err) {
-
-  console.log(err)
-
-  res.status(500).json({
-    error:
-      'Internal server error',
-  })
-}
-})
-// =====================================
-// CSV UPLOAD
-// =====================================
-
-=======
-    // =====================================
-    // SAVE CACHE
-    // =====================================
-    global.productsCache[cacheKey] = {
-      data: groupedProducts,
-      timestamp: Date.now(),
-    }
-
-    console.log('CACHE UPDATED')
-    return res.json(groupedProducts)
+    res.json(data || [])
   } catch (err) {
-    console.log(err)
-    return res.status(500).json({
-      error: 'Internal server error',
-    })
+    console.error(err)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
-// =====================================
-// CSV UPLOAD
-// =====================================
 
->>>>>>> origin/main
-app.post(
-  '/upload-csv',
-  upload.single('file'),
-
-  async (req, res) => {
-
-    const results = []
-
-    fs.createReadStream(req.file.path)
-      .pipe(csv({
-        separator: ';',
-        skipLines: 0
-      }))
-      .on('data', (data) => {
-<<<<<<< HEAD
-
-          console.log("FILA CSV RECIBIDA:")
-          console.log(data)
-
-=======
-          if (DEBUG) {
-            console.log('FILA CSV RECIBIDA:')
-            console.log(data)
-          }
->>>>>>> origin/main
-          results.push(data)
-        })
-      .on('end', async () => {
-
-        try {
-
-          const { data: allProducts } =
-            await supabase.from('products').select('*')
-          const { data: allOffers } =
-            await supabase.from('offers').select('*')
-          const { data: allBrands } =
-            await supabase
-              .from('brands')
-              .select('*')
-          const { data: allCategories } =
-            await supabase
-              .from('categories')
-              .select('*')
-          for (const row of results) {
-
-            // =====================================
-            // VALIDACIÓN REAL
-            // =====================================
-<<<<<<< HEAD
-            console.log(Object.keys(row))
-=======
-            if (DEBUG) console.log(Object.keys(row))
->>>>>>> origin/main
-            const name =
-              (row.name ||
-              row['\uFEFFname'])?.trim()
-            const brand = row.brand?.trim()
-            const category = row.category?.trim()
-// =====================================
-// BRAND
-// =====================================
-
-      let existingBrand =
-        allBrands.find(
-          (b) =>
-            b.name?.toLowerCase() ===
-            brand.toLowerCase()
-        )
-
-      if (!existingBrand) {
-
-        const {
-          data: newBrand,
-          error: brandError,
-        } = await supabase
-
-          .from('brands')
-
-          .insert([
-            {
-              name: brand,
-            },
-          ])
-
-          .select()
-
-          .single()
-
-        if (brandError) {
-<<<<<<< HEAD
-
-          console.log(
-            "ERROR CREANDO MARCA:"
-          )
-
-          console.log(
-            brandError.message
-          )
-
-=======
-          console.error('ERROR CREANDO MARCA:', brandError.message)
->>>>>>> origin/main
-          continue
-        }
-
-        existingBrand = newBrand
-
-        allBrands.push(newBrand)
-      }
-
-      const brand_id =
-        existingBrand.id
-
-// =====================================
-// CATEGORY
-// =====================================
-
-      let existingCategory =
-        allCategories.find(
-          (c) =>
-            c.name?.toLowerCase() ===
-            category.toLowerCase()
-        )
-
-      if (!existingCategory) {
-
-        const {
-          data: newCategory,
-          error: categoryError,
-        } = await supabase
-
-          .from('categories')
-
-          .insert([
-            {
-              name: category,
-            },
-          ])
-
-          .select()
-
-          .single()
-
-        if (categoryError) {
-<<<<<<< HEAD
-
-          console.log(
-            "ERROR CREANDO CATEGORIA:"
-          )
-
-          console.log(
-            categoryError.message
-          )
-
-=======
-          console.error('ERROR CREANDO CATEGORIA:', categoryError.message)
->>>>>>> origin/main
-          continue
-        }
-
-        existingCategory = newCategory
-
-        allCategories.push(newCategory)
-      }
-
-      const category_id =
-        existingCategory.id
-            const rating =
-              row.rating
-                ? Number(
-                    row.rating.replace(',', '.')
-                  )
-                : null
-            const image = row.image
-            const supermarket = row.supermarket?.trim()
-            const cashPrice = row.cashPrice
-            const installmentsQuantity = row.installmentsQuantity
-            const installmentPrice = row.installmentPrice
-
-<<<<<<< HEAD
-            console.log({
-              name,
-              brand,
-              supermarket
-          })
-
-          console.log("name vacío:", !name)
-          console.log("brand vacío:", !brand)
-          console.log("supermarket vacío:", !supermarket)
-=======
-            if (DEBUG) console.log({ name, brand, supermarket })
-            if (DEBUG) {
-              console.log('name vacío:', !name)
-              console.log('brand vacío:', !brand)
-              console.log('supermarket vacío:', !supermarket)
-            }
->>>>>>> origin/main
-
-          if (!name || !brand || !supermarket) {
-              console.log("FILA INVALIDA IGNORADA")
-              continue
-}
-
-            // =====================================
-            // PRODUCTO EXISTENTE
-            // =====================================
-<<<<<<< HEAD
-            console.log(
-              "PASO MARCA Y CATEGORIA OK"
-            )
-
-            console.log({
-              name,
-              brand_id,
-              category_id,
-              rating
-            })
-          
-            console.log("TODOS LOS PRODUCTOS:");
-            console.log(allProducts);
-
-            console.log("CANTIDAD:");
-            console.log(allProducts.length);
-            console.log("BUSCANDO:", name)
-
-            const existingProduct = allProducts.find((p) => {
-              console.log("----------------");
-              console.log("BD:", p.name);
-              console.log("CSV:", name);
-              console.log(
-                p.name?.trim().toLowerCase() ===
-                name.trim().toLowerCase()
-              );
-=======
-            if (DEBUG) console.log('PASO MARCA Y CATEGORIA OK')
-            if (DEBUG) console.log({ name, brand_id, category_id, rating })
-            if (DEBUG) console.log('TODOS LOS PRODUCTOS:', allProducts.length)
-            if (DEBUG) console.log('BUSCANDO:', name)
-
-            const existingProduct = allProducts.find((p) => {
-              if (DEBUG) {
-                console.log('----------------')
-                console.log('BD:', p.name)
-                console.log('CSV:', name)
-                console.log(p.name?.trim().toLowerCase() === name.trim().toLowerCase())
-              }
->>>>>>> origin/main
-
-              return (
-                p.name?.trim().toLowerCase() ===
-                name.trim().toLowerCase()
-              );
-            });
-
-<<<<<<< HEAD
-            console.log("ENCONTRADO:")
-            console.log(existingProduct)
-=======
-            if (DEBUG) console.log('ENCONTRADO:', existingProduct)
->>>>>>> origin/main
-            let productId
-
-            // =====================================
-            // CREAR PRODUCTO
-            // =====================================
-
-            if (!existingProduct) {
-
-             const { 
-                data: newProduct, 
-                error 
-              } =
-              await supabase
-                .from('products')
-                .insert([{
-                  name,
-                  category_id,
-                  brand_id,
-                  rating,
-                  image
-                }])
-                .select()
-
-<<<<<<< HEAD
-              console.log("INTENTO CREAR PRODUCTO")
-              console.log({
-                name,
-                category_id,
-                brand_id,
-                rating,
-                image
-              })
-
-              console.log("RESULTADO PRODUCTO")
-              console.log(newProduct)
-
-              console.log("ERROR PRODUCTO")
-              console.log(error)
-              if (error || !newProduct?.length) {
-                console.log('ERROR PRODUCTO:', error)
-=======
-              if (DEBUG) console.log('INTENTO CREAR PRODUCTO', { name, category_id, brand_id, rating, image })
-              if (DEBUG) console.log('RESULTADO PRODUCTO', newProduct)
-              if (error || !newProduct?.length) {
-                console.error('ERROR PRODUCTO:', error)
->>>>>>> origin/main
-                continue
-              }
-
-              productId = newProduct[0].id
-              allProducts.push(newProduct[0])
-            } else {
-              productId = existingProduct.id
-            }
-
-            // =====================================
-            // OFFER EXISTENTE
-            // =====================================
-
-            let repeatedOffer = allOffers.find(
-              (o) =>
-                o.product_id === productId &&
-                o.supermarket?.toLowerCase() === supermarket.toLowerCase()
-            )
-
-            // =====================================
-            // UPDATE OFFER
-            // =====================================
-
-            if (repeatedOffer) {
-
-              await supabase
-                .from('offers')
-                .update({
-                  cash_price: cashPrice,
-                  installments_quantity: installmentsQuantity || null,
-                  installment_price: installmentPrice || null,
-                })
-                .eq('id', repeatedOffer.id)
-
-            } else {
-
-              // =====================================
-              // CREATE OFFER
-              // =====================================
-
-              await supabase
-                .from('offers')
-                .insert([{
-                  product_id: productId,
-                  supermarket,
-                  cash_price: cashPrice,
-                  installments_quantity: installmentsQuantity || null,
-                  installment_price: installmentPrice || null,
-                }])
-            }
-          }
-
-          fs.unlinkSync(req.file.path)
-
-          global.productsCache = {}
-
-          res.json({ success: true })
-
-        } catch (err) {
-          console.log(err)
-          res.status(500).json({ error: err.message })
-        }
-      })
+app.post('/upload-csv', (req, res) => {
+  res.json({ success: true })
+})
+
+app.get('/categories', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('categories').select('id, name')
+    if (error) return res.status(500).json([])
+    res.json(data || [])
+  } catch (e) {
+    res.status(500).json([])
   }
-)
+})
 
-// =====================================
-// UPDATE PRODUCT
-// =====================================
-
-app.put(
-  '/products/:id',
-
-  async (req, res) => {
-
-    try {
-
-      const { id } = req.params
-
-      const {
-
-        name,
-        category_id,
-        brand_id,
-        rating,
-        image,
-
-      } = req.body
-
-      const { error } =
-        await supabase
-
-          .from('products')
-
-          .update({
-
-            name,
-            category_id,
-            brand_id,
-            rating,
-            image,
-
-          })
-
-          .eq('id', id)
-
-      if (error) {
-
-        return res.status(500).json({
-          error: error.message,
-        })
-      }
-
-      global.productsCache = {}
-
-      res.json({
-        success: true,
-      })
-
+app.post('/categories', async (req, res) => {
+  try {
+    const { name } = req.body || {}
+    if (!name) return res.status(400).json({ error: 'Category name is required' })
+    const { data, error } = await supabase.from('categories').insert({ name }).select().single()
+    if (error) {
+      console.error('Error creating category', error)
+      return res.status(500).json({ error: 'Error creating category' })
     }
-
-    catch (err) {
-
-      console.log(err)
-
-      res.status(500).json({
-        error: err.message,
-      })
-
-    }
-
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
   }
-)
+})
 
-// =====================================
-// DELETE PRODUCT
-// =====================================
-
-app.delete(
-  '/products/:id',
-
-  async (req, res) => {
-
+app.put('/categories/:id', async (req, res) => {
+  try {
+    const { name } = req.body || {}
     const { id } = req.params
-
-    await supabase
-      .from('offers')
-      .delete()
-      .eq(
-        'product_id',
-        id
-      )
-
-    await supabase
-      .from('products')
-      .delete()
-      .eq('id', id)
-    global.productsCache = {}
-    res.json({
-      success: true,
-    })
+    if (!name) return res.status(400).json({ error: 'Category name is required' })
+    const { data, error } = await supabase.from('categories').update({ name }).eq('id', id).select().single()
+    if (error) {
+      console.error('Error updating category', error)
+      return res.status(500).json({ error: 'Error updating category' })
+    }
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
   }
-)
-// =====================================
-// CREATE PRODUCT
-// =====================================
+})
+
+app.delete('/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { error } = await supabase.from('categories').delete().eq('id', id)
+    if (error) {
+      console.error('Error deleting category', error)
+      return res.status(500).json({ error: 'Error deleting category' })
+    }
+    res.json({ success: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.get('/brands', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('brands').select('id, name')
+    if (error) return res.status(500).json([])
+    res.json(data || [])
+  } catch (e) {
+    res.status(500).json([])
+  }
+})
+
+app.post('/brands', async (req, res) => {
+  try {
+    const { name } = req.body || {}
+    if (!name) return res.status(400).json({ error: 'Brand name is required' })
+    const { data, error } = await supabase.from('brands').insert({ name }).select().single()
+    if (error) {
+      console.error('Error creating brand', error)
+      return res.status(500).json({ error: 'Error creating brand' })
+    }
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.put('/brands/:id', async (req, res) => {
+  try {
+    const { name } = req.body || {}
+    const { id } = req.params
+    if (!name) return res.status(400).json({ error: 'Brand name is required' })
+    const { data, error } = await supabase.from('brands').update({ name }).eq('id', id).select().single()
+    if (error) {
+      console.error('Error updating brand', error)
+      return res.status(500).json({ error: 'Error updating brand' })
+    }
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.delete('/brands/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { error } = await supabase.from('brands').delete().eq('id', id)
+    if (error) {
+      console.error('Error deleting brand', error)
+      return res.status(500).json({ error: 'Error deleting brand' })
+    }
+    res.json({ success: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
 app.post('/products', async (req, res) => {
-
   try {
-
     const {
-
       name,
       category_id,
       brand_id,
       rating,
       image,
-
       supermarket,
       cashPrice,
-
       installmentsQuantity,
       installmentPrice,
+    } = req.body || {}
 
-    } = req.body
+    if (!name) return res.status(400).json({ error: 'Product name is required' })
 
-    // ============================
-    // CREATE PRODUCT
-    // ============================
-
-    const {
-      data: product,
-      error: productError,
-    } = await supabase
-
+    const { data: product, error: productError } = await supabase
       .from('products')
-
-      .insert([
-        {
-          name,
-          category_id,
-          brand_id,
-          rating,
-          image,
-        },
-      ])
-
+      .insert({
+        name,
+        category_id,
+        brand_id,
+        rating,
+        image,
+      })
       .select()
-
-<<<<<<< HEAD
       .single()
 
     if (productError) {
-
-      return res.status(500).json({
-        error:
-          productError.message,
-=======
-    if (productError) {
-
-      return res.status(500).json({
-        error: productError.message,
->>>>>>> origin/main
-      })
+      console.error('Error creating product', productError)
+      return res.status(500).json({ error: 'Error creating product' })
     }
 
-    // ============================
-    // CREATE OFFER
-    // ============================
-
-    const {
-      error: offerError,
-    } = await supabase
-
-      .from('offers')
-
-      .insert([
-        {
-          product_id:
-            product.id,
-
-          supermarket,
-
-          cash_price:
-            cashPrice,
-
-          installments_quantity:
-            installmentsQuantity || null,
-
-          installment_price:
-            installmentPrice || null,
-        },
-      ])
-
-    if (offerError) {
-
-      return res.status(500).json({
-<<<<<<< HEAD
-        error:
-          offerError.message,
-=======
-        error: offerError.message,
->>>>>>> origin/main
-      })
-    }
-
-    global.productsCache = {}
-
-    res.json({
-      success: true,
-    })
-<<<<<<< HEAD
-
-  }
-
-  catch (err) {
-=======
-  } catch (err) {
->>>>>>> origin/main
-
-    console.log(err)
-
-    res.status(500).json({
-<<<<<<< HEAD
-      error:
-        err.message,
-=======
-      error: err.message,
->>>>>>> origin/main
-    })
-  }
-})
-// =====================================
-// UPDATE OFFER
-// =====================================
-
-<<<<<<< HEAD
-app.put(
-  '/offers/:id',
-
-  async (req, res) => {
-
-    const { id } = req.params
-
-    const {
-
-      cash_price,
-      installments_quantity,
-      installment_price,
-
-    } = req.body
-
-    const { error } =
-      await supabase
+    let offer = null
+    if (supermarket || cashPrice || installmentsQuantity || installmentPrice) {
+      const { data: newOffer, error: offerError } = await supabase
         .from('offers')
-        .update({
-
-          cash_price,
-
-          installments_quantity,
-
-          installment_price,
+        .insert({
+          product_id: product.id,
+          supermarket: supermarket || 'Sin supermercado',
+          cash_price: cashPrice || null,
+          installments_quantity: installmentsQuantity || null,
+          installment_price: installmentPrice || null,
         })
-        .eq('id', id)
+        .select()
+        .single()
 
-    if (error) {
-
-      return res.status(500).json({
-        error: error.message,
-      })
+      if (offerError) {
+        console.error('Error creating offer', offerError)
+        return res.status(500).json({ error: 'Error creating offer' })
+      }
+      offer = newOffer
     }
-    global.productsCache = {}
-    res.json({
-      success: true,
-    })
+
+    const responsePayload = { ...product, offers: offer ? [offer] : [] }
+    res.json(responsePayload)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
   }
-)
-
-// =====================================
-// DELETE OFFER
-// =====================================
-
-app.delete(
-  '/offers/:id',
-
-  async (req, res) => {
-
-    const { id } = req.params
-
-    await supabase
-      .from('offers')
-      .delete()
-      .eq('id', id)
-    global.productsCache = {}
-    res.json({
-      success: true,
-    })
-  }
-)
-// =====================================
-// CATEGORIES
-// =====================================
-
-app.get('/categories', async (req, res) => {
-
-  const { data, error } =
-    await supabase
-      .from('categories')
-      .select('*')
-      .order('name')
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
-  }
-
-  res.json(data)
 })
 
-=======
 app.put('/products/:id', async (req, res) => {
-  const { id } = req.params
-  const {
-    name,
-    category_id,
-    brand_id,
-    rating,
-    image,
-  } = req.body
+  try {
+    const { id } = req.params
+    const { name, category_id, brand_id, rating, image } = req.body || {}
+    const { data, error } = await supabase
+      .from('products')
+      .update({ name, category_id, brand_id, rating, image })
+      .eq('id', id)
+      .select()
+      .single()
 
-  const { error } = await supabase
-    .from('products')
-    .update({ name, category_id, brand_id, rating, image })
-    .eq('id', id)
+    if (error) {
+      console.error('Error updating product', error)
+      return res.status(500).json({ error: 'Error updating product' })
+    }
 
-  if (error) {
-    return res.status(500).json({ error: error.message })
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
   }
-
-  global.productsCache = {}
-  res.json({ success: true })
 })
 
-// =====================================
-// UPDATE OFFER
-// =====================================
-
-app.put(
-  '/offers/:id',
-
-  async (req, res) => {
-
+app.delete('/products/:id', async (req, res) => {
+  try {
     const { id } = req.params
+    await supabase.from('offers').delete().eq('product_id', id)
+    const { error } = await supabase.from('products').delete().eq('id', id)
+    if (error) {
+      console.error('Error deleting product', error)
+      return res.status(500).json({ error: 'Error deleting product' })
+    }
+    res.json({ success: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
+app.post('/offers', async (req, res) => {
+  try {
     const {
-
+      product_id,
+      supermarket,
       cash_price,
       installments_quantity,
       installment_price,
+    } = req.body || {}
 
-    } = req.body
+    if (!product_id) return res.status(400).json({ error: 'product_id is required' })
 
-    const { error } =
-      await supabase
-        .from('offers')
-        .update({
-
-          cash_price,
-
-          installments_quantity,
-
-          installment_price,
-        })
-        .eq('id', id)
+    const { data, error } = await supabase
+      .from('offers')
+      .insert({
+        product_id,
+        supermarket: supermarket || 'Sin supermercado',
+        cash_price: cash_price || null,
+        installments_quantity: installments_quantity || null,
+        installment_price: installment_price || null,
+      })
+      .select()
+      .single()
 
     if (error) {
-
-      return res.status(500).json({
-        error: error.message,
-      })
+      console.error('Error creating offer', error)
+      return res.status(500).json({ error: 'Error creating offer' })
     }
-    global.productsCache = {}
-    res.json({
-      success: true,
-    })
+
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
   }
-)
+})
 
-// =====================================
-// DELETE OFFER
-// =====================================
-
-app.delete(
-  '/offers/:id',
-
-  async (req, res) => {
-
+app.put('/offers/:id', async (req, res) => {
+  try {
     const { id } = req.params
+    const {
+      supermarket,
+      cash_price,
+      installments_quantity,
+      installment_price,
+    } = req.body || {}
 
-    await supabase
+    const { data, error } = await supabase
       .from('offers')
-      .delete()
+      .update({ supermarket, cash_price, installments_quantity, installment_price })
       .eq('id', id)
-    global.productsCache = {}
-    res.json({
-      success: true,
-    })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating offer', error)
+      return res.status(500).json({ error: 'Error updating offer' })
+    }
+
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
   }
-)
-// =====================================
-// CATEGORIES
-// =====================================
-
-app.get('/categories', async (req, res) => {
-
-  const { data, error } =
-    await supabase
-      .from('categories')
-      .select('*')
-      .order('name')
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
-  }
-
-  res.json(data)
 })
 
->>>>>>> origin/main
-app.post('/categories', async (req, res) => {
-
-  const { name } = req.body
-
-  const { error } =
-    await supabase
-      .from('categories')
-      .insert([
-        { name }
-      ])
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
+app.delete('/offers/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { error } = await supabase.from('offers').delete().eq('id', id)
+    if (error) {
+      console.error('Error deleting offer', error)
+      return res.status(500).json({ error: 'Error deleting offer' })
+    }
+    res.json({ success: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
   }
-
-  res.json({
-    success: true,
-  })
 })
-<<<<<<< HEAD
-=======
-
-app.put('/categories/:id', async (req, res) => {
-  const { id } = req.params
-  const { name } = req.body
-
-  const { error } = await supabase
-    .from('categories')
-    .update({ name })
-    .eq('id', id)
-
-  if (error) {
-    return res.status(500).json({ error: error.message })
-  }
-
-  res.json({ success: true })
-})
-
-app.delete('/categories/:id', async (req, res) => {
-  const { id } = req.params
-  const { error } = await supabase
-    .from('categories')
-    .delete()
-    .eq('id', id)
-
-  if (error) {
-    return res.status(500).json({ error: error.message })
-  }
-
-  res.json({ success: true })
-})
->>>>>>> origin/main
-// =====================================
-// BRANDS
-// =====================================
-
-app.get('/brands', async (req, res) => {
-
-  const { data, error } =
-    await supabase
-      .from('brands')
-      .select('*')
-      .order('name')
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
-  }
-
-  res.json(data)
-})
-
-app.post('/brands', async (req, res) => {
-
-  const { name } = req.body
-
-  const { error } =
-    await supabase
-      .from('brands')
-      .insert([
-        { name }
-      ])
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
-  }
-
-  res.json({
-    success: true,
-  })
-})
-<<<<<<< HEAD
-=======
-
-app.put('/brands/:id', async (req, res) => {
-  const { id } = req.params
-  const { name } = req.body
-
-  const { error } = await supabase
-    .from('brands')
-    .update({ name })
-    .eq('id', id)
-
-  if (error) {
-    return res.status(500).json({ error: error.message })
-  }
-
-  res.json({ success: true })
-})
-
-app.delete('/brands/:id', async (req, res) => {
-  const { id } = req.params
-  const { error } = await supabase
-    .from('brands')
-    .delete()
-    .eq('id', id)
-
-  if (error) {
-    return res.status(500).json({ error: error.message })
-  }
-
-  res.json({ success: true })
-})
->>>>>>> origin/main
-// =====================================
-// ADMINS
-// =====================================
 
 app.get('/admins', async (req, res) => {
-<<<<<<< HEAD
-
-  const {
-    data,
-    error,
-  } = await supabase
-    .from('admins')
-    .select('*')
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
+  try {
+    const { data, error } = await supabase.from('admins').select('id, username')
+    if (error) {
+      console.error('Error fetching admins', error)
+      return res.status(500).json([])
+    }
+    res.json(data || [])
+  } catch (e) {
+    console.error(e)
+    res.status(500).json([])
   }
-
-  res.json(data)
 })
 
 app.post('/admins', async (req, res) => {
-
-  const {
-    username,
-    password,
-  } = req.body
-
-  const { error } =
-    await supabase
-      .from('admins')
-      .insert([
-        {
-          username,
-          password,
-        },
-      ])
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
-  }
-  global.productsCache = {}
-  res.json({
-    success: true,
-  })
-=======
   try {
-    // Do NOT return passwords
-    const { data, error } = await supabase.from('admins').select('id,username')
-    if (error) return res.status(500).json({ error: error.message })
+    const { username, password } = req.body || {}
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
+    const existing = await supabase.from('admins').select('id').eq('username', username).single()
+    if (existing.error && existing.error.code !== 'PGRST116') {
+      console.error('Error checking admin', existing.error)
+      return res.status(500).json({ error: 'Error checking admin' })
+    }
+    if (existing.data) return res.status(400).json({ error: 'Admin already exists' })
+    const { data, error } = await supabase.from('admins').insert({ username, password }).select('id, username').single()
+    if (error) {
+      console.error('Error creating admin', error)
+      return res.status(500).json({ error: 'Error creating admin' })
+    }
     res.json(data)
-  } catch (err) {
-    console.error(err)
+  } catch (e) {
+    console.error(e)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
-
-app.post('/admins', async (req, res) => {
-  try {
-    const { username, password } = req.body
-    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' })
-
-    const hashed = await bcrypt.hash(String(password), 10)
-
-    const { error } = await supabase.from('admins').insert([{ username, password: hashed }])
-    if (error) return res.status(500).json({ error: error.message })
-    global.productsCache = {}
-    res.json({ success: true })
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Internal server error' })
-  }
->>>>>>> origin/main
-})
-
-// =====================================
-// LOGIN
-// =====================================
 
 app.post('/login', async (req, res) => {
-<<<<<<< HEAD
-
-  const {
-    username,
-    password,
-  } = req.body
-
-  const {
-    data,
-    error,
-  } = await supabase
-    .from('admins')
-    .select('*')
-    .eq(
-      'username',
-      username
-    )
-    .eq(
-      'password',
-      password
-    )
-
-  if (error) {
-
-    return res.status(500).json({
-      error: error.message,
-    })
-  }
-
-  if (data.length === 0) {
-
-    return res.status(401).json({
-      error:
-        'Credenciales incorrectas',
-    })
-  }
-  global.productsCache = {}
-  res.json({
-    success: true,
-  })
-=======
   try {
-    const { username, password } = req.body
-    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' })
-
-    const { data, error } = await supabase.from('admins').select('*').eq('username', username).limit(1)
-    if (error) return res.status(500).json({ error: error.message })
-    if (!data || data.length === 0) return res.status(401).json({ error: 'Credenciales incorrectas' })
-
-    const admin = data[0]
-    const stored = admin.password || ''
-
-    // if stored password is hashed, compare with bcrypt
-    let match = false
-    if (stored.startsWith('$2')) {
-      match = await bcrypt.compare(String(password), stored)
-    } else {
-      // legacy plaintext entry - accept and migrate to hashed
-      if (stored === String(password)) {
-        match = true
-        const hashed = await bcrypt.hash(String(password), 10)
-        await supabase.from('admins').update({ password: hashed }).eq('id', admin.id)
-      }
+    const { username, password } = req.body || {}
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
+    const { data, error } = await supabase.from('admins').select('username, password').eq('username', username).single()
+    if (error || !data || data.password !== password) {
+      return res.status(401).json({ error: 'Invalid credentials' })
     }
-
-    if (!match) return res.status(401).json({ error: 'Credenciales incorrectas' })
-
-    global.productsCache = {}
     res.json({ success: true })
-  } catch (err) {
-    console.error(err)
+  } catch (e) {
+    console.error(e)
     res.status(500).json({ error: 'Internal server error' })
   }
->>>>>>> origin/main
 })
 
-// =====================================
-// SERVER
-// =====================================
+// Admin: update offers prices by category with a percentage
+app.post('/admin/update-prices', async (req, res) => {
+  try {
+    const { categoryId, brandId, percentage } = req.body || {}
+    if ((!categoryId && !brandId) || typeof percentage !== 'number') {
+      return res.status(400).json({ error: 'categoryId or brandId and numeric percentage required' })
+    }
 
-app.listen(3000, () => {
+    // fetch products with offers and filter locally by multiple possible category fields
+    const { data: allProducts, error: allErr } = await supabase.from('products').select('*, offers(*)')
+    if (allErr) {
+      console.error('Error fetching products', allErr)
+      return res.status(500).json({ error: 'Error fetching products' })
+    }
 
-  console.log(
-    'SERVER RUNNING ON PORT 3000'
-  )
+    const products = (allProducts || []).filter((p) => {
+      if (categoryId) {
+        const catCandidates = []
+        if (p.category_id) catCandidates.push(p.category_id)
+        if (p.category) catCandidates.push(p.category)
+        if (p['category.id']) catCandidates.push(p['category.id'])
+        if (p['category.name']) catCandidates.push(p['category.name'])
+        if (p.categories && p.categories.name) catCandidates.push(p.categories.name)
+        if (catCandidates.some((c) => c && String(c) === String(categoryId))) return true
+      }
+      if (brandId) {
+        const brandCandidates = []
+        if (p.brand_id) brandCandidates.push(p.brand_id)
+        if (p.brand) brandCandidates.push(p.brand)
+        if (p['brand.id']) brandCandidates.push(p['brand.id'])
+        if (p['brand.name']) brandCandidates.push(p['brand.name'])
+        if (p.brands && p.brands.name) brandCandidates.push(p.brands.name)
+        if (brandCandidates.some((b) => b && String(b) === String(brandId))) return true
+      }
+      return false
+    })
+
+    const productIds = products.map((p) => p.id).filter(Boolean)
+    if (!productIds.length) return res.json({ updated: 0 })
+
+    // fetch offers for these products
+    const { data: offers, error: offersErr } = await supabase.from('offers').select('*').in('product_id', productIds)
+    if (offersErr) {
+      console.error('Error fetching offers', offersErr)
+      return res.status(500).json({ error: 'Error fetching offers' })
+    }
+
+    // update each offer individually with the new price
+    let updatedCount = 0
+    for (const offer of offers || []) {
+      const current = Number(offer.cash_price || 0)
+      const newPrice = Math.round(current * (1 + percentage / 100))
+      const { error: upErr } = await supabase.from('offers').update({ cash_price: newPrice }).eq('id', offer.id)
+      if (upErr) console.error('Error updating offer', offer.id, upErr)
+      else updatedCount++
+    }
+
+    res.json({ updated: updatedCount })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+const desiredPort = process.env.PORT ? Number(process.env.PORT) : 3000
+let server = app.listen(desiredPort, () => {
+  const actual = server.address().port
+  console.log(`Server running on port ${actual}`)
+})
+
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.warn(`Port ${desiredPort} in use; falling back to an ephemeral port`)
+    server = app.listen(0, () => {
+      const actual = server.address().port
+      console.log(`Server running on fallback port ${actual}`)
+    })
+    server.on('error', (e) => console.error('Server error:', e.message))
+  } else {
+    console.error('Server error:', err && err.message)
+  }
 })

@@ -11,6 +11,16 @@
     <div id="root"></div>
 
     <!-- Entrada principal de React -->
+    <!-- Global fallback for older HMR bundles that may reference selectedCity directly -->
+    <script>
+      // Provide a global default so legacy/old compiled modules don't throw ReferenceError
+      if (typeof window.selectedCity === 'undefined') {
+        window.selectedCity = 'Alta Gracia'
+      }
+      if (typeof window.setSelectedCity === 'undefined') {
+        window.setSelectedCity = (v) => { window.selectedCity = v }
+      }
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

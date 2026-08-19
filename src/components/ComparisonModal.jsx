@@ -50,7 +50,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket })
             <button
               onClick={() => {
                 try {
-                  onAddToBasket(product);
+                  onAddToBasket(product, cheapestStore);
                 } catch (e) {
                   // ignore handler errors
                 }
@@ -98,12 +98,23 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket })
                         <p className="text-xs text-stone-500 dark:text-stone-400">Actualizado {store.lastUpdated || '—'}</p>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-0 border-stone-200/60 dark:border-stone-800 pt-2 sm:pt-0">
+                      <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-0 border-stone-200/60 dark:border-stone-800 pt-2 sm:pt-0">
                       {!isCheapest && <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold">+{formatCurrency(diffFromCheapest)}</span>}
-                      <div className="text-right">
+                      <div className="text-right flex items-center gap-3">
                         <span className={`text-xl font-black ${isCheapest ? 'text-emerald-700 dark:text-emerald-400' : isMostExpensive ? 'text-rose-600 dark:text-rose-400' : 'text-stone-900 dark:text-white'}`}>
                           {formatCurrency(store.price || 0)}
                         </span>
+                        <button
+                          onClick={() => {
+                            try {
+                              onAddToBasket(product, store);
+                            } catch (e) {}
+                          }}
+                          className="ml-2 px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded-md text-sm font-bold"
+                          title="Agregar esta oferta a la canasta"
+                        >
+                          +
+                        </button>
                       </div>
                     </div>
                   </div>

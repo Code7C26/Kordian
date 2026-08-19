@@ -10,15 +10,12 @@
     "cors": "^2.8.6",
     "csv-parser": "^3.2.1",
     "express": "^4.22.2",
-<<<<<<< HEAD
     "multer": "^2.2.0",
-=======
 
     "multer": "^2.2.0",
 
     "bcryptjs": "^2.4.3",
 
->>>>>>> origin/main
     "nodemon": "^3.1.10"
   }
 }
