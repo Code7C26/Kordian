@@ -7,7 +7,7 @@ export default function CsvUploader({ onUploaded }) {
     const formData = new FormData()
     formData.append('file', file)
     try {
-      const response = await fetch('http://localhost:62752/upload-csv', { method: 'POST', body: formData })
+      const response = await fetch('http://localhost:3000/upload-csv', { method: 'POST', body: formData })
       const data = await response.json()
       if (data.success) {
         onUploaded?.(null, 'CSV importado correctamente')

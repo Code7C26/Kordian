@@ -396,7 +396,7 @@ export default function Admin() {
       <Header
         darkMode={darkMode}
         setDarkMode={setDarkMode}
-        selectedCity={"Buenos Aires - CABA"}
+        selectedCity={selectedCity}
         setSelectedCity={() => {}}
         basketCount={0}
         onOpenBasket={() => {}}

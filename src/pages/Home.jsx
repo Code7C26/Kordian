@@ -95,7 +95,7 @@ export default function Home() {
       return (
         matchesSearch &&
         matchesSupermarket &&
-          'http://localhost:62752/products'
+          'http://localhost:3000/products'
       )
     })
 
