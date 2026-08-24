@@ -1,4 +1,4 @@
-import React from 'react';
+// Component for hero category grid
 import {
   ShoppingCart,
   Pill,
@@ -66,7 +66,7 @@ export function HeroCategoryGrid({
           </h1>
 
           <p className="text-sm sm:text-base text-stone-600 dark:text-stone-300 leading-relaxed font-normal max-w-2xl mx-auto">
-            Compara precios en tiempo real entre Coto, Carrefour, Jumbo, Día%, Farmacity, Easy y más.
+            Compara precios en tiempo real entre Becerra, Disco, Mami, Carrefour y más.
             Detectamos ofertas reales e identificamos sobreprecios al instante.
           </p>
 
@@ -196,7 +196,7 @@ export function HeroCategoryGrid({
               <Store className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-xs font-extrabold text-stone-900 dark:text-white">12+ Cadenas CABA & GBA</p>
+              <p className="text-xs font-extrabold text-stone-900 dark:text-white">12+ Cadenas de Comercios</p>
               <p className="text-[11px] text-stone-500 dark:text-stone-400">Supermercados y tiendas</p>
             </div>
           </div>

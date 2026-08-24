@@ -3,7 +3,8 @@ import {
   BarChart3, 
   Heart, 
   ShoppingBag, 
-  Store 
+  Store,
+  PackageOpen,
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 
@@ -17,6 +18,7 @@ export function ProductCard({
 }) {
   const [justAdded, setJustAdded] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState(null);
+  const [failedImage, setFailedImage] = useState(null);
   const isInflated = product.status === 'INFLADO' || product.status === 'SOBREPRECIO';
 
   const sortedStores = Array.isArray(product.otherStores)
@@ -32,9 +34,15 @@ export function ProductCard({
   }, [defaultOfferId]);
 
   const selectedOffer = sortedStores.find((store) => store.id === selectedOfferId) || sortedStores[0] || null;
+  const displayProductName = (product.name || 'Producto')
+    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
+    .trim();
 
   const handleAddToBasket = () => {
-    onAddToBasket(product, selectedOffer || undefined);
+    // Always add the best (cheapest) available offer when clicking +Canasta
+    const best = sortedStores.length ? sortedStores[0] : null;
+    const offerToAdd = best ? { id: best.id, price: best.price, supermarket: best.supermarket || best.storeName } : selectedOffer || undefined;
+    onAddToBasket(product, offerToAdd);
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 2000);
   };
@@ -42,12 +50,25 @@ export function ProductCard({
   return (
     <div className="group relative bg-white dark:bg-stone-800/90 rounded-2xl border border-stone-200/90 dark:border-stone-700/80 hover:border-sky-400 dark:hover:border-sky-500 transition-all duration-200 hover:shadow-md flex flex-col justify-between h-full overflow-hidden">
       <div className="relative aspect-square w-full bg-stone-50 dark:bg-stone-900/60 p-4 flex items-center justify-center overflow-hidden border-b border-stone-100 dark:border-stone-800 shrink-0">
-        <img
-          src={product.image}
-          alt={product.name}
-          className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
-          loading="lazy"
-        />
+        {product.image && failedImage !== product.image ? (
+          <img
+            src={product.image}
+            alt={product.name}
+            onError={() => setFailedImage(product.image)}
+            className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full min-h-44 flex flex-col items-center justify-center gap-3 rounded-xl bg-gradient-to-br from-sky-100 via-white to-emerald-100 dark:from-sky-950/70 dark:via-stone-800 dark:to-emerald-950/60 text-sky-700 dark:text-sky-300">
+            <div className="w-16 h-16 rounded-2xl bg-white/80 dark:bg-stone-900/70 border border-sky-200 dark:border-sky-800 flex items-center justify-center shadow-sm">
+              <PackageOpen className="w-8 h-8" />
+            </div>
+            <div className="text-center px-4">
+              <div className="text-lg font-black tracking-wide leading-tight bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 dark:from-indigo-300 dark:via-sky-300 dark:to-emerald-300 bg-clip-text text-transparent line-clamp-2">{displayProductName}</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">{product.subcategory || 'Producto'}</div>
+            </div>
+          </div>
+        )}
 
         <button
           onClick={() => onToggleFavorite(product)}
@@ -83,7 +104,10 @@ export function ProductCard({
         <div className="space-y-1">
           <div className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider flex items-center justify-between">
             <span>{product.brand}</span>
-            <span>{product.unit}</span>
+            <div className="flex items-center gap-2">
+              <span>{product.unit}</span>
+              <span className="text-sky-600 dark:text-sky-400">{(product.otherStores || []).length} {(product.otherStores || []).length === 1 ? 'Opción' : 'Opciones'}</span>
+            </div>
           </div>
 
           <h3 className="text-sm font-bold text-stone-900 dark:text-white line-clamp-2 h-10 leading-snug group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
@@ -99,9 +123,9 @@ export function ProductCard({
             <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
               isInflated 
                 ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300' 
-                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300'
+                : 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-200 dark:border-sky-800'
             }`}>
-              {isInflated ? 'Inflado' : 'En Precio'}
+              {isInflated ? 'Inflado' : (product.primaryStore?.name || 'Sin supermercado')}
             </span>
           </div>
 
@@ -111,32 +135,6 @@ export function ProductCard({
               {formatCurrency(product.avgMarketPrice)}
             </span>
           </div>
-        </div>
-
-        <div className="flex items-center justify-between text-[11px] text-stone-500 dark:text-stone-400">
-          <span>Comparado en {(product.otherStores || []).length} tiendas</span>
-          <span className="text-sky-600 dark:text-sky-400 font-bold">
-            Mín: {formatCurrency((product.otherStores || []).length ? Math.min(...product.otherStores.map((s) => s.price || 0)) : 0)}
-          </span>
-        </div>
-
-        <div className="space-y-2 pt-2">
-          <label className="block text-[10px] uppercase tracking-[0.24em] text-stone-400 font-bold">Elegir oferta</label>
-          <select
-            value={selectedOfferId || ''}
-            onChange={(e) => setSelectedOfferId(e.target.value)}
-            className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-          >
-            {sortedStores.length ? (
-              sortedStores.map((store) => (
-                <option key={store.id} value={store.id}>
-                  {store.supermarket || store.storeName || 'Tienda'} — {formatCurrency(store.price)}
-                </option>
-              ))
-            ) : (
-              <option value="">Precio actual — {formatCurrency(product.currentPrice)}</option>
-            )}
-          </select>
         </div>
 
         <div className="grid grid-cols-2 gap-2 pt-1">

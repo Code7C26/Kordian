@@ -45,7 +45,7 @@ export default function App() {
   });
 
   // Location state
-  const [selectedCity, setSelectedCity] = useState<string>('Buenos Aires - CABA');
+  const [selectedCity, setSelectedCity] = useState<string>('Alta Gracia');
 
   // Filter state
   const [filters, setFilters] = useState<FilterState>({
