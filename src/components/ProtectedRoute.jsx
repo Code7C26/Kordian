@@ -6,7 +6,7 @@ export default function ProtectedRoute({
   const isAuthenticated =
     localStorage.getItem(
       'adminAuth'
-    ) === 'true'
+    ) === 'true' && Boolean(localStorage.getItem('adminToken'))
 
   if (!isAuthenticated) {
     return <Navigate to="/login" />

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiUrl } from '../config/api.js'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -18,14 +19,16 @@ export default function Login() {
 
     ;(async () => {
       try {
-        const res = await fetch('http://localhost:3000/login', {
+        const res = await fetch(apiUrl('/login'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password }),
         })
 
         if (res.ok) {
+          const payload = await res.json()
           localStorage.setItem('adminAuth', 'true')
+          localStorage.setItem('adminToken', payload.token)
           localStorage.setItem('currentAdmin', username)
           navigate('/admin')
         } else if (res.status === 401) {
@@ -88,13 +91,6 @@ export default function Login() {
               Ingresar
             </button>
 
-            <button
-              type="button"
-              onClick={() => navigate('/admin')}
-              className="w-full rounded-2xl border border-sky-500 bg-sky-500/10 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-500/20"
-            >
-              Actualizar Precios
-            </button>
           </form>
 
           <div className="mt-6 rounded-3xl bg-sky-50 p-4 text-sm text-sky-700 dark:bg-sky-950/40 dark:text-sky-200">

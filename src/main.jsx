@@ -20,6 +20,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
         {/* HOME */}
         <Route path="/" element={<App />} />
+        <Route path="/buscar" element={<App />} />
 
         {/* LOGIN */}
         <Route path="/login" element={<Login />} />

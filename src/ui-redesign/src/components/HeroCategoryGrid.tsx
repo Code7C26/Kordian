@@ -55,7 +55,7 @@ export const HeroCategoryGrid: React.FC<HeroCategoryGridProps> = ({
     <div className="relative overflow-hidden bg-gradient-to-b from-sky-50/80 via-white to-stone-50/50 dark:from-stone-900 dark:via-stone-900 dark:to-stone-950 pb-12 pt-8 sm:pt-12 border-b border-stone-200/60 dark:border-stone-800">
       
       {/* Background Subtle Patterns */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-sky-400/10 via-emerald-400/5 to-purple-400/10 blur-3xl pointer-events-none rounded-full" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-sky-400/10 via-blue-400/5 to-purple-400/10 blur-3xl pointer-events-none rounded-full" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         
@@ -143,14 +143,14 @@ export const HeroCategoryGrid: React.FC<HeroCategoryGridProps> = ({
         </div>
 
         {/* Interactive Category Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
           {categories.map((cat) => {
             const isSelected = selectedCategory === cat.id;
             return (
               <button
                 key={cat.id}
                 onClick={() => onSelectCategory(cat.id)}
-                className={`group relative text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
+                className={`group relative min-w-[180px] sm:min-w-[190px] flex-1 snap-start text-left p-4 rounded-2xl border-2 transition-all duration-200 flex flex-col justify-between h-36 ${
                   isSelected
                     ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/20 ring-2 ring-sky-400'
                     : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 text-stone-800 dark:text-stone-100 hover:border-sky-300 dark:hover:border-sky-700 shadow-xs hover:shadow-md'
@@ -189,7 +189,7 @@ export const HeroCategoryGrid: React.FC<HeroCategoryGridProps> = ({
         {/* Key Feature Stats Banner */}
         <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3 bg-white dark:bg-stone-800/60 p-3 sm:p-4 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs">
           <div className="flex items-center gap-3 p-2">
-            <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
               <TrendingDown className="w-5 h-5" />
             </div>
             <div>

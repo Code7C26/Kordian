@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { X, Send, AlertTriangle, CheckCircle } from 'lucide-react';
 import { STORES_LIST } from '../data/mockProducts.js';
 

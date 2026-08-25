@@ -192,7 +192,7 @@ export const ComparisonModal: React.FC<ComparisonModalProps> = ({
               <div>
                 <h4 className="font-bold text-sm text-stone-900 dark:text-white flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                  <span>Historial de Precios (Últimos 30 días)</span>
+                  <span>Historial de Precios (Últimos 3 meses)</span>
                 </h4>
                 <p className="text-xs text-stone-500 dark:text-stone-400">
                   Evolución del precio promedio y mejor precio encontrado
