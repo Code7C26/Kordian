@@ -23,6 +23,12 @@ Incluye:
 - Sistema de alertas y favoritos
 - Base para actualización automática de precios
 
+## Documentación técnica
+
+- [Contrato de integración del análisis](docs/analysis-integration-contract.md)
+- [Validación del Bloque 12](docs/block12-validation.md)
+- [Revisión final del Bloque 13](docs/block13-final-review.md)
+
 ---
 
 ## Integrantes del Equipo

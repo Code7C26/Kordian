@@ -1,7 +1,7 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
 import { DealsSummaryBanner } from './components/DealsSummaryBanner.jsx';
@@ -9,51 +9,16 @@ import { ReportPriceModal } from './components/ReportPriceModal.jsx';
 import { ProductCard } from './components/ProductCard.jsx';
 import { ComparisonModal } from './components/ComparisonModal.jsx';
 import { SmartBasketModal } from './components/SmartBasketModal.jsx';
+import PriceExplanationModal from './components/PriceExplanationModal.jsx';
 import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js';
+import { apiUrl } from './config/api.js';
 // Data will be loaded from backend API
-import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown } from 'lucide-react';
-
-const mergeAdminUpdatesIntoHistory = (offers, baseHistory) => {
-  let updates
-  try {
-    updates = JSON.parse(localStorage.getItem('arprice_update_history') || '[]')
-  } catch {
-    return baseHistory
-  }
-
-  if (!Array.isArray(updates)) return baseHistory
-
-  const offerIds = new Set((offers || []).map((offer) => String(offer.id)))
-  const adminPoints = updates.flatMap((update) => {
-    if (!['category', 'brand', 'supermarket', 'combined'].includes(update.type)) return []
-    const matchingChanges = (update.changes || []).filter((change) => offerIds.has(String(change.offerId)))
-    if (!matchingChanges.length) return []
-    const prices = matchingChanges.map((change) => Number(change.updatedCashPrice) || 0).filter(Boolean)
-    if (!prices.length) return []
-    return [{
-      date: update.date,
-      avgPrice: Math.round(prices.reduce((total, price) => total + price, 0) / prices.length),
-      minPrice: Math.min(...prices),
-      source: 'admin_update',
-      updateType: update.type,
-      targetName: update.targetName,
-    }]
-  })
-
-  const latestDate = adminPoints.reduce((latest, point) => point.date > latest ? point.date : latest, '')
-  const historyLimitDate = latestDate ? new Date(`${latestDate}T00:00:00`) : null
-  if (historyLimitDate) historyLimitDate.setMonth(historyLimitDate.getMonth() - 3)
-
-  return [...baseHistory, ...adminPoints]
-    .filter((point) => point.date)
-    .filter((point) => !historyLimitDate || new Date(`${point.date}T00:00:00`) >= historyLimitDate)
-    .sort((first, second) => first.date.localeCompare(second.date))
-    .slice(-4)
-}
+import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle } from 'lucide-react';
 
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [viewMode, setViewMode] = useState('categories');
   const [darkMode, setDarkMode] = useState(() => {
     return (
       localStorage.getItem('arprice_theme') === 'dark' ||
@@ -63,28 +28,50 @@ export default function App() {
 
   const { selectedCity, setSelectedCity } = useSelectedCity();
   const [categories, setCategories] = useState([])
+  const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
   const [storesList, setStoresList] = useState([])
   const [filters, setFilters] = useState({
     category: 'todos',
     searchQuery: '',
     store: 'todos',
+    subcategory: 'todos',
     priceStatus: 'todos',
     sortBy: 'discount-desc',
     maxPrice: 1000000,
   });
   const [reportModalOpen, setReportModalOpen] = useState(false);
-  const [usingMockData, setUsingMockData] = useState(false);
 
   const [selectedProductForComparison, setSelectedProductForComparison] = useState(null);
+  const [selectedProductForExplanation, setSelectedProductForExplanation] = useState(null);
   const [basketOpen, setBasketOpen] = useState(false);
   const [favoritesOnlyView, setFavoritesOnlyView] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    setViewMode(location.pathname === '/buscar' ? 'products' : 'categories');
+    if (location.pathname === '/buscar') {
+      setFilters((previous) => ({
+        ...previous,
+        searchQuery: params.get('q') ?? '',
+        category: params.get('category') ?? 'todos',
+        subcategory: 'todos',
+      }));
+    } else {
+      setFilters((previous) => ({
+        ...previous,
+        searchQuery: '',
+        category: 'todos',
+        subcategory: 'todos',
+      }));
+    }
+  }, [location.pathname, location.search]);
 
   const [favorites, setFavorites] = useState(() => {
     try {
       const saved = localStorage.getItem('arprice_favorites');
       return saved ? JSON.parse(saved) : ['prod-1', 'prod-4'];
-    } catch (e) {
+    } catch {
       return ['prod-1', 'prod-4'];
     }
   });
@@ -95,7 +82,7 @@ export default function App() {
       return saved
         ? JSON.parse(saved)
         : [];
-    } catch (e) {
+    } catch {
       return [];
     }
   });
@@ -119,9 +106,11 @@ export default function App() {
     let mounted = true
     const loadData = async () => {
       try {
-        const [catsRes, prodsRes] = await Promise.all([
-          fetch('http://localhost:3000/categories'),
-          fetch('http://localhost:3000/products'),
+        const [catsRes, prodsRes, taxonomyRes, supermarketsRes] = await Promise.all([
+          fetch(apiUrl('/categories')),
+          fetch(apiUrl('/products')),
+          fetch(apiUrl('/taxonomy')),
+          fetch(apiUrl('/supermarkets')),
         ])
 
         if (!mounted) return
@@ -132,6 +121,12 @@ export default function App() {
 
         const cats = await catsRes.json()
         const prods = await prodsRes.json()
+        const taxonomyData = taxonomyRes.ok ? await taxonomyRes.json() : []
+        const supermarkets = supermarketsRes.ok ? await supermarketsRes.json() : []
+        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+        const analysisRes = await fetch(apiUrl('/analysis/products'))
+        const analyses = analysisRes.ok ? await analysisRes.json() : []
+        const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
 
         // enrich products with derived fields for the UI (defensive)
         const enriched = (prods || []).map((p) => {
@@ -140,7 +135,8 @@ export default function App() {
             id: o.id,
             // handle either snake_case (cash_price) or camelCase (cashPrice) coming from different imports
             price: Number(o.cash_price ?? o.cashPrice) || 0,
-            supermarket: o.supermarket || o.supermarket_name || o.storeName || ''
+            supermarket: o.supermarket || o.supermarket_name || o.storeName || '',
+            image: supermarketImages.get(o.supermarket || o.supermarket_name || o.storeName) || ''
           }))
           const primary = otherStores.reduce((best, s) => {
             if (!best) return s
@@ -155,24 +151,27 @@ export default function App() {
               : 'INFLADO'
             : 'EN_PRECIO'
 
+          const analysis = analysisByProduct.get(String(p.id))
+          const analysisStatus = analysis?.classification === 'PRECIO_NORMAL' ? 'EN_PRECIO' : analysis?.classification
+
           return {
             ...p,
-            brands: p.brands || (p.id_brands ? { name: p.id_brands } : null),
-            categories: p.categories || (p['category.id'] ? { name: p['category.id'] } : null),
-            brand: p.brand || p.brands?.name || p.id_brands || '',
-            subcategory: p.subcategory || p.categories?.name || p['category.id'] || '',
+            brand: p.brand || p.brands?.name || '',
+            subcategory: p.subcategory || p.subcategories?.name || '',
             currentPrice,
             primaryStore: primary ? { name: primary.supermarket, id: primary.id } : { name: '', id: null },
             avgMarketPrice,
             percentageDiff,
-            status,
+            status: analysisStatus || status,
+            analysis: analysis || null,
+            priceHistory: analysis?.priceHistory || p.priceHistory || [],
             otherStores,
-            priceHistory: mergeAdminUpdatesIntoHistory(offers, []),
             unit: p.unit || '',
           }
         })
 
         setCategories(cats || [])
+        setTaxonomy(taxonomyData || [])
         setProducts(enriched)
 
         // derive stores list from offers
@@ -183,7 +182,7 @@ export default function App() {
           })
         })
 
-        const storesArr = Array.from(storesSet).map((name, i) => ({ id: name, name }))
+        const storesArr = Array.from(storesSet).map((name) => ({ id: name, name, image: supermarketImages.get(name) || '' }))
         setStoresList(storesArr)
       } catch (err) {
         console.error('Error loading data', err)
@@ -191,7 +190,6 @@ export default function App() {
 
         const enriched = MOCK_PRODUCTS.map((p) => ({
           ...p,
-          priceHistory: [],
           currentPrice: Number(p.currentPrice || 0),
           avgMarketPrice: Number(p.avgMarketPrice || 0),
           percentageDiff: Number(p.percentageDiff || 0),
@@ -202,7 +200,6 @@ export default function App() {
 
         setCategories(MOCK_CATEGORIES)
         setProducts(enriched)
-        setUsingMockData(true)
 
         const storesSet = new Set()
         enriched.forEach((p) => {
@@ -212,7 +209,7 @@ export default function App() {
           if (p.primaryStore?.name) storesSet.add(p.primaryStore.name)
         })
 
-        const storesArr = Array.from(storesSet).map((name, i) => ({ id: name, name }))
+        const storesArr = Array.from(storesSet).map((name) => ({ id: name, name }))
         setStoresList(storesArr)
       }
     }
@@ -289,6 +286,10 @@ export default function App() {
         return false;
       }
 
+      if (filters.subcategory !== 'todos' && product.subcategory_id !== filters.subcategory) {
+        return false;
+      }
+
       if (filters.searchQuery.trim() !== '') {
         const query = filters.searchQuery.toLowerCase();
         const matchesName = (product.name || '').toLowerCase().includes(query);
@@ -306,14 +307,11 @@ export default function App() {
         if (!hasStore) return false;
       }
 
-      const rawStatus = (product.status || '').toString().toUpperCase()
-      const derivedStatus = rawStatus || (product.currentPrice <= product.avgMarketPrice ? 'EN_PRECIO' : 'INFLADO')
-
-      if (filters.priceStatus === 'EN_PRECIO') {
-        if (derivedStatus !== 'EN_PRECIO' && derivedStatus !== 'OFERTA') return false;
-      } else if (filters.priceStatus === 'INFLADO') {
-        if (derivedStatus !== 'INFLADO' && derivedStatus !== 'SOBREPRECIO') return false;
-      }
+      const rawStatus = (product.status || '').toString().toUpperCase();
+      const derivedStatus = rawStatus || (product.currentPrice <= product.avgMarketPrice ? 'EN_PRECIO' : 'INFLADO');
+      if (filters.priceStatus === 'OFERTA' && derivedStatus !== 'OFERTA') return false;
+      if (filters.priceStatus === 'EN_PRECIO' && derivedStatus !== 'EN_PRECIO' && derivedStatus !== 'PRECIO_NORMAL') return false;
+      if (filters.priceStatus === 'INFLADO' && derivedStatus !== 'INFLADO' && derivedStatus !== 'AUMENTO_ATIPICO' && derivedStatus !== 'SOBREPRECIO') return false;
 
       // attempt to evaluate current price from offers (min cash_price)
       const currentPrice = (product.offers || []).reduce((min, o) => {
@@ -350,26 +348,31 @@ export default function App() {
       category: 'todos',
       searchQuery: '',
       store: 'todos',
+      subcategory: 'todos',
       priceStatus: 'todos',
       sortBy: 'discount-desc',
       maxPrice: 1000000,
     });
     setFavoritesOnlyView(false);
+    setViewMode('categories');
     navigate('/');
   };
 
   const handleSelectCategory = (catId) => {
-    setFilters((prev) => ({ ...prev, category: catId }));
+    setFilters((prev) => ({ ...prev, category: catId, subcategory: 'todos' }));
     setFavoritesOnlyView(false);
-    navigate('/buscar');
+    setViewMode('products');
+    navigate(`/buscar${catId !== 'todos' ? `?category=${encodeURIComponent(catId)}` : ''}`);
   };
 
-  const openSearchResults = () => {
-    navigate('/buscar');
+  const navigateToSearch = () => {
+    const query = filters.searchQuery.trim();
+    navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
   };
 
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
-  const activeViewMode = location.pathname === '/buscar' ? 'products' : 'categories';
+  const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
+  const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
 
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
@@ -383,13 +386,14 @@ export default function App() {
         favoritesCount={favorites.length}
         onOpenFavorites={() => {
           setFavoritesOnlyView((prev) => !prev);
+          setViewMode('products');
           navigate('/buscar');
         }}
         onResetView={resetFilters}
         isAdminPage={false}
       />
 
-      {activeViewMode === 'categories' ? (
+      {viewMode === 'categories' ? (
         <>
           <HeroCategoryGrid
             categories={categories}
@@ -397,7 +401,7 @@ export default function App() {
             onSelectCategory={handleSelectCategory}
             searchQuery={filters.searchQuery}
             setSearchQuery={(value) => setFilters((prev) => ({ ...prev, searchQuery: value }))}
-            onSearchSubmit={openSearchResults}
+            onSearchSubmit={navigateToSearch}
           />
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -419,6 +423,7 @@ export default function App() {
               products={products}
               onSelectProduct={(product) => {
                 setSelectedProductForComparison(product);
+                setViewMode('products');
                 navigate('/buscar');
               }}
             />
@@ -430,6 +435,7 @@ export default function App() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <button
                 onClick={() => {
+                  setViewMode('categories');
                   navigate('/');
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/80 text-sky-700 dark:text-sky-300 font-bold text-xs sm:text-sm border border-sky-200/80 dark:border-sky-800 transition-all cursor-pointer w-fit"
@@ -443,32 +449,6 @@ export default function App() {
                   {favoritesOnlyView ? '❤️ Favoritos' : currentCategoryName}
                 </span>
               </div>
-            </div>
-            <div className="pt-2 border-t border-stone-100 dark:border-stone-700/50 flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
-              <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider shrink-0 mr-1">Cambiar:</span>
-              <button
-                onClick={() => handleSelectCategory('todos')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer ${
-                  filters.category === 'todos' && !favoritesOnlyView
-                    ? 'bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 shadow-xs'
-                    : 'bg-stone-100 dark:bg-stone-700/60 text-stone-600 dark:text-stone-300 hover:bg-stone-200'
-                }`}
-              >
-                Todos los productos
-              </button>
-              {categories.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => handleSelectCategory(cat.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer ${
-                    filters.category === cat.id && !favoritesOnlyView
-                      ? 'bg-sky-600 text-white shadow-xs'
-                      : 'bg-stone-100 dark:bg-stone-700/60 text-stone-600 dark:text-stone-300 hover:bg-sky-50 dark:hover:bg-sky-950/50 hover:text-sky-600'
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              ))}
             </div>
           </div>
 
@@ -490,13 +470,14 @@ export default function App() {
               <span className="font-semibold text-stone-600 dark:text-stone-300">
                 Mostrando <strong className="text-sky-600 dark:text-sky-400 font-extrabold">{filteredProducts.length}</strong> productos
               </span>
-              {(filters.category !== 'todos' || filters.searchQuery || filters.store !== 'todos' || filters.priceStatus !== 'todos' || favoritesOnlyView) && (
+              {(filters.category !== 'todos' || filters.subcategory !== 'todos' || filters.searchQuery || filters.store !== 'todos' || favoritesOnlyView) && (
                 <button
                   onClick={() => {
                     setFilters({
                       category: filters.category,
                       searchQuery: '',
                       store: 'todos',
+                      subcategory: 'todos',
                       priceStatus: 'todos',
                       sortBy: 'discount-desc',
                       maxPrice: 1000000,
@@ -512,6 +493,32 @@ export default function App() {
             </div>
           </div>
 
+          <section className="rounded-3xl border border-sky-300 bg-sky-50/70 p-4 shadow-sm dark:border-sky-700 dark:bg-sky-950/30 sm:p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-sky-600 dark:text-sky-400">Explorar por rubro</p>
+                <h2 className="mt-1 text-lg font-black text-stone-900 dark:text-white">Categorías principales</h2>
+              </div>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory">
+              <button
+                type="button"
+                onClick={() => handleSelectCategory('todos')}
+                className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${filters.category === 'todos' && !favoritesOnlyView ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}
+              >
+                <span className="block text-sm font-black leading-tight">Todos</span>
+              </button>
+              {categories.map((category) => {
+                const isSelected = filters.category === category.id && !favoritesOnlyView
+                return (
+                  <button key={category.id} type="button" onClick={() => handleSelectCategory(category.id)} className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${isSelected ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}>
+                    <span className={`block text-sm font-black leading-tight ${isSelected ? 'text-white' : 'text-stone-900 dark:text-white'}`}>{category.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
           <div className="bg-white dark:bg-stone-800 p-4 sm:p-5 rounded-3xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-stone-700/60">
               <h3 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-2">
@@ -524,6 +531,7 @@ export default function App() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Buscar Producto o Marca</label>
+
                 <div className="relative">
                   <input
                     type="text"
@@ -553,15 +561,17 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Estado del Precio</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Subcategoría</label>
                 <select
-                  value={filters.priceStatus}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, priceStatus: e.target.value }))}
-                  className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-bold"
+                  value={filters.subcategory}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, subcategory: e.target.value }))}
+                  disabled={filters.category === 'todos'}
+                  className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-bold disabled:opacity-60"
                 >
-                  <option value="todos">Todos los estados</option>
-                  <option value="EN_PRECIO">👍 Solo ¡En Precio!</option>
-                  <option value="INFLADO">⚠️ Solo Ojo, Inflados</option>
+                  <option value="todos">Todas las subcategorías</option>
+                  {availableSubcategories.map((subcategory) => (
+                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
+                  ))}
                 </select>
               </div>
 
@@ -581,39 +591,34 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 pt-2 border-t border-stone-100 dark:border-stone-700/50">
-              <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider">Filtro Rápido:</span>
+            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-stone-100 dark:border-stone-700/50">
+              <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider">Filtros rápidos:</span>
               <button
-                onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'todos' }))}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  filters.priceStatus === 'todos'
-                    ? 'bg-stone-800 text-white'
-                    : 'bg-stone-100 dark:bg-stone-700/60 text-stone-600 dark:text-stone-300'
-                }`}
+                type="button"
+                onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'OFERTA' }))}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'OFERTA' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900'}`}
               >
-                Todos
+                <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+                En oferta
               </button>
               <button
+                type="button"
                 onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'EN_PRECIO' }))}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  filters.priceStatus === 'EN_PRECIO'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300'
-                }`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'EN_PRECIO' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-900'}`}
               >
-                ¡En Precio! 👍
+                <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
+                En precio
               </button>
               <button
+                type="button"
                 onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'INFLADO' }))}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  filters.priceStatus === 'INFLADO'
-                    ? 'bg-rose-600 text-white shadow-xs'
-                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300'
-                }`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'INFLADO' ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900'}`}
               >
-                Ojo, Inflado ⚠️
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                Inflado
               </button>
             </div>
+
           </div>
 
           {filteredProducts.length === 0 ? (
@@ -629,7 +634,7 @@ export default function App() {
                     category: 'todos',
                     searchQuery: '',
                     store: 'todos',
-                    priceStatus: 'todos',
+                    subcategory: 'todos',
                     sortBy: 'discount-desc',
                     maxPrice: 1000000,
                   });
@@ -647,6 +652,7 @@ export default function App() {
                   key={product.id}
                   product={product}
                   onCompare={(p) => setSelectedProductForComparison(p)}
+                  onExplain={(p) => setSelectedProductForExplanation(p)}
                   onToggleFavorite={toggleFavorite}
                   isFavorite={favorites.includes(product.id)}
                   onAddToBasket={addToBasket}
@@ -692,8 +698,14 @@ export default function App() {
           onClose={() => setSelectedProductForComparison(null)}
           onAddToBasket={addToBasket}
           isInBasket={basket.some((i) => i.product.id === selectedProductForComparison.id)}
+          onExplain={(p) => setSelectedProductForExplanation(p)}
         />
       )}
+
+      <PriceExplanationModal
+        product={selectedProductForExplanation}
+        onClose={() => setSelectedProductForExplanation(null)}
+      />
 
       {basketOpen && (
         <SmartBasketModal

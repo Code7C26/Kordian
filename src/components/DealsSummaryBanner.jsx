@@ -11,12 +11,12 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
   const [failedImages, setFailedImages] = useState([]);
 
   const topDeals = [...products]
-    .filter((p) => p.status === 'OFERTA' || p.status === 'EN_PRECIO')
+    .filter((p) => p.status === 'OFERTA' || p.status === 'PRECIO_NORMAL')
     .sort((a, b) => a.percentageDiff - b.percentageDiff)
     .slice(0, 4);
 
   const topInflated = [...products]
-    .filter((p) => p.status === 'INFLADO' || p.status === 'SOBREPRECIO')
+    .filter((p) => p.status === 'INFLADO' || p.status === 'AUMENTO_ATIPICO')
     .sort((a, b) => b.percentageDiff - a.percentageDiff)
     .slice(0, 4);
 

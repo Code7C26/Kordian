@@ -2,6 +2,7 @@ import {
   useEffect,
   useState,
 } from 'react'
+import { apiUrl } from '../config/api.js'
 
 export default function Home() {
   // =========================
@@ -30,7 +31,7 @@ export default function Home() {
 
   useEffect(() => {
     fetch(
-      'http://localhost:3000/products'
+      apiUrl('/products')
     )
       .then((res) => res.json())
       .then((data) => {
@@ -86,16 +87,10 @@ export default function Home() {
             supermarketFilter
         )
 
-      const matchesCategory =
-        categoryFilter ===
-          'Todas' ||
-        product.category ===
-          categoryFilter
-
       return (
         matchesSearch &&
         matchesSupermarket &&
-          'http://localhost:3000/products'
+          apiUrl('/products')
       )
     })
 

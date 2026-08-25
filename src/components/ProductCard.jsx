@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   BarChart3, 
   Heart, 
@@ -19,7 +19,12 @@ export function ProductCard({
   const [justAdded, setJustAdded] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState(null);
   const [failedImage, setFailedImage] = useState(null);
-  const isInflated = product.status === 'INFLADO' || product.status === 'SOBREPRECIO';
+  const isInflated = product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO';
+  const statusLabel = product.status === 'OFERTA'
+    ? 'En oferta'
+    : isInflated
+      ? 'Inflado'
+      : 'En precio';
 
   const sortedStores = Array.isArray(product.otherStores)
     ? [...product.otherStores].sort((a, b) => (a.price || 0) - (b.price || 0))
@@ -44,7 +49,7 @@ export function ProductCard({
     const offerToAdd = best ? { id: best.id, price: best.price, supermarket: best.supermarket || best.storeName } : selectedOffer || undefined;
     onAddToBasket(product, offerToAdd);
     setJustAdded(true);
-    setTimeout(() => setJustAdded(false), 2000);
+    setTimeout(() => setJustAdded(false), 250);
   };
 
   return (
@@ -70,6 +75,18 @@ export function ProductCard({
           </div>
         )}
 
+        <div className="absolute top-2.5 left-2.5 z-10">
+          <div className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 font-extrabold text-[11px] shadow-xs ${
+            product.status === 'OFERTA'
+              ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800'
+              : isInflated
+                ? 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800'
+                : 'bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-950/80 dark:text-sky-300 dark:border-sky-800'
+          }`}>
+            <span>{statusLabel}</span>
+          </div>
+        </div>
+
         <button
           onClick={() => onToggleFavorite(product)}
           className={`absolute top-2.5 right-2.5 p-2 rounded-full backdrop-blur-md transition-all shadow-xs z-10 cursor-pointer ${
@@ -82,18 +99,6 @@ export function ProductCard({
           <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
         </button>
 
-        <div className="absolute top-2.5 left-2.5 z-10">
-          {isInflated ? (
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-100 text-rose-800 border border-rose-200 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800 font-extrabold text-[11px] shadow-xs">
-              <span>Ojo, Inflado ⚠️</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800 font-extrabold text-[11px] shadow-xs">
-              <span>¡En Precio! 👍</span>
-            </div>
-          )}
-        </div>
-
         <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900/80 text-white backdrop-blur-sm text-[10px] font-medium">
           <Store className="w-3 h-3 text-sky-400" />
           <span>{product.primaryStore.name}</span>
@@ -103,7 +108,6 @@ export function ProductCard({
       <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
         <div className="space-y-1">
           <div className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider flex items-center justify-between">
-            <span>{product.brand}</span>
             <div className="flex items-center gap-2">
               <span>{product.unit}</span>
               <span className="text-sky-600 dark:text-sky-400">{(product.otherStores || []).length} {(product.otherStores || []).length === 1 ? 'Opción' : 'Opciones'}</span>
@@ -113,6 +117,9 @@ export function ProductCard({
           <h3 className="text-sm font-bold text-stone-900 dark:text-white line-clamp-2 h-10 leading-snug group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
             {product.name}
           </h3>
+          <p className="text-xs font-semibold text-stone-500 dark:text-stone-400 truncate">
+            {product.brand || 'Marca no disponible'}
+          </p>
         </div>
 
         <div className="bg-stone-50 dark:bg-stone-900/60 p-3 rounded-xl border border-stone-200/50 dark:border-stone-800/80 space-y-1">
@@ -120,19 +127,8 @@ export function ProductCard({
             <span className="text-2xl font-black text-stone-900 dark:text-white tracking-tight">
               {formatCurrency(product.currentPrice)}
             </span>
-            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
-              isInflated 
-                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300' 
-                : 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-200 dark:border-sky-800'
-            }`}>
-              {isInflated ? 'Inflado' : (product.primaryStore?.name || 'Sin supermercado')}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-stone-200/60 dark:border-stone-800 text-stone-500 dark:text-stone-400">
-            <span>Promedio mercado:</span>
-            <span className="font-bold text-stone-700 dark:text-stone-300">
-              {formatCurrency(product.avgMarketPrice)}
+            <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-700 shadow-xs max-w-[52%] truncate">
+              {product.primaryStore?.name || 'Sin supermercado'}
             </span>
           </div>
         </div>
@@ -140,31 +136,27 @@ export function ProductCard({
         <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             onClick={() => onCompare(product)}
-            className="flex items-center justify-center gap-1 px-2.5 py-2.5 bg-stone-100 dark:bg-stone-700/80 hover:bg-sky-50 dark:hover:bg-sky-950/60 text-stone-800 dark:text-stone-200 hover:text-sky-700 dark:hover:text-sky-300 rounded-xl text-xs font-bold transition-colors border border-stone-200/80 dark:border-stone-600 cursor-pointer"
+            className="w-full h-11 min-w-0 flex items-center justify-center gap-1 px-2 bg-stone-100 dark:bg-stone-700/80 hover:bg-sky-50 dark:hover:bg-sky-950/60 text-stone-800 dark:text-stone-200 hover:text-sky-700 dark:hover:text-sky-300 rounded-xl text-xs font-bold transition-colors border border-stone-200/80 dark:border-stone-600 cursor-pointer whitespace-nowrap"
           >
             <BarChart3 className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
             <span>Comparar</span>
           </button>
 
-          <div className="relative">
+          <div className="relative min-w-0">
             <button
               onClick={handleAddToBasket}
-              className={`flex items-center justify-center gap-1 px-2.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                isInBasket
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-sky-600 hover:bg-sky-500 text-white shadow-xs'
+              className={`w-full h-11 min-w-0 flex items-center justify-center gap-1 px-2 rounded-xl text-xs font-bold transition-[background-color,box-shadow,transform] duration-200 ease-out cursor-pointer whitespace-nowrap active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-800 ${
+                justAdded
+                  ? 'bg-white text-sky-700 border border-sky-300 shadow-md dark:bg-stone-100 dark:text-sky-800'
+                  : isInBasket
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs hover:shadow-md'
+                  : 'bg-sky-600 hover:bg-sky-500 text-white shadow-xs hover:shadow-md'
               }`}
             >
-              <ShoppingBag className="w-3.5 h-3.5" />
+              <ShoppingBag className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isInBasket ? 'scale-105' : ''}`} />
               <span>{isInBasket ? 'Agregado ✓' : '+ Canasta'}</span>
             </button>
-            {justAdded && (
-              <div className="absolute top-3 left-1/2 transform -translate-x-1/2 bg-emerald-600 text-white px-3 py-1 rounded-md text-xs shadow">Agregado</div>
-            )}
           </div>
-          {justAdded && (
-            <div className="absolute top-3 left-1/2 transform -translate-x-1/2 bg-emerald-600 text-white px-3 py-1 rounded-md text-xs shadow">Agregado</div>
-          )}
         </div>
       </div>
     </div>

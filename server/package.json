@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "dev": "nodemon server.js"
+    "dev": "nodemon --watch server.js --watch services --watch supabase.js --watch supabaseAdmin.js --ignore uploads/ --ignore migrations/ --ignore scripts/ server.js",
+    "backfill-analysis": "node scripts/backfill_analysis.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",
