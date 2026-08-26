@@ -58,7 +58,7 @@ export const DealsSummaryBanner: React.FC<DealsSummaryBannerProps> = ({
         </div>
 
         <span className="text-xs text-stone-400 font-medium hidden sm:inline">
-          Monitoreo en tiempo real de cadenas en CABA/GBA
+          Monitoreo en tiempo real de cadenas
         </span>
       </div>
 
