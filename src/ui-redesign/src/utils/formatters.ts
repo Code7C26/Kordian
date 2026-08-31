@@ -1,9 +1,13 @@
 export function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('es-AR', {
+  const numericValue = Number.isFinite(Number(value)) ? Number(value) : 0;
+
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'ARS',
-    maximumFractionDigits: 0,
-  }).format(value);
+    currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numericValue);
 }
 
 export function formatPercentage(value: number): string {
