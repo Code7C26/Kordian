@@ -26,6 +26,7 @@ with taxonomy(category_name, subcategory_name) as (
     ('Almacén y Alimentos', 'Aceites, condimentos y aderezos'),
     ('Almacén y Alimentos', 'Conservas y alimentos preparados'),
     ('Almacén y Alimentos', 'Azúcares y dulces'),
+    ('Almacén y Alimentos', 'Bebidas'),
     ('Almacén y Alimentos', 'Infusiones'),
     ('Almacén y Alimentos', 'Galletitas y productos de panificación'),
     ('Almacén y Alimentos', 'Golosinas y snacks'),

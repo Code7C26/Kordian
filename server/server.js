@@ -9,6 +9,8 @@ app.use(express.json())
 
 const supabase = require('./supabase')
 const { analyzeProduct } = require('./services/priceAnalysisService')
+const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
+const { syncDiscoPrices } = require('./services/discoPriceSync')
 const analysisWriter = process.env.SUPABASE_SERVICE_ROLE_KEY ? require('./supabaseAdmin') : supabase
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || (
   process.env.NODE_ENV === 'production' ? null : 'arprice-local-dev-session-secret'
@@ -51,16 +53,15 @@ function requireAdmin(req, res, next) {
   next()
 }
 
-function parsePrice(value) {
-  if (value === null || value === undefined || value === '') return null
-  const text = String(value).trim().replace(/\s/g, '')
-  const normalized = text.includes(',')
-    ? text.replace(/\./g, '').replace(',', '.')
-    : /^\d{1,3}(?:\.\d{3})+$/.test(text)
-      ? text.replace(/\./g, '')
-      : text
-  const price = Number(normalized)
-  return Number.isFinite(price) ? price : null
+const { parsePrice, normalizeNumericValue } = require('./priceNormalization')
+
+function normalizeBrandName(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toUpperCase()
 }
 
 app.get('/taxonomy', async (req, res) => {
@@ -80,6 +81,170 @@ app.get('/taxonomy', async (req, res) => {
   } catch (error) {
     console.error('Error fetching taxonomy', error)
     res.status(500).json({ error: 'Error fetching taxonomy' })
+  }
+})
+
+app.get('/admin/import/disco/preview', requireAdmin, async (req, res) => {
+  try {
+    const query = String(req.query.query || '').slice(0, 100)
+    const from = Math.max(0, Number(req.query.from || 0))
+    const requestedTo = Number.isFinite(Number(req.query.to)) ? Number(req.query.to) : 99
+    const to = Math.max(from, requestedTo)
+    const [preview, { data: localProducts, error: productsError }] = await Promise.all([
+      fetchDiscoPreview({ query, from, to }),
+      supabase.from('products').select('id, name, source_product_id, ean'),
+    ])
+    if (productsError) return res.status(500).json({ error: 'No se pudo consultar el inventario local' })
+    res.json({ source: 'Disco', query, from, to, products: findPreviewMatches(preview, localProducts || []) })
+  } catch (error) {
+    console.error('Error fetching Disco preview', error)
+    res.status(502).json({ error: error.message || 'No se pudo consultar Disco' })
+  }
+})
+
+app.post('/admin/import/disco', requireAdmin, async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.products) ? req.body.products : []
+    if (!items.length) return res.status(400).json({ error: 'Seleccioná al menos un producto' })
+    const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }, { data: brands, error: brandsError }, { data: existingProducts, error: productsError }] = await Promise.all([
+      supabase.from('categories').select('id, name'),
+      supabase.from('subcategories').select('id, name, category_id'),
+      supabase.from('brands').select('id, name'),
+      supabase.from('products').select('id, name, source_product_id'),
+    ])
+    const catalogError = categoriesError || subcategoriesError || brandsError || productsError
+    if (catalogError) {
+      console.error('Error loading catalog for Disco import', catalogError)
+      return res.status(500).json({ error: 'No se pudo consultar el catálogo local', detail: catalogError.message })
+    }
+    const imported = []
+    const skipped = []
+    const brandCache = new Map()
+    const seenSourceProductIds = new Set()
+    for (const item of items) {
+      const sourceProductId = String(item.sourceProductId ?? '').trim()
+      const category = (categories || []).find((candidate) => candidate.name === item.proposedCategory)
+      const subcategory = (subcategories || []).find((candidate) => candidate.name === item.proposedSubcategory && String(candidate.category_id) === String(category?.id))
+      const existingBySourceId = sourceProductId
+        ? (existingProducts || []).find((candidate) => String(candidate.source_product_id || '') === sourceProductId)
+        : null
+      const duplicate = existingBySourceId || seenSourceProductIds.has(sourceProductId)
+      if (!item.name || !item.price || !category || !subcategory || duplicate) {
+        skipped.push({ sourceProductId: item.sourceProductId, reason: duplicate ? 'Posible duplicado' : 'Falta precio o mapeo de categoría' })
+        continue
+      }
+      if (sourceProductId) {
+        seenSourceProductIds.add(sourceProductId)
+      }
+      const normalizedBrandName = normalizeBrandName(item.brand)
+      let brand = normalizedBrandName ? brandCache.get(normalizedBrandName) : null
+      if (!brand) {
+        brand = (brands || []).find((candidate) => normalizeBrandName(candidate.name) === normalizedBrandName)
+      }
+      if (!brand && normalizedBrandName) {
+        try {
+          const { data: createdBrand, error: brandError } = await analysisWriter.from('brands').insert({ name: normalizedBrandName }).select('id, name').single()
+          if (brandError) {
+            if (brandError.code === '23505' || brandError.code === '23503') {
+              const { data: refreshedBrands, error: refreshError } = await analysisWriter.from('brands').select('id, name')
+              if (refreshError) throw refreshError
+              brand = (refreshedBrands || []).find((candidate) => normalizeBrandName(candidate.name) === normalizedBrandName)
+              if (!brand) {
+                throw brandError
+              }
+            } else {
+              throw brandError
+            }
+          } else {
+            brand = createdBrand
+            brands.push(brand)
+            brandCache.set(normalizedBrandName, brand)
+          }
+        } catch (error) {
+          console.error('Error creating/updating brand during Disco import', error)
+          return res.status(500).json({ error: 'No se pudo crear la marca', detail: error.message, code: error.code || 'unknown' })
+        }
+      }
+      if (brand && normalizedBrandName) {
+        brandCache.set(normalizedBrandName, brand)
+      }
+      const productPayload = {
+        name: item.name,
+        brand_id: brand?.id || null,
+        category_id: category.id,
+        subcategory_id: subcategory.id,
+        image: item.image || null,
+        classification_source: 'manual',
+        classification_confidence: 'manual',
+      }
+      const externalProductFields = {
+        source: 'disco',
+        source_product_id: String(item.sourceProductId),
+        source_sku: item.sourceSku || null,
+        ean: item.ean || null,
+        source_url: item.sourceUrl || null,
+        source_category: item.sourceCategory || null,
+        source_subcategory: item.proposedSubcategory || null,
+      }
+      let { data: product, error: productError } = await analysisWriter
+        .from('products')
+        .insert({ ...productPayload, ...externalProductFields })
+        .select()
+        .single()
+      if (productError?.code === '42703' || productError?.code === 'PGRST204') {
+        ({ data: product, error: productError } = await analysisWriter
+          .from('products')
+          .insert(productPayload)
+          .select()
+          .single())
+      }
+      if (productError) {
+        console.error('Error creating imported Disco product', productError)
+        return res.status(500).json({ error: 'No se pudo crear el producto', detail: productError.message, code: productError.code })
+      }
+      const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: product.id, supermarket: 'Disco', cash_price: item.price }).select().single()
+      if (offerError) {
+        console.error('Error creating imported Disco offer', offerError)
+        return res.status(500).json({ error: 'Producto creado, pero no se pudo crear su oferta', detail: offerError.message, code: offerError.code })
+      }
+      await recordPriceHistory({ productId: product.id, offerId: offer.id, cashPrice: item.price, source: 'disco_import' })
+      imported.push({ productId: product.id, sourceProductId: item.sourceProductId })
+    }
+    res.json({ imported, skipped })
+  } catch (error) {
+    console.error('Error importing Disco products', error)
+    res.status(500).json({ error: 'No se pudieron importar los productos seleccionados' })
+  }
+})
+
+app.post('/admin/import/disco/update-prices', requireAdmin, async (req, res) => {
+  try {
+    const result = await syncDiscoPrices({ database: analysisWriter, historyRecorder: recordPriceHistory, adminUsername: req.admin })
+    res.json({ updated: result.updated.length, unchanged: result.unchanged.length, unavailable: result.unavailable })
+  } catch (error) {
+    console.error('Error updating Disco prices', error)
+    res.status(502).json({ error: 'No se pudieron actualizar los precios de Disco', detail: error.message })
+  }
+})
+
+app.get('/admin/import/disco/sync-status', requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('price_update_log')
+      .select('updated_at, products_updated, changes, filters')
+      .eq('filters->>source', 'disco_sync')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (error) throw error
+    res.json({
+      lastSyncAt: data?.updated_at || null,
+      updated: data?.products_updated || 0,
+      changes: Array.isArray(data?.changes) ? data.changes.length : 0,
+    })
+  } catch (error) {
+    console.error('Error fetching Disco sync status', error)
+    res.status(500).json({ error: 'No se pudo consultar el estado de sincronización' })
   }
 })
 
@@ -105,7 +270,7 @@ async function recordPriceHistory({ productId, offerId, cashPrice, source = 'adm
   const price = Number(cashPrice)
   if (!productId || !offerId || !Number.isFinite(price) || price <= 0) return
 
-  const { error } = await supabase.from('price_history').insert({
+  const { error } = await analysisWriter.from('price_history').insert({
     product_id: productId,
     offer_id: offerId,
     cash_price: price,
@@ -119,25 +284,60 @@ app.get('/products', async (req, res) => {
   try {
     const page = Number(req.query.page || 1)
     const limit = Number(req.query.limit || 20)
-    const search = req.query.search || ''
+    const safePage = Number.isFinite(page) && page > 0 ? page : 1
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 20
+    const search = String(req.query.search || '').trim()
     const category = req.query.category || ''
     const brand = req.query.brand || ''
     const supermarket = req.query.supermarket || ''
 
     // Include related catalog data so admin and storefront can display it.
     let query = supabase.from('products').select('*, offers(*), categories(id, name), subcategories(id, name), brands(id, name)')
+    let countQuery = supabase.from('products').select('*', { count: 'exact', head: true })
 
     if (search) {
-      // simple name ilike search
-      query = query.ilike('name', `%${search}%`)
+      const searchPattern = `%${search}%`
+      const [brandsResult, categoriesResult, subcategoriesResult] = await Promise.all([
+        supabase.from('brands').select('id').ilike('name', searchPattern),
+        supabase.from('categories').select('id').ilike('name', searchPattern),
+        supabase.from('subcategories').select('id').ilike('name', searchPattern),
+      ])
+
+      const brandIds = (brandsResult.data || []).map((item) => item.id).filter(Boolean)
+      const categoryIds = (categoriesResult.data || []).map((item) => item.id).filter(Boolean)
+      const subcategoryIds = (subcategoriesResult.data || []).map((item) => item.id).filter(Boolean)
+
+      const productSearchClauses = [`name.ilike.${searchPattern}`]
+      if (brandIds.length) productSearchClauses.push(`brand_id.in.(${brandIds.join(',')})`)
+      if (categoryIds.length) productSearchClauses.push(`category_id.in.(${categoryIds.join(',')})`)
+      if (subcategoryIds.length) productSearchClauses.push(`subcategory_id.in.(${subcategoryIds.join(',')})`)
+
+      const searchOr = productSearchClauses.join(',')
+      query = query.or(searchOr)
+      countQuery = countQuery.or(searchOr)
     }
 
-    if (category) query = query.eq('category_id', category)
-    if (brand) query = query.eq('brand_id', brand)
-    if (supermarket) query = query.eq('supermarket', supermarket)
+    if (category) {
+      query = query.eq('category_id', category)
+      countQuery = countQuery.eq('category_id', category)
+    }
+    if (brand) {
+      query = query.eq('brand_id', brand)
+      countQuery = countQuery.eq('brand_id', brand)
+    }
+    if (supermarket) {
+      query = query.eq('supermarket', supermarket)
+      countQuery = countQuery.eq('supermarket', supermarket)
+    }
 
-    const from = (page - 1) * limit
-    const to = from + limit - 1
+    const { count, error: countError } = await countQuery
+    if (countError) {
+      console.error('Supabase count error:', countError)
+      return res.status(500).json({ error: 'Error counting products' })
+    }
+
+    const from = (safePage - 1) * safeLimit
+    const to = from + safeLimit - 1
 
     const { data, error } = await query.range(from, to)
 
@@ -146,7 +346,12 @@ app.get('/products', async (req, res) => {
       return res.status(500).json({ error: 'Error fetching products' })
     }
 
-    res.json(data || [])
+    res.json({
+      data: data || [],
+      total: Number(count || 0),
+      page: safePage,
+      limit: safeLimit,
+    })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Internal server error' })
@@ -369,8 +574,21 @@ app.get('/brands', async (req, res) => {
 app.post('/brands', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body || {}
-    if (!name) return res.status(400).json({ error: 'Brand name is required' })
-    const { data, error } = await supabase.from('brands').insert({ name }).select().single()
+    const normalizedName = normalizeBrandName(name)
+    if (!normalizedName) return res.status(400).json({ error: 'Brand name is required' })
+
+    const { data: existingBrands, error: listError } = await supabase.from('brands').select('id, name')
+    if (listError) {
+      console.error('Error reading brands', listError)
+      return res.status(500).json({ error: 'Error reading brands' })
+    }
+
+    const existing = (existingBrands || []).find((brand) => normalizeBrandName(brand.name) === normalizedName)
+    if (existing) {
+      return res.json(existing)
+    }
+
+    const { data, error } = await supabase.from('brands').insert({ name: normalizedName }).select().single()
     if (error) {
       console.error('Error creating brand', error)
       return res.status(500).json({ error: 'Error creating brand' })
@@ -386,8 +604,21 @@ app.put('/brands/:id', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body || {}
     const { id } = req.params
-    if (!name) return res.status(400).json({ error: 'Brand name is required' })
-    const { data, error } = await supabase.from('brands').update({ name }).eq('id', id).select().single()
+    const normalizedName = normalizeBrandName(name)
+    if (!normalizedName) return res.status(400).json({ error: 'Brand name is required' })
+
+    const { data: existingBrands, error: listError } = await supabase.from('brands').select('id, name')
+    if (listError) {
+      console.error('Error reading brands', listError)
+      return res.status(500).json({ error: 'Error reading brands' })
+    }
+
+    const duplicate = (existingBrands || []).find((brand) => String(brand.id) !== String(id) && normalizeBrandName(brand.name) === normalizedName)
+    if (duplicate) {
+      return res.status(409).json({ error: 'Ya existe una marca equivalente', duplicate })
+    }
+
+    const { data, error } = await supabase.from('brands').update({ name: normalizedName }).eq('id', id).select().single()
     if (error) {
       console.error('Error updating brand', error)
       return res.status(500).json({ error: 'Error updating brand' })
@@ -402,6 +633,28 @@ app.put('/brands/:id', requireAdmin, async (req, res) => {
 app.delete('/brands/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params
+
+    const { data: targetBrand, error: targetError } = await supabase.from('brands').select('id, name').eq('id', id).single()
+    if (targetError || !targetBrand) {
+      return res.status(404).json({ error: 'Brand not found' })
+    }
+
+    const normalizedTarget = normalizeBrandName(targetBrand.name)
+    const { data: otherBrands, error: listError } = await supabase.from('brands').select('id, name').neq('id', id)
+    if (listError) {
+      console.error('Error reading brand duplicates', listError)
+      return res.status(500).json({ error: 'Error reading brands' })
+    }
+
+    const replacementBrand = (otherBrands || []).find((brand) => normalizeBrandName(brand.name) === normalizedTarget)
+    if (replacementBrand) {
+      const { error: reassignError } = await supabase.from('products').update({ brand_id: replacementBrand.id }).eq('brand_id', id)
+      if (reassignError) {
+        console.error('Error reassigning products before deleting brand', reassignError)
+        return res.status(500).json({ error: 'No se pudo reubicar los productos antes de borrar la marca' })
+      }
+    }
+
     const { error } = await supabase.from('brands').delete().eq('id', id)
     if (error) {
       console.error('Error deleting brand', error)
@@ -596,14 +849,18 @@ app.post('/offers', requireAdmin, async (req, res) => {
 
     if (!product_id) return res.status(400).json({ error: 'product_id is required' })
 
+    const normalizedCashPrice = normalizeNumericValue(cash_price)
+    const normalizedInstallmentsQuantity = normalizeNumericValue(installments_quantity)
+    const normalizedInstallmentPrice = normalizeNumericValue(installment_price)
+
     const { data, error } = await supabase
       .from('offers')
       .insert({
         product_id,
         supermarket: supermarket || 'Sin supermercado',
-        cash_price: cash_price || null,
-        installments_quantity: installments_quantity || null,
-        installment_price: installment_price || null,
+        cash_price: normalizedCashPrice,
+        installments_quantity: normalizedInstallmentsQuantity,
+        installment_price: normalizedInstallmentPrice,
       })
       .select()
       .single()
@@ -630,11 +887,28 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
       cash_price,
       installments_quantity,
       installment_price,
+      skipPriceChangeRecording = false,
     } = req.body || {}
+
+    const normalizedCashPrice = normalizeNumericValue(cash_price)
+    const normalizedInstallmentsQuantity = normalizeNumericValue(installments_quantity)
+    const normalizedInstallmentPrice = normalizeNumericValue(installment_price)
+
+    const { data: previousOffer, error: previousError } = await supabase
+      .from('offers')
+      .select('id, product_id, cash_price, supermarket')
+      .eq('id', id)
+      .single()
+    if (previousError) return res.status(404).json({ error: 'Oferta no encontrada' })
 
     const { data, error } = await supabase
       .from('offers')
-      .update({ supermarket, cash_price, installments_quantity, installment_price })
+      .update({
+        supermarket,
+        cash_price: normalizedCashPrice,
+        installments_quantity: normalizedInstallmentsQuantity,
+        installment_price: normalizedInstallmentPrice,
+      })
       .eq('id', id)
       .select()
       .single()
@@ -644,7 +918,27 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Error updating offer' })
     }
 
-    await recordPriceHistory({ productId: data.product_id, offerId: data.id, cashPrice: data.cash_price })
+    if (!skipPriceChangeRecording) {
+      await recordPriceHistory({ productId: data.product_id, offerId: data.id, cashPrice: data.cash_price, source: 'admin_edit' })
+      const previousPrice = Number(previousOffer.cash_price)
+      const updatedPrice = Number(data.cash_price)
+      const percentage = previousPrice > 0 && updatedPrice > 0
+        ? ((updatedPrice - previousPrice) / previousPrice) * 100
+        : 0
+      const { error: logError } = await analysisWriter.from('price_update_log').insert({
+        admin_username: req.admin,
+        filters: { productId: data.product_id, offerId: data.id, supermarket: data.supermarket || previousOffer.supermarket || null, source: 'admin_edit' },
+        percentage,
+        products_updated: 1,
+        changes: [{
+          offerId: data.id,
+          productId: data.product_id,
+          previousCashPrice: previousPrice,
+          updatedCashPrice: updatedPrice,
+        }],
+      })
+      if (logError) return res.status(500).json({ error: 'Precio actualizado, pero no se pudo registrar la actualización' })
+    }
 
     res.json(data)
   } catch (e) {
@@ -719,7 +1013,7 @@ app.get('/admin/price-updates', requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('price_update_log')
-      .select('id, updated_at, admin_username, filters, percentage, products_updated')
+      .select('id, updated_at, admin_username, filters, percentage, products_updated, changes')
       .order('updated_at', { ascending: false })
       .limit(200)
     if (error) return res.status(500).json({ error: 'Error fetching price updates' })
@@ -916,6 +1210,23 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
 })
 
 const desiredPort = process.env.PORT ? Number(process.env.PORT) : 3000
+let discoSyncRunning = false
+const discoSyncIntervalMs = Number(process.env.DISCO_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
+if (process.env.DISCO_SYNC_ENABLED === 'true') {
+  setInterval(async () => {
+    if (discoSyncRunning) return
+    discoSyncRunning = true
+    try {
+      const result = await syncDiscoPrices({ database: analysisWriter, historyRecorder: recordPriceHistory })
+      console.log(`Disco scheduled sync: ${result.updated.length} updated, ${result.unchanged.length} unchanged, ${result.unavailable.length} unavailable`)
+    } catch (error) {
+      console.error('Disco scheduled sync failed:', error.message)
+    } finally {
+      discoSyncRunning = false
+    }
+  }, discoSyncIntervalMs)
+  console.log(`Disco scheduled sync enabled every ${discoSyncIntervalMs}ms`)
+}
 let server = app.listen(desiredPort, () => {
   const actual = server.address().port
   console.log(`Server running on port ${actual}`)

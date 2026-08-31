@@ -4,7 +4,8 @@
   "main": "server.js",
   "scripts": {
     "dev": "nodemon --watch server.js --watch services --watch supabase.js --watch supabaseAdmin.js --ignore uploads/ --ignore migrations/ --ignore scripts/ server.js",
-    "backfill-analysis": "node scripts/backfill_analysis.js"
+    "backfill-analysis": "node scripts/backfill_analysis.js",
+    "sync-disco": "node scripts/sync_disco.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",

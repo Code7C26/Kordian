@@ -7,6 +7,7 @@ import {
   PackageOpen,
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
+import { getProductImageUrl } from '../utils/productImage';
 
 export function ProductCard({
   product,
@@ -39,6 +40,8 @@ export function ProductCard({
   }, [defaultOfferId]);
 
   const selectedOffer = sortedStores.find((store) => store.id === selectedOfferId) || sortedStores[0] || null;
+  const productImage = getProductImageUrl(product.image);
+  const hasRealImage = Boolean(product.image && typeof product.image === 'string' && product.image.trim() && product.image.trim().toLowerCase() !== 'null' && product.image.trim().toLowerCase() !== 'undefined');
   const displayProductName = (product.name || 'Producto')
     .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
     .trim();
@@ -55,24 +58,21 @@ export function ProductCard({
   return (
     <div className="group relative bg-white dark:bg-stone-800/90 rounded-2xl border border-stone-200/90 dark:border-stone-700/80 hover:border-sky-400 dark:hover:border-sky-500 transition-all duration-200 hover:shadow-md flex flex-col justify-between h-full overflow-hidden">
       <div className="relative aspect-square w-full bg-stone-50 dark:bg-stone-900/60 p-4 flex items-center justify-center overflow-hidden border-b border-stone-100 dark:border-stone-800 shrink-0">
-        {product.image && failedImage !== product.image ? (
+        {hasRealImage && productImage && failedImage !== productImage ? (
           <img
-            src={product.image}
+            src={productImage}
             alt={product.name}
-            onError={() => setFailedImage(product.image)}
+            onError={() => setFailedImage(productImage)}
             className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
           />
         ) : (
-          <div className="w-full h-full min-h-44 flex flex-col items-center justify-center gap-3 rounded-xl bg-gradient-to-br from-sky-100 via-white to-emerald-100 dark:from-sky-950/70 dark:via-stone-800 dark:to-emerald-950/60 text-sky-700 dark:text-sky-300">
-            <div className="w-16 h-16 rounded-2xl bg-white/80 dark:bg-stone-900/70 border border-sky-200 dark:border-sky-800 flex items-center justify-center shadow-sm">
-              <PackageOpen className="w-8 h-8" />
-            </div>
-            <div className="text-center px-4">
-              <div className="text-lg font-black tracking-wide leading-tight bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 dark:from-indigo-300 dark:via-sky-300 dark:to-emerald-300 bg-clip-text text-transparent line-clamp-2">{displayProductName}</div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">{product.subcategory || 'Producto'}</div>
-            </div>
-          </div>
+          <img
+            src={productImage}
+            alt={product.name || 'Producto sin imagen'}
+            className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+            loading="lazy"
+          />
         )}
 
         <div className="absolute top-2.5 left-2.5 z-10">

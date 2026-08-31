@@ -48,7 +48,7 @@ export const HeroCategoryGrid: React.FC<HeroCategoryGridProps> = ({
   };
 
   const QUICK_SEARCH_TAGS = [
-    'Yerba Mate', 'Ibupirac', 'Smart TV 50"', 'Taladro DeWalt', 'Aceite Oliva', 'Zapatillas Nike'
+    'Chocolate', 'Licor', 'Smart TV', 'Cocina', 'Desodorante', 'Zapatillas'
   ];
 
   return (
@@ -110,8 +110,12 @@ export const HeroCategoryGrid: React.FC<HeroCategoryGridProps> = ({
                 <button
                   key={tag}
                   onClick={() => {
-                    setSearchQuery(tag);
-                    onSearchSubmit();
+                    if (onQuickSearch) {
+                      onQuickSearch(tag);
+                    } else {
+                      setSearchQuery(tag);
+                      onSearchSubmit();
+                    }
                   }}
                   className="px-2.5 py-1 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-sky-100 dark:hover:bg-sky-950/60 hover:text-sky-700 dark:hover:text-sky-300 text-stone-600 dark:text-stone-300 transition-colors border border-stone-200/60 dark:border-stone-700/60"
                 >

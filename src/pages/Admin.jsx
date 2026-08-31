@@ -7,6 +7,8 @@ import CsvUploader from '../components/CsvUploader.jsx'
 import Toast from '../components/Toast.jsx'
 import { PackageOpen, Pencil, Trash2 } from 'lucide-react'
 import { adminFetch, apiUrl } from '../config/api.js'
+import { formatCurrency } from '../utils/formatters.js'
+import { getVisiblePageNumbers } from '../utils/pagination.js'
 
 export default function Admin() {
   // theme state to reuse site header dark toggle
@@ -31,9 +33,16 @@ export default function Admin() {
   const [supermarkets, setSupermarkets] = useState([])
   const [taxonomy, setTaxonomy] = useState([])
   const [priceUpdates, setPriceUpdates] = useState([])
+  const [discoQuery, setDiscoQuery] = useState('yerba')
+  const [discoPreview, setDiscoPreview] = useState([])
+  const [selectedDiscoProducts, setSelectedDiscoProducts] = useState([])
+  const [discoLoading, setDiscoLoading] = useState(false)
+  const [discoError, setDiscoError] = useState('')
+  const [discoSyncStatus, setDiscoSyncStatus] = useState(null)
 
   const [editingProduct, setEditingProduct] = useState(null)
   const [editingOfferId, setEditingOfferId] = useState(null)
+  const [skipPriceChangeRecording, setSkipPriceChangeRecording] = useState(() => localStorage.getItem('arprice_skip_price_change_recording') === 'true')
 
   const [adminForm, setAdminForm] = useState({ username: '', password: '' })
 
@@ -63,6 +72,9 @@ export default function Admin() {
   const [productSearch, setProductSearch] = useState('')
   const [productCategoryFilter, setProductCategoryFilter] = useState('')
   const [productBrandFilter, setProductBrandFilter] = useState('')
+  const [productPage, setProductPage] = useState(1)
+  const [productPageSize, setProductPageSize] = useState(20)
+  const [totalProductCount, setTotalProductCount] = useState(0)
 
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' })
 
@@ -72,13 +84,113 @@ export default function Admin() {
   }
 
   // data loaders
-  const loadProducts = async () => {
+  const loadProducts = async (page = productPage) => {
     try {
-      const res = await fetch(apiUrl('/products'))
-      const data = await res.json()
+      const res = await fetch(apiUrl(`/products?page=${page}&limit=${productPageSize}`))
+      const payload = await res.json()
+      const data = Array.isArray(payload) ? payload : payload.data || []
       setProducts(data)
+      setTotalProductCount(Array.isArray(payload) ? data.length : Number(payload.total || data.length || 0))
     } catch (error) {
       console.error(error)
+    }
+  }
+
+  const loadPriceUpdates = async () => {
+    try {
+      const res = await adminFetch('/admin/price-updates')
+      if (!res.ok) return
+      setPriceUpdates(await res.json())
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const previewDiscoProducts = async () => {
+    setDiscoLoading(true)
+    setDiscoError('')
+    try {
+      const response = await adminFetch(`/admin/import/disco/preview?query=${encodeURIComponent(discoQuery)}`)
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'No se pudo consultar Disco')
+      setDiscoPreview(data.products || [])
+      setSelectedDiscoProducts([])
+    } catch (error) {
+      setDiscoError(error.message || 'No se pudo consultar Disco')
+    } finally {
+      setDiscoLoading(false)
+    }
+  }
+
+  const importSelectedDiscoProducts = async () => {
+    const selected = discoPreview.filter((product) => selectedDiscoProducts.includes(product.sourceProductId) && !product.possibleDuplicate)
+    if (!selected.length) {
+      showToast('Seleccioná productos válidos sin duplicados', 'error')
+      return
+    }
+    setDiscoLoading(true)
+    try {
+      const response = await adminFetch('/admin/import/disco', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: selected }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error([result.error, result.detail].filter(Boolean).join(': ') || 'No se pudieron importar los productos')
+      setDiscoPreview((products) => products.filter((product) => !result.imported.some((entry) => entry.sourceProductId === product.sourceProductId)))
+      setSelectedDiscoProducts([])
+      await loadProducts()
+      const skippedMessage = result.skipped?.length
+        ? ` ${result.skipped.length} omitido(s): ${result.skipped.map((entry) => entry.reason).join(', ')}`
+        : ''
+      showToast(`${result.imported.length} producto(s) importado(s).${skippedMessage}`, result.imported.length ? 'success' : 'error')
+    } catch (error) {
+      showToast(error.message || 'No se pudieron importar los productos', 'error')
+    } finally {
+      setDiscoLoading(false)
+    }
+  }
+
+  const updateDiscoPrices = async () => {
+    setDiscoLoading(true)
+    try {
+      const response = await adminFetch('/admin/import/disco/update-prices', { method: 'POST' })
+      const result = response.headers.get('content-type')?.includes('application/json')
+        ? await response.json()
+        : { error: `El servidor no reconoce la sincronización de Disco (HTTP ${response.status})` }
+      if (!response.ok) throw new Error([result.error, result.detail].filter(Boolean).join(': ') || 'No se pudieron actualizar los precios')
+      await loadProducts()
+      await loadDiscoSyncStatus()
+      showToast(`${result.updated} precio(s) actualizado(s), ${result.unchanged} sin cambios${result.unavailable.length ? ` y ${result.unavailable.length} no disponible(s)` : ''}`, result.updated || !result.unavailable.length ? 'success' : 'error')
+    } catch (error) {
+      showToast(error.message || 'No se pudieron actualizar los precios', 'error')
+    } finally {
+      setDiscoLoading(false)
+    }
+  }
+
+  const loadDiscoSyncStatus = async () => {
+    try {
+      const response = await adminFetch('/admin/import/disco/sync-status')
+      if (response.ok) setDiscoSyncStatus(await response.json())
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const deletePriceUpdate = async (id) => {
+    if (!window.confirm('¿Eliminar este registro y restaurar los precios anteriores?')) return
+    try {
+      const res = await adminFetch(`/admin/price-updates/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        showToast('No se pudo eliminar el registro', 'error')
+        return
+      }
+      setPriceUpdates((updates) => updates.filter((update) => update.id !== id))
+      showToast('Registro eliminado y precios restaurados', 'success')
+    } catch (error) {
+      console.error(error)
+      showToast('Error de red al eliminar el registro', 'error')
     }
   }
 
@@ -159,14 +271,15 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    loadProducts()
+    loadProducts(productPage)
     loadAdmins()
     loadCategories()
     loadBrands()
     loadSupermarkets()
     loadTaxonomy()
     loadPriceUpdates()
-  }, [])
+    loadDiscoSyncStatus()
+  }, [productPage, productPageSize])
 
   useEffect(() => {
     window.addEventListener('price-updates-changed', loadPriceUpdates)
@@ -316,6 +429,7 @@ export default function Admin() {
             cash_price: form.cashPrice,
             installments_quantity: form.installmentsQuantity || null,
             installment_price: form.installmentPrice || null,
+            skipPriceChangeRecording,
           }),
         })
 
@@ -325,6 +439,7 @@ export default function Admin() {
           return
         }
 
+        if (!skipPriceChangeRecording) loadPriceUpdates()
         showToast('Oferta actualizada', 'success')
       } else if (form.cashPrice || form.installmentsQuantity || form.installmentPrice) {
         const offerRes = await adminFetch('/offers', {
@@ -524,6 +639,9 @@ export default function Admin() {
     loadBrands()
   }
 
+  const totalPages = Math.max(1, Math.ceil(totalProductCount / productPageSize))
+  const visibleProductPages = getVisiblePageNumbers(productPage, totalPages, 1)
+
   const filteredProducts = products.filter((product) => {
     const query = productSearch.trim().toLowerCase()
     if (query) {
@@ -567,6 +685,38 @@ export default function Admin() {
           [...supermarketOffers].sort((firstOffer, secondOffer) => Number(secondOffer.cash_price || 0) - Number(firstOffer.cash_price || 0)),
         ])
         .sort(([, firstOffers], [, secondOffers]) => Number(secondOffers[0]?.cash_price || 0) - Number(firstOffers[0]?.cash_price || 0)),
+    )
+  }
+
+  const manualPriceUpdates = priceUpdates.filter((update) => update.filters?.source !== 'disco_sync')
+  const discoPriceUpdates = priceUpdates.filter((update) => update.filters?.source === 'disco_sync')
+  const renderPriceUpdates = (updates, emptyMessage, automatic = false) => {
+    if (!updates.length) return <p className="rounded-xl bg-stone-50 dark:bg-stone-900 p-4 text-sm text-stone-500 dark:text-stone-400">{emptyMessage}</p>
+
+    const renderTable = (tableUpdates) => (
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-stone-200 dark:border-stone-700 text-xs uppercase tracking-wide text-stone-500 dark:text-stone-400">
+          <tr><th className="py-3 pr-4">Fecha</th><th className="py-3 pr-4">{automatic ? 'Cambios' : 'Filtros aplicados'}</th><th className="py-3 pr-4">{automatic ? 'Variación' : 'Porcentaje'}</th><th className="py-3 pr-4">Productos</th><th className="py-3 pr-4">Administrador</th><th className="py-3">Acción</th></tr>
+        </thead>
+        <tbody className="divide-y divide-stone-100 dark:divide-stone-700/70">
+          {tableUpdates.map((update) => {
+            const categoryName = categories.find((category) => String(category.id) === String(update.filters?.categoryId))?.name
+            const brandName = brands.find((brand) => String(brand.id) === String(update.filters?.brandId))?.name
+            const appliedFilters = [categoryName ? `Categoría: ${categoryName}` : null, brandName ? `Marca: ${brandName}` : null, update.filters?.supermarket ? `Supermercado: ${update.filters.supermarket}` : null].filter(Boolean)
+            const changes = Array.isArray(update.changes) ? update.changes : []
+            const percentage = changes.length && Number(changes[0].previousCashPrice) > 0
+              ? ((Number(changes[0].updatedCashPrice) - Number(changes[0].previousCashPrice)) / Number(changes[0].previousCashPrice)) * 100
+              : Number(update.percentage)
+            return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')}</td><td className={`py-3 pr-4 font-bold ${percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{percentage > 0 ? '+' : ''}{percentage.toFixed(1)}%</td><td className="py-3 pr-4">{update.products_updated}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
+          })}
+        </tbody>
+      </table>
+    )
+
+    return (
+      <div className="max-h-64 overflow-y-auto overflow-x-auto rounded-xl border border-stone-200 dark:border-stone-700 pr-4" style={{ scrollbarGutter: 'stable both-edges' }} aria-label="Registro completo de actualizaciones">
+        {renderTable(updates)}
+      </div>
     )
   }
 
@@ -697,7 +847,7 @@ export default function Admin() {
             <CsvUploader onUploaded={() => { loadProducts(); loadPriceUpdates() }} />
           </div>
 
-          <section className="col-span-1 lg:col-span-2 bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm">
+          <section className="col-span-1 lg:col-span-3 bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
                 <h2 className="text-xl font-bold">Registro de actualizaciones rápidas</h2>
@@ -705,47 +855,10 @@ export default function Admin() {
               </div>
               <button type="button" onClick={loadPriceUpdates} className="px-3 py-2 rounded-lg border border-stone-300 dark:border-stone-600 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">Actualizar</button>
             </div>
-            {priceUpdates.length ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-stone-200 dark:border-stone-700 text-xs uppercase tracking-wide text-stone-500 dark:text-stone-400">
-                    <tr>
-                      <th className="py-3 pr-4">Fecha</th>
-                      <th className="py-3 pr-4">Filtros aplicados</th>
-                      <th className="py-3 pr-4">Porcentaje</th>
-                      <th className="py-3 pr-4">Productos</th>
-                      <th className="py-3 pr-4">Administrador</th>
-                      <th className="py-3">Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100 dark:divide-stone-700/70">
-                    {priceUpdates.map((update) => {
-                      const categoryName = categories.find((category) => String(category.id) === String(update.filters?.categoryId))?.name
-                      const brandName = brands.find((brand) => String(brand.id) === String(update.filters?.brandId))?.name
-                      const appliedFilters = [
-                        categoryName ? `Categoría: ${categoryName}` : null,
-                        brandName ? `Marca: ${brandName}` : null,
-                        update.filters?.supermarket ? `Supermercado: ${update.filters.supermarket}` : null,
-                      ].filter(Boolean)
-                      return (
-                        <tr key={update.id} className="text-stone-700 dark:text-stone-200">
-                          <td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td>
-                          <td className="py-3 pr-4 font-semibold">{appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros'}</td>
-                          <td className={`py-3 pr-4 font-bold ${Number(update.percentage) >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{Number(update.percentage) > 0 ? '+' : ''}{update.percentage}%</td>
-                          <td className="py-3 pr-4">{update.products_updated}</td>
-                          <td className="py-3 pr-4 text-xs">{update.admin_username}</td>
-                          <td className="py-3">
-                            <button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="rounded-xl bg-stone-50 dark:bg-stone-900 p-4 text-sm text-stone-500 dark:text-stone-400">Todavía no hay actualizaciones rápidas registradas.</p>
-            )}
+            <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Actualizaciones manuales</h3>
+            {renderPriceUpdates(manualPriceUpdates, 'Todavía no hay actualizaciones manuales registradas.')}
+            <h3 className="mb-3 mt-8 text-sm font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Sincronizaciones automáticas de Disco</h3>
+            {renderPriceUpdates(discoPriceUpdates, 'Todavía no hay sincronizaciones automáticas registradas.', true)}
           </section>
 
           <div className="col-span-1 lg:col-span-1">
@@ -757,6 +870,49 @@ export default function Admin() {
           </div>
         </div>
 
+        <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Vista previa de Disco</h2>
+              <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">Consulta productos externos sin modificar el inventario.</p>
+              <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">
+                {discoSyncStatus?.lastSyncAt
+                  ? `Última sincronización: ${new Date(discoSyncStatus.lastSyncAt).toLocaleString('es-AR')} · ${discoSyncStatus.changes} cambio(s)`
+                  : 'Todavía no hay sincronizaciones automáticas registradas.'}
+              </p>
+            </div>
+            <form className="flex w-full gap-2 sm:w-auto" onSubmit={(event) => { event.preventDefault(); previewDiscoProducts() }}>
+              <input className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100" value={discoQuery} onChange={(event) => setDiscoQuery(event.target.value)} placeholder="Buscar en Disco" aria-label="Buscar productos en Disco" />
+              <button type="submit" className="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white hover:bg-sky-500" disabled={discoLoading}>{discoLoading ? 'Consultando...' : 'Consultar'}</button>
+            </form>
+          </div>
+          {discoError && <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{discoError}</p>}
+          {!discoLoading && !discoError && discoPreview.length === 0 && <p className="mt-4 rounded-lg bg-stone-50 p-3 text-sm text-stone-500 dark:bg-stone-900 dark:text-stone-400">Consultá una categoría o producto para ver una vista previa.</p>}
+          {discoPreview.length > 0 && (
+            <>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={updateDiscoPrices} disabled={discoLoading} className="rounded-lg border border-sky-600 px-4 py-2 font-semibold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50">Actualizar precios importados</button>
+              <button type="button" onClick={importSelectedDiscoProducts} disabled={discoLoading || !selectedDiscoProducts.length} className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">Importar seleccionados</button>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              {discoPreview.map((product) => (
+                <article key={product.sourceProductId} className={`flex gap-3 rounded-xl border p-3 dark:border-stone-700 ${product.possibleDuplicate ? 'border-amber-300 opacity-70' : 'border-stone-200'}`}>
+                  <input type="checkbox" disabled={product.possibleDuplicate} checked={selectedDiscoProducts.includes(product.sourceProductId)} onChange={(event) => setSelectedDiscoProducts((selected) => event.target.checked ? [...selected, product.sourceProductId] : selected.filter((id) => id !== product.sourceProductId))} className="mt-2 h-4 w-4 accent-emerald-600" aria-label={`Seleccionar ${product.name}`} />
+                  {product.image ? <img src={product.image} alt="" className="h-20 w-20 rounded-lg bg-stone-100 object-contain dark:bg-stone-900" /> : <div className="h-20 w-20 rounded-lg bg-stone-100 dark:bg-stone-900" />}
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-bold text-stone-900 dark:text-white">{product.name}</h3>
+                    <p className="text-sm text-stone-500 dark:text-stone-400">{product.brand || 'Marca no informada'} · {product.available ? 'Disponible' : 'Sin stock'}</p>
+                    <p className="mt-1 font-black text-emerald-700 dark:text-emerald-400">{formatCurrency(product.price)}</p>
+                    <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">{product.proposedCategory && product.proposedSubcategory ? `${product.proposedCategory} > ${product.proposedSubcategory}` : 'Mapeo pendiente'}</p>
+                    {product.possibleDuplicate && <span className="mt-2 inline-block rounded-md bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">Posible duplicado</span>}
+                  </div>
+                </article>
+              ))}
+            </div>
+            </>
+          )}
+        </section>
+
         <ProductForm
           form={form}
           setForm={setForm}
@@ -765,15 +921,70 @@ export default function Admin() {
           supermarkets={supermarkets}
           createProduct={createProduct}
           editingProduct={editingProduct}
+          editingOfferId={editingOfferId}
           saveEdit={saveEdit}
           cancelEdit={cancelEdit}
           taxonomy={taxonomy}
+          skipPriceChangeRecording={skipPriceChangeRecording}
+          setSkipPriceChangeRecording={(skip) => {
+            setSkipPriceChangeRecording(skip)
+            localStorage.setItem('arprice_skip_price_change_recording', String(skip))
+          }}
         />
         <Toast toast={toast} />
 
         {/* Products list */}
         <section className="mt-6">
-          <h2 className="text-xl font-bold mb-4">Productos</h2>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-xl font-bold">Productos</h2>
+            <div className="flex items-center gap-3 text-sm text-stone-500 dark:text-stone-400">
+              <span>Página {productPage} de {totalPages}</span>
+              <select
+                value={productPageSize}
+                onChange={(event) => {
+                  setProductPageSize(Number(event.target.value))
+                  setProductPage(1)
+                }}
+                className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-sm text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="mb-5 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setProductPage((page) => Math.max(1, page - 1))}
+                disabled={productPage === 1}
+                className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
+              >
+                Anterior
+              </button>
+              {visibleProductPages.map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => setProductPage(page)}
+                  className={`min-w-10 rounded-lg border px-3 py-2 text-xs font-bold ${productPage === page ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 bg-white text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200'}`}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setProductPage((page) => Math.min(totalPages, page + 1))}
+                disabled={productPage === totalPages}
+                className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
+              >
+                Siguiente
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredProducts.map((product) => (
               <div key={product.id} className="bg-white dark:bg-stone-800 rounded-2xl p-4 shadow-sm">
@@ -796,6 +1007,7 @@ export default function Admin() {
                       <h3 className="font-bold">{product.name}</h3>
                       <p className="text-sm text-stone-500">Marca: {product.brands?.name}</p>
                       <p className="text-sm text-stone-500">Categoría: {product.categories?.name}</p>
+                      <p className="text-sm text-stone-500">Subcategoría: {product.subcategories?.name || 'Sin subcategoría'}</p>
                       <p className="text-sm">⭐ {product.rating}</p>
                     </div>
                   </div>
@@ -817,9 +1029,9 @@ export default function Admin() {
                           {offers.map((offer) => (
                             <div key={offer.id} className="rounded-xl border border-stone-200 dark:border-stone-700 p-3 bg-white dark:bg-stone-950 flex items-center justify-between gap-3">
                               <div>
-                                <div className="text-sm text-stone-700 dark:text-stone-200">Contado: ${offer.cash_price}</div>
+                                <div className="text-sm text-stone-700 dark:text-stone-200">Contado: {formatCurrency(Number(offer.cash_price || 0))}</div>
                                 {offer.installments_quantity && (
-                                  <div className="text-xs text-stone-500">{offer.installments_quantity} x ${offer.installment_price} = ${offer.installments_quantity * offer.installment_price}</div>
+                                  <div className="text-xs text-stone-500">{offer.installments_quantity} x {formatCurrency(Number(offer.installment_price || 0))} = {formatCurrency(Number((offer.installments_quantity || 0) * (offer.installment_price || 0)))}</div>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">

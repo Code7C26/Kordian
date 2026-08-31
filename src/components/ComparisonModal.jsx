@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { X, TrendingDown, Store, Calendar, Info } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
+import { getProductImageUrl } from '../utils/productImage';
 
 export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, onExplain }) {
   const [added, setAdded] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   if (!product) return null;
+  const productImage = getProductImageUrl(product.image);
   const sortedStores = Array.isArray(product.otherStores) ? [...product.otherStores].sort((a, b) => (a.price || 0) - (b.price || 0)) : [];
   const cheapestStore = sortedStores[0] || { price: 0, supermarket: '' };
   const mostExpensiveStore = sortedStores[sortedStores.length - 1] || { price: 0, supermarket: '' };
@@ -89,7 +91,13 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
       <div className="relative w-full max-w-3xl bg-white dark:bg-stone-800 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-700 overflow-hidden my-8" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between p-6 border-b border-stone-200/80 dark:border-stone-700/80 bg-stone-50/50 dark:bg-stone-900/40">
           <div className="flex items-center gap-4">
-            <img src={product.image} alt={product.name} className="w-16 h-16 rounded-2xl object-cover border border-stone-200 dark:border-stone-700 shrink-0" />
+            {productImage ? (
+              <img src={productImage} alt={product.name} className="w-16 h-16 rounded-2xl object-cover border border-stone-200 dark:border-stone-700 shrink-0" />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-100 via-white to-emerald-100 dark:from-sky-950/70 dark:via-stone-800 dark:to-emerald-950/60 border border-sky-200 dark:border-sky-800 flex items-center justify-center text-center p-1">
+                <span className="text-[9px] font-black leading-tight bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 bg-clip-text text-transparent">{product.name || 'Producto'}</span>
+              </div>
+            )}
             <div>
               <div className="flex items-center gap-2 text-xs font-semibold text-sky-600 dark:text-sky-400 uppercase tracking-wider">
                 <span>{product.brand}</span>

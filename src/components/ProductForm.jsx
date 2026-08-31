@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, Save, Store } from 'lucide-react'
 
-export default function ProductForm({ form, setForm, brands, categories, supermarkets = [], createProduct, editingProduct, saveEdit, cancelEdit, taxonomy = [] }) {
+export default function ProductForm({ form, setForm, brands, categories, supermarkets = [], createProduct, editingProduct, editingOfferId = null, saveEdit, cancelEdit, taxonomy = [], skipPriceChangeRecording = false, setSkipPriceChangeRecording }) {
   const [supermarketMenuOpen, setSupermarketMenuOpen] = useState(false)
   const selectedCategory = taxonomy.find((category) => String(category.id) === String(form.category_id))
   const subcategories = selectedCategory?.subcategories || []
@@ -69,6 +69,12 @@ export default function ProductForm({ form, setForm, brands, categories, superma
         <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder="Cantidad cuotas" value={form.installmentsQuantity} onChange={(e) => setForm({ ...form, installmentsQuantity: e.target.value })} />
         <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder="Valor cuota" value={form.installmentPrice} onChange={(e) => setForm({ ...form, installmentPrice: e.target.value })} />
       </div>
+      {editingProduct && editingOfferId !== null && (
+        <label className="mt-4 flex items-center gap-2 text-sm text-stone-700 dark:text-stone-200">
+          <input type="checkbox" checked={skipPriceChangeRecording} onChange={(e) => setSkipPriceChangeRecording?.(e.target.checked)} className="h-4 w-4 accent-sky-600" />
+          No registrar esta edición en historial ni actualizaciones
+        </label>
+      )}
       <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
         {editingProduct ? (
           <>

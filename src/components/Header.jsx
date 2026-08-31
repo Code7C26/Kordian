@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { 
-  TrendingDown, 
   MapPin, 
   Sun, 
   Moon, 
@@ -9,6 +8,8 @@ import {
   Heart, 
 } from 'lucide-react';
 import { adminFetch, apiUrl } from '../config/api.js';
+import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
 
 export function Header({
   darkMode,
@@ -60,7 +61,7 @@ export function Header({
     })()
   }, [])
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-sky-200 bg-gradient-to-r from-sky-100/95 to-cyan-50/95 dark:border-stone-800 dark:bg-gradient-to-r dark:from-stone-950 dark:to-stone-900 backdrop-blur-md transition-colors duration-200">
+    <header className="sticky top-0 z-40 w-full border-b border-sky-400/30 dark:border-stone-800 bg-sky-600 dark:bg-stone-900/90 backdrop-blur-md transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 md:h-20 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <button 
@@ -68,27 +69,35 @@ export function Header({
             className="flex items-center gap-2.5 group text-left focus:outline-none cursor-pointer"
             title="Ir al inicio de ARPrice"
           >
-            <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-sky-600 to-emerald-500 flex items-center justify-center text-white shadow-lg shadow-black/30 group-hover:scale-105 transition-transform duration-200">
-              <TrendingDown className="w-6 h-6 stroke-[2.5]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xl font-black tracking-tight bg-gradient-to-r from-sky-600 via-blue-600 to-emerald-600 dark:from-sky-400 dark:via-blue-400 dark:to-emerald-400 bg-clip-text text-transparent">
-                  ARPrice
-                </span>
-                <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded bg-sky-700/10 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 border border-sky-700/30">
-                  AR
-                </span>
+            <div className="relative flex items-center gap-3">
+              <div className="relative rounded-xl p-1.5 bg-white dark:bg-black shadow-[0_6px_16px_rgba(14,116,144,0.18)] ring-1 ring-sky-300/40 dark:ring-sky-700/60 backdrop-blur-sm">
+                <img
+                  src={darkMode ? brandLogoDark : brandLogo}
+                  alt="ARPrice"
+                  className="h-8 md:h-10 w-auto object-contain drop-shadow-[0_6px_10px_rgba(37,99,235,0.25)] transition-transform duration-200 group-hover:scale-[1.03] filter drop-shadow-lg"
+                  style={{
+                    filter: 'drop-shadow(0 4px 8px rgba(14, 116, 144, 0.2)) drop-shadow(0 0 1px rgba(37, 99, 235, 0.1))'
+                  }}
+                />
               </div>
-              <p className="hidden md:block text-[10px] font-medium text-stone-500 dark:text-stone-400 leading-none mt-0.5">
-                Precios Justos & Transparente
-              </p>
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-lg sm:text-xl font-black tracking-tight" style={{ fontFamily: 'sans-serif' }}>
+                    <span className="text-black dark:text-white">AR</span>
+                    <span className="text-black dark:text-white">-</span>
+                    <span className="text-white dark:text-sky-400">PRICE</span>
+                  </span>
+                </div>
+                <p className="hidden md:block text-[11px] font-semibold italic text-white/80 dark:text-white leading-tight tracking-wide">
+                  Ahorrar no es suerte, es información
+                </p>
+              </div>
             </div>
           </button>
         </div>
 
-        <div className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-stone-800 dark:text-stone-200 bg-white/60 dark:bg-stone-900/40 rounded-xl border border-sky-200 dark:border-stone-700/40">
-          <MapPin className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+        <div className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white dark:text-stone-200 bg-white/20 dark:bg-stone-900/40 rounded-xl border border-white/30 dark:border-stone-700/40">
+          <MapPin className="w-4 h-4 text-white dark:text-sky-400 shrink-0" />
           <span className="max-w-[120px] sm:max-w-[180px] truncate">{selectedCity}</span>
         </div>
 
@@ -97,7 +106,7 @@ export function Header({
             <>
               <button
                 onClick={onOpenFavorites}
-                className="relative p-2 rounded-lg text-stone-600 dark:text-stone-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+                className="relative p-2 rounded-lg text-white dark:text-stone-300 hover:text-rose-200 dark:hover:text-rose-400 hover:bg-white/20 dark:hover:bg-stone-800 transition-colors cursor-pointer"
                 title="Ver Favoritos"
               >
                 <Heart className="w-5 h-5" />
@@ -110,13 +119,13 @@ export function Header({
 
               <button
                 onClick={onOpenBasket}
-                className="relative flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 text-white rounded-2xl text-sm font-bold shadow-lg transition-transform hover:scale-105 cursor-pointer"
+                className="relative flex items-center gap-2 px-4 py-2 bg-white text-sky-600 rounded-2xl text-sm font-bold shadow-lg transition-transform hover:scale-105 cursor-pointer dark:bg-gradient-to-r dark:from-indigo-600 dark:via-sky-600 dark:to-emerald-500 dark:text-white"
                 title="Canasta Ahorro"
               >
                 <ShoppingBag className="w-4 h-4" />
                 <span className="hidden md:inline">Canasta</span>
                 {basketCount > 0 && (
-                  <span className="ml-2 px-2 py-0.5 bg-white text-indigo-700 text-xs font-black rounded-full min-w-[20px] text-center">
+                  <span className="ml-2 px-2 py-0.5 bg-sky-600 text-white text-xs font-black rounded-full min-w-[20px] text-center dark:bg-white dark:text-indigo-700">
                     {basketCount}
                   </span>
                 )}
@@ -137,13 +146,13 @@ export function Header({
 
           <button
             onClick={() => setDarkMode(!darkMode)}
-            className="p-2 rounded-lg text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+            className="p-2 rounded-lg text-white dark:text-stone-300 hover:bg-white/20 dark:hover:bg-stone-800 transition-colors cursor-pointer"
             title={darkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
           >
             {darkMode ? (
-              <Sun className="w-5 h-5 text-amber-400" />
+              <Sun className="w-5 h-5 text-amber-300" />
             ) : (
-              <Moon className="w-5 h-5 text-stone-600" />
+              <Moon className="w-5 h-5" />
             )}
           </button>
         </div>

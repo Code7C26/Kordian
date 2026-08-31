@@ -12,6 +12,9 @@ import { SmartBasketModal } from './components/SmartBasketModal.jsx';
 import PriceExplanationModal from './components/PriceExplanationModal.jsx';
 import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js';
 import { apiUrl } from './config/api.js';
+import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
+import { buildProductsQuery } from './utils/catalogQuery.js';
+import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 // Data will be loaded from backend API
 import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle } from 'lucide-react';
 
@@ -30,6 +33,9 @@ export default function App() {
   const [categories, setCategories] = useState([])
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
+  const [productsPage, setProductsPage] = useState(1)
+  const [productsPageSize, setProductsPageSize] = useState(20)
+  const [totalProducts, setTotalProducts] = useState(0)
   const [storesList, setStoresList] = useState([])
   const [filters, setFilters] = useState({
     category: 'todos',
@@ -101,26 +107,74 @@ export default function App() {
     localStorage.setItem('arprice_basket', JSON.stringify(basket));
   }, [basket]);
 
+  useEffect(() => {
+    if (productsPage !== 1) {
+      setProductsPage(1);
+    }
+  }, [filters.searchQuery, filters.category, filters.store]);
+
   // Load categories and products from backend
   useEffect(() => {
     let mounted = true
     const loadData = async () => {
       try {
-        const [catsRes, prodsRes, taxonomyRes, supermarketsRes] = await Promise.all([
+        const requestPageSize = Math.max(productsPageSize, 200)
+        const baseQuery = {
+          page: productsPage,
+          limit: requestPageSize,
+          searchQuery: filters.searchQuery,
+          category: filters.category,
+          store: filters.store,
+        }
+
+        const [catsRes, firstPageRes, taxonomyRes, supermarketsRes] = await Promise.all([
           fetch(apiUrl('/categories')),
-          fetch(apiUrl('/products')),
+          fetch(apiUrl(`/products?${buildProductsQuery(baseQuery).toString()}`)),
           fetch(apiUrl('/taxonomy')),
           fetch(apiUrl('/supermarkets')),
         ])
 
         if (!mounted) return
 
-        if (!catsRes.ok || !prodsRes.ok) {
+        if (!catsRes.ok || !firstPageRes.ok) {
           throw new Error('Backend returned non-ok response')
         }
 
         const cats = await catsRes.json()
-        const prods = await prodsRes.json()
+        const firstPagePayload = await firstPageRes.json()
+        const firstPageData = Array.isArray(firstPagePayload) ? firstPagePayload : firstPagePayload.data || []
+        const firstPageTotal = Array.isArray(firstPagePayload)
+          ? firstPageData.length
+          : Number(firstPagePayload.total || firstPageData.length || 0)
+
+        const totalPagesToFetch = Math.max(1, Math.ceil(firstPageTotal / requestPageSize))
+        const pageNumbers = Array.from({ length: totalPagesToFetch }, (_, index) => index + 1)
+
+        const remainingPageResponses = await Promise.all(
+          pageNumbers.slice(1).map(async (pageNumber) => {
+            const pageQuery = buildProductsQuery({
+              ...baseQuery,
+              page: pageNumber,
+              limit: requestPageSize,
+            })
+
+            const response = await fetch(apiUrl(`/products?${pageQuery.toString()}`))
+            if (!response.ok) {
+              throw new Error('Backend returned non-ok response')
+            }
+
+            return response.json()
+          })
+        )
+
+        const pagePayloads = [firstPagePayload, ...remainingPageResponses]
+        const allProductsFromApi = pagePayloads.flatMap((payload) => {
+          const pageData = Array.isArray(payload) ? payload : payload?.data || []
+          return Array.isArray(pageData) ? pageData : []
+        })
+        const validProds = allProductsFromApi.filter((product) => isValidCatalogProduct(product))
+
+        setTotalProducts(firstPageTotal)
         const taxonomyData = taxonomyRes.ok ? await taxonomyRes.json() : []
         const supermarkets = supermarketsRes.ok ? await supermarketsRes.json() : []
         const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
@@ -129,7 +183,7 @@ export default function App() {
         const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
 
         // enrich products with derived fields for the UI (defensive)
-        const enriched = (prods || []).map((p) => {
+        const enriched = validProds.map((p) => {
           const offers = p.offers || []
           const otherStores = offers.map((o) => ({
             id: o.id,
@@ -176,7 +230,7 @@ export default function App() {
 
         // derive stores list from offers
         const storesSet = new Set()
-        prods.forEach((p) => {
+        validProds.forEach((p) => {
           (p.offers || []).forEach((o) => {
             if (o.supermarket) storesSet.add(o.supermarket)
           })
@@ -219,7 +273,7 @@ export default function App() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [productsPage, productsPageSize, filters.searchQuery, filters.category, filters.store])
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>
@@ -278,6 +332,7 @@ export default function App() {
 
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
+      if (!isValidCatalogProduct(product)) return false;
       if (favoritesOnlyView && !favorites.includes(product.id)) {
         return false;
       }
@@ -295,7 +350,6 @@ export default function App() {
         const matchesName = (product.name || '').toLowerCase().includes(query);
         const matchesBrand = (product.brand || '').toLowerCase().includes(query);
         const matchesSubcat = (product.subcategory || '').toLowerCase().includes(query);
-        // offers and supermarket names
         const matchesStore = (product.offers || []).some((o) => ((o.supermarket || '') + '').toLowerCase().includes(query));
         if (!matchesName && !matchesBrand && !matchesSubcat && !matchesStore) {
           return false;
@@ -313,7 +367,6 @@ export default function App() {
       if (filters.priceStatus === 'EN_PRECIO' && derivedStatus !== 'EN_PRECIO' && derivedStatus !== 'PRECIO_NORMAL') return false;
       if (filters.priceStatus === 'INFLADO' && derivedStatus !== 'INFLADO' && derivedStatus !== 'AUMENTO_ATIPICO' && derivedStatus !== 'SOBREPRECIO') return false;
 
-      // attempt to evaluate current price from offers (min cash_price)
       const currentPrice = (product.offers || []).reduce((min, o) => {
         const p = Number(o.cash_price) || 0
         if (min === null) return p
@@ -326,22 +379,42 @@ export default function App() {
 
       return true;
     }).sort((a, b) => {
-      switch (filters.sortBy) {
-        case 'price-asc':
-          return (a.currentPrice || 0) - (b.currentPrice || 0);
-        case 'price-desc':
-          return (b.currentPrice || 0) - (a.currentPrice || 0);
-        case 'discount-desc':
-          return (b.percentageDiff || 0) - (a.percentageDiff || 0);
-        case 'rating-desc':
-          return (b.rating || 0) - (a.rating || 0);
-        case 'name-asc':
-          return a.name.localeCompare(b.name);
-        default:
-          return 0;
+      const primarySort = (() => {
+        switch (filters.sortBy) {
+          case 'price-asc':
+            return (a.currentPrice || 0) - (b.currentPrice || 0);
+          case 'price-desc':
+            return (b.currentPrice || 0) - (a.currentPrice || 0);
+          case 'discount-desc':
+            return (b.percentageDiff || 0) - (a.percentageDiff || 0);
+          case 'rating-desc':
+            return (b.rating || 0) - (a.rating || 0);
+          case 'name-asc':
+            return (a.name || '').localeCompare(b.name || '');
+          default:
+            return 0;
+        }
+      })();
+
+      if (primarySort !== 0) {
+        return primarySort;
       }
+
+      const brandA = (a.brand || a.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const brandB = (b.brand || b.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+      if (brandA !== brandB) {
+        return brandA.localeCompare(brandB);
+      }
+
+      return (a.name || '').localeCompare(b.name || '');
     });
   }, [filters, favoritesOnlyView, favorites, products]);
+
+  const paginatedProducts = useMemo(() => {
+    const start = (productsPage - 1) * productsPageSize;
+    return filteredProducts.slice(start, start + productsPageSize);
+  }, [filteredProducts, productsPage, productsPageSize]);
 
   const resetFilters = () => {
     setFilters({
@@ -370,6 +443,14 @@ export default function App() {
     navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
   };
 
+  const handleQuickSearch = (term) => {
+    const query = String(term || '').trim();
+    setViewMode('products');
+    navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+  };
+
+  const totalPages = useMemo(() => getTotalPages(totalProducts, productsPageSize), [totalProducts, productsPageSize]);
+  const visiblePages = useMemo(() => getVisiblePageNumbers(productsPage, totalPages, 1), [productsPage, totalPages]);
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
   const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
   const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
@@ -402,6 +483,7 @@ export default function App() {
             searchQuery={filters.searchQuery}
             setSearchQuery={(value) => setFilters((prev) => ({ ...prev, searchQuery: value }))}
             onSearchSubmit={navigateToSearch}
+            onQuickSearch={handleQuickSearch}
           />
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -468,7 +550,7 @@ export default function App() {
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="font-semibold text-stone-600 dark:text-stone-300">
-                Mostrando <strong className="text-sky-600 dark:text-sky-400 font-extrabold">{filteredProducts.length}</strong> productos
+                Mostrando <strong className="text-sky-600 dark:text-sky-400 font-extrabold">{paginatedProducts.length}</strong> productos · Página {productsPage} de {totalPages}
               </span>
               {(filters.category !== 'todos' || filters.subcategory !== 'todos' || filters.searchQuery || filters.store !== 'todos' || favoritesOnlyView) && (
                 <button
@@ -646,20 +728,53 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-              {filteredProducts.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  onCompare={(p) => setSelectedProductForComparison(p)}
-                  onExplain={(p) => setSelectedProductForExplanation(p)}
-                  onToggleFavorite={toggleFavorite}
-                  isFavorite={favorites.includes(product.id)}
-                  onAddToBasket={addToBasket}
-                  isInBasket={basket.some((i) => i.product.id === product.id)}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+                {paginatedProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onCompare={(p) => setSelectedProductForComparison(p)}
+                    onExplain={(p) => setSelectedProductForExplanation(p)}
+                    onToggleFavorite={toggleFavorite}
+                    isFavorite={favorites.includes(product.id)}
+                    onAddToBasket={addToBasket}
+                    isInBasket={basket.some((i) => i.product.id === product.id)}
+                  />
+                ))}
+              </div>
+
+              {totalPages > 1 && (
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setProductsPage((page) => Math.max(1, page - 1))}
+                    disabled={productsPage === 1}
+                    className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
+                  >
+                    Anterior
+                  </button>
+                  {visiblePages.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => setProductsPage(page)}
+                      className={`min-w-10 rounded-lg border px-3 py-2 text-xs font-bold ${productsPage === page ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 bg-white text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200'}`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setProductsPage((page) => Math.min(totalPages, page + 1))}
+                    disabled={productsPage === totalPages}
+                    className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </main>
       )}
@@ -672,7 +787,7 @@ export default function App() {
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white">
                   <TrendingDown className="w-4 h-4" />
                 </div>
-                <span className="text-xl font-black bg-gradient-to-r from-sky-600 to-emerald-600 bg-clip-text text-transparent">ARPrice</span>
+                <span className="text-xl font-black text-stone-900 dark:text-white">ARPrice</span>
               </div>
               <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">Plataforma colaborativa e independiente para la comparación de precios en tiempo real.</p>
             </div>

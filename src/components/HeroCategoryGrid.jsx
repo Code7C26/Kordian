@@ -17,12 +17,12 @@ import {
 } from 'lucide-react';
 
 const QUICK_SEARCH_TAGS = [
-  'Yerba Mate',
-  'Ibupirac',
-  'Smart TV 50"',
-  'Taladro DeWalt',
-  'Aceite Oliva',
-  'Zapatillas Nike',
+  'Chocolate',        // Alimentos Frescos y Refrigerados
+  'Licor',            // Almacén y Alimentos
+  'Smart TV',         // Electrónica y Electrodomésticos
+  'Cocina',           // Hogar y Otros
+  'Desodorante',      // Limpieza e Higiene
+  'Zapatillas',       // Ropa y Calzado
 ];
 
 const getIcon = (iconName) => {
@@ -51,6 +51,7 @@ export function HeroCategoryGrid({
   searchQuery,
   setSearchQuery,
   onSearchSubmit,
+  onQuickSearch,
 }) {
   return (
     <div className="relative overflow-hidden bg-gradient-to-b from-sky-50/80 via-white to-stone-50/50 dark:from-stone-900 dark:via-stone-900 dark:to-stone-950 pb-12 pt-8 sm:pt-12 border-b border-stone-200/60 dark:border-stone-800">
@@ -105,8 +106,12 @@ export function HeroCategoryGrid({
                   key={tag}
                   type="button"
                   onClick={() => {
-                    setSearchQuery(tag);
-                    onSearchSubmit();
+                    if (onQuickSearch) {
+                      onQuickSearch(tag);
+                    } else {
+                      setSearchQuery(tag);
+                      onSearchSubmit();
+                    }
                   }}
                   className="px-2.5 py-1 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-sky-100 dark:hover:bg-sky-950/60 hover:text-sky-700 dark:hover:text-sky-300 text-stone-600 dark:text-stone-300 transition-colors border border-stone-200/60 dark:border-stone-700/60"
                 >
