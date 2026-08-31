@@ -194,6 +194,32 @@ export default function Admin() {
     }
   }
 
+  const loadPriceUpdates = async () => {
+    try {
+      const res = await adminFetch('/admin/price-updates')
+      if (!res.ok) return
+      setPriceUpdates(await res.json())
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const deletePriceUpdate = async (id) => {
+    if (!window.confirm('¿Eliminar este registro y restaurar los precios anteriores?')) return
+    try {
+      const res = await adminFetch(`/admin/price-updates/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        showToast('No se pudo eliminar el registro', 'error')
+        return
+      }
+      setPriceUpdates((updates) => updates.filter((update) => update.id !== id))
+      showToast('Registro eliminado y precios restaurados', 'success')
+    } catch (error) {
+      console.error(error)
+      showToast('Error de red al eliminar el registro', 'error')
+    }
+  }
+
   const loadAdmins = async () => {
     try {
       const res = await adminFetch('/admins')

@@ -7,6 +7,10 @@ const cleanProductName = (name) => (name || 'Producto')
   .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
   .trim();
 
+const cleanProductName = (name) => (name || 'Producto')
+  .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
+  .trim();
+
 export function DealsSummaryBanner({ products, onSelectProduct }) {
   const [activeTab, setActiveTab] = useState('ofertas');
   const [failedImages, setFailedImages] = useState([]);
