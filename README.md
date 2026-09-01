@@ -143,17 +143,17 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 ![Buscador de precios](assents/screenshots/buscador_de_precios_1.png)
 
-![Filtros y categorías](./assets/screenshots/home_screen.png)
+![Filtros y categorías](./assets/screenshots/parte_del_buscador_2.png)
 
-![Categorías Principales y Ofertas](./assets/screenshots/home_screen.png)
+![Categorías Principales y Ofertas](./assets/screenshots/Categorias_Principales_y_Ofertas_desta_y_aler_3.png)
 
-![Pie de página](./assets/screenshots/home_screen.png)
+![Pie de página](./assets/screenshots/productos_im.png)
 
-![Pie de página](./assets/screenshots/home_screen.png)
+![Pie de página](./assets/screenshots/Comparar.png)
 
-![Pie de página](./assets/screenshots/home_screen.png)
+![Pie de página](./assets/screenshots/canasta.png)
 
-![Pie de página](./assets/screenshots/home_screen.png)
+![Pie de página](./assets/screenshots/parte_de_abajo_4.png)
 
 ---
 
