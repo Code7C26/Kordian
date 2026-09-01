@@ -141,7 +141,7 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 ## Capturas del Sistema
 
-![Buscador de precios](assents/screenshots/buscador_deprecios_1.png)
+![Buscador de precios](assents/screenshots/buscador_de_precios_1.png)
 
 ![Filtros y categorías](./assets/screenshots/home_screen.png)
 
