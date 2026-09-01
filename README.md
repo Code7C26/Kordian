@@ -41,6 +41,7 @@ Incluye:
 
 **Marca del equipo:** *Kordian*  
 Inspirado en la resistencia, adaptabilidad y construcción de soluciones tecnológicas escalables.
+
 ---
 
 ## Problemática
@@ -82,7 +83,7 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 
 ---
 
-## Tecnologías
+## Tecnologías Utilizadas
 
 ### Backend:
 - Python + Django
@@ -96,6 +97,68 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 ### Otras:
 - API REST
 - Dashboard de monitoreo comercial
+
+---
+
+## Cómo Usar el Sistema (MVP) – Ar-Price
+Esta sección ofrece una visión general y simplificada del uso de la aplicación tanto para los compradores como para los administradores y comerciantes. Para instrucciones paso a paso y pantallas detalladas, consultar el Manual de Usuario incluido en la carpeta `/docs/manual_usuario`.
+
+### 1. Usuario Final (Cliente / Familia)
+El usuario puede acceder a información pública para comparar precios o registrarse para habilitar funciones de ahorro personalizadas. El flujo principal es:
+
+🔹 **Navegar la información pública**
+* Consultar productos, categorías y comercios (supermercados, ferreterías, farmacias) desde la pantalla principal.
+* Utilizar la barra de búsqueda rápida para ingresar el nombre de un artículo y encontrarlo al instante.
+* Visualizar de forma clara la lista de resultados con los diferentes locales que venden el producto, identificando el menor valor y la diferencia de precios expresada en porcentaje.
+* Usar filtros de rubros, precios o categorías, y ordenar el listado de menor a mayor costo para priorizar el ahorro.
+
+🔹 **Usar el Mapa Interactivo**
+* Visualizar la ubicación geográfica de los distintos negocios y sucursales físicas sobre el mapa interactivo.
+* Seleccionar un comercio en el mapa para conocer su dirección exacta y revisar su catálogo de ofertas vigentes.
+* Utilizar la función "Mi ubicación" (si el GPS está activado) para centrar el mapa y detectar los locales comerciales más cercanos dentro de tu rango.
+
+🔹 **Planificar la Compra (Armar Lista de Ahorro)**
+* Ingresar los productos requeridos agregándolos a la lista de compras integrada en la plataforma.
+* Recibir de forma automática el cálculo comparativo que muestra cuánto costaría la lista completa en cada supermercado o negocio.
+* Visualizar la combinación óptima de locales que ofrece el mayor ahorro para el presupuesto del hogar.
+
+🔹 **Enviar un Reporte o Alerta (usuarios registrados)**
+* Seleccionar un artículo y el comercio correspondiente en la pantalla de detalles.
+* Indicar si un precio se encuentra desactualizado, es incorrecto o si el producto no cuenta con stock disponible en la góndola física.
+* Escribir un comentario breve y enviar el reporte para que sea revisado por el administrador, contribuyendo a mantener los datos reales y confiables.
+
+### 2. Administradores y Comercios (B2B)
+Los administradores del sistema y los dueños de negocios locales acceden al panel de gestión correspondiente para mantener el ecosistema de información actualizado.
+
+🔹 **Iniciar sesión con rol autorizado**
+* Al iniciar sesión se habilita el acceso exclusivo al "Panel para Comercios" (comerciantes registrados) o al "Panel de Gestión Administrativa" (equipo Kordian).
+
+🔹 **Gestionar información del sistema**
+* **Comercios:** Registrar el establecimiento local para ganar visibilidad ante los clientes. Cargar, modificar y eliminar productos de su propio catálogo, ingresando precios y vigencia de las ofertas en tiempo real.
+* **Administradores:** Gestionar y editar categorías para organizar adecuadamente el menú de navegación. Cargar comercios y productos de forma manual para asegurar la base de datos inicial de la plataforma. Modificar o actualizar precios de forma manual o automática.
+* **Moderación:** Eliminar productos incorrectos, falsos o con información errónea para resguardar la calidad y veracidad del sistema.
+
+🔹 **Consultar estadísticas y reportes**
+* Validar y aprobar formalmente las cuentas de los nuevos comercios registrados en la plataforma para evitar fraudes comerciales.
+* Revisar los reportes de inconsistencias de precios enviados por la comunidad de usuarios y actualizar de inmediato los estados en la base de datos.
+* Monitorear las tendencias de precios en el mercado local y el volumen de búsquedas de los consumidores para la toma de decisiones comerciales.
+
+---
+
+## Capturas del Sistema
+
+![Buscador de precios](buscador\ de\ precios\ 1.png)
+
+![Filtros y categorías](parte\ del\ buscador\ \ 2.png)
+
+![Categorías Principales y Ofertas](Categorias\ Principales\ y\ Ofertas\ desta\ y\ aler\ 3.png)
+
+![Pie de página](parte\ de\ abajo\ 4.png)
+
+---
+
+## Video Publicitario
+*(Espacio reservado para incrustar o enlazar el video promocional/pitch de Ar-Price)*
 
 ---
 
@@ -119,9 +182,9 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 
 ## Enlaces
 
-Repositorio: GitHub
-Documentación técnica
-Diseño de producto (Wireframes)
+- Repositorio: GitHub
+- Documentación técnica
+- Diseño de producto (Wireframes)
 
 ---
 
@@ -129,6 +192,3 @@ Diseño de producto (Wireframes)
 
 Equipo Kordian
 Trabajo Final Integrador – 2026
---
-## falta
-video y imagenes
