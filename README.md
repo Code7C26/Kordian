@@ -143,7 +143,7 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 ![Buscador de precios](assents/screenshots/buscador_de_precios_1.png)
 
-![Filtros y categorías](assets/screenshots/parte_del_buscador_2.png)
+![Filtros y categorías](assents/screenshots/parte_del_buscador_2.png)
 
 ![Categorías Principales y Ofertas](./assets/screenshots/Categorias_Principales_y_Ofertas_desta_y_aler_3.png)
 
