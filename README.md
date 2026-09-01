@@ -147,13 +147,19 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 ## Capturas del Sistema
 
-![Buscador de precios](buscador\ de\ precios\ 1.png)
+![Buscador de precios](./assets/screenshots/nombre.png)
 
-![Filtros y categorías](parte\ del\ buscador\ \ 2.png)
+![Filtros y categorías](./assets/screenshots/home_screen.png)
 
-![Categorías Principales y Ofertas](Categorias\ Principales\ y\ Ofertas\ desta\ y\ aler\ 3.png)
+![Categorías Principales y Ofertas](./assets/screenshots/home_screen.png)
 
-![Pie de página](parte\ de\ abajo\ 4.png)
+![Pie de página](./assets/screenshots/home_screen.png)
+
+![Pie de página](./assets/screenshots/home_screen.png)
+
+![Pie de página](./assets/screenshots/home_screen.png)
+
+![Pie de página](./assets/screenshots/home_screen.png)
 
 ---
 
