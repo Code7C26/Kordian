@@ -23,12 +23,6 @@ Incluye:
 - Sistema de alertas y favoritos
 - Base para actualización automática de precios
 
-## Documentación técnica
-
-- [Contrato de integración del análisis](docs/analysis-integration-contract.md)
-- [Validación del Bloque 12](docs/block12-validation.md)
-- [Revisión final del Bloque 13](docs/block13-final-review.md)
-
 ---
 
 ## Integrantes del Equipo
@@ -147,7 +141,7 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 ## Capturas del Sistema
 
-![Buscador de precios](./assets/screenshots/nombre.png)
+![Buscador de precios](./assets/screenshots/buscador de precios 1.png)
 
 ![Filtros y categorías](./assets/screenshots/home_screen.png)
 
