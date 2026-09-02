@@ -198,9 +198,9 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 - [Informe Proyecto](./docs/)
 - [Documentación Modelo de Datos](./docs/base_de_datos/)
-- [Tablero Kanban](https://github.com/orgs/Code7C26/projects/3)
-- [Instagram](https://www.instagram.com/Kordian_empresa/)
-- [GitHub](https://github.com/Code7C26/Kordian.git)
+- [Tablero Kanban](https://github.com/orgs/Code7C26/projects/Kordian_Kanban)
+- [Instagram](https://www.instagram.com/kordian_empresa?igsi=ZDNlZDc0MzIxNw==)
+- [GitHub](https://github.com/Code7C26/Kordian)
 
 ---
 
