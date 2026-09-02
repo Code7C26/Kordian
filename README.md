@@ -196,9 +196,11 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 ## Enlaces
 
-- Repositorio: GitHub
-- Documentación técnica
-- Diseño de producto (Wireframes)
+- [Informe Proyecto](./docs/)
+- [Documentación Modelo de Datos](./docs/base_de_datos/)
+- [Tablero Kanban](https://github.com/orgs/Code7C26/projects/3)
+- [Instagram](https://www.instagram.com/Kordian_empresa/)
+- [GitHub](https://github.com/Code7C26/Kordian.git)
 
 ---
 
