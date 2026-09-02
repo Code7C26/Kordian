@@ -141,19 +141,33 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 ## Capturas del Sistema
 
-![Buscador de precios](assents/screenshots/buscador_de_precios_1.png)
+<p align="center">
+  <img src="assents/screenshots/buscador_de_precios_1.png" alt="Buscador de precios">
+</p>
 
-![Filtros y categorías](assents/screenshots/parte_del_buscador_2.png)
+<p align="center">
+  <img src="assents/screenshots/parte_del_buscador_2.png" alt="Filtros y categorías">
+</p>
 
-![Categorías Principales y Ofertas](assents/screenshots/Categorias_Principales_y_Ofertas_desta_y_aler_3.png)
+<p align="center">
+  <img src="assents/screenshots/Categorias_Principales_y_Ofertas_desta_y_aler_3.png" alt="Categorías Principales y Ofertas">
+</p>
 
-![Pie de página](assents/screenshots/productos_im.png)
+<p align="center">
+  <img src="assents/screenshots/productos_im.png" alt="Productos">
+</p>
 
-![Pie de página](assents/screenshots/Comparar.png)
+<p align="center">
+  <img src="assents/screenshots/Comparar.png" alt="Comparar Precios">
+</p>
 
-![Pie de página](assents/screenshots/canasta.png)
+<p align="center">
+  <img src="assents/screenshots/canasta.png" alt="Canasta de Compras">
+</p>
 
-![Pie de página](assents/screenshots/parte_de_abajo_4.png)
+<p align="center">
+  <img src="assents/screenshots/parte_de_abajo_4.png" alt="Pie de página">
+</p>
 
 ---
 
