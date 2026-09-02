@@ -145,15 +145,15 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 
 ![Filtros y categorías](assents/screenshots/parte_del_buscador_2.png)
 
-![Categorías Principales y Ofertas](./assets/screenshots/Categorias_Principales_y_Ofertas_desta_y_aler_3.png)
+![Categorías Principales y Ofertas](assents/screenshots/Categorias_Principales_y_Ofertas_desta_y_aler_3.png)
 
-![Pie de página](./assets/screenshots/productos_im.png)
+![Pie de página](assents/screenshots/productos_im.png)
 
-![Pie de página](./assets/screenshots/Comparar.png)
+![Pie de página](assents/screenshots/Comparar.png)
 
-![Pie de página](./assets/screenshots/canasta.png)
+![Pie de página](assents/screenshots/canasta.png)
 
-![Pie de página](./assets/screenshots/parte_de_abajo_4.png)
+![Pie de página](assents/screenshots/parte_de_abajo_4.png)
 
 ---
 
