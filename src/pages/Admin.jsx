@@ -86,7 +86,11 @@ export default function Admin() {
   // data loaders
   const loadProducts = async (page = productPage) => {
     try {
-      const res = await fetch(apiUrl(`/products?page=${page}&limit=${productPageSize}`))
+      const params = new URLSearchParams({ page: String(page), limit: String(productPageSize) })
+      if (productSearch.trim()) params.set('search', productSearch.trim())
+      if (productCategoryFilter) params.set('category', productCategoryFilter)
+      if (productBrandFilter) params.set('brand', productBrandFilter)
+      const res = await fetch(apiUrl(`/products?${params.toString()}`))
       const payload = await res.json()
       const data = Array.isArray(payload) ? payload : payload.data || []
       setProducts(data)
@@ -253,7 +257,11 @@ export default function Admin() {
     loadTaxonomy()
     loadPriceUpdates()
     loadDiscoSyncStatus()
-  }, [productPage, productPageSize])
+  }, [productPage, productPageSize, productSearch, productCategoryFilter, productBrandFilter])
+
+  useEffect(() => {
+    if (productPage !== 1) setProductPage(1)
+  }, [productSearch, productCategoryFilter, productBrandFilter])
 
   useEffect(() => {
     window.addEventListener('price-updates-changed', loadPriceUpdates)
@@ -616,33 +624,7 @@ export default function Admin() {
   const totalPages = Math.max(1, Math.ceil(totalProductCount / productPageSize))
   const visibleProductPages = getVisiblePageNumbers(productPage, totalPages, 1)
 
-  const filteredProducts = products.filter((product) => {
-    const query = productSearch.trim().toLowerCase()
-    if (query) {
-      const matchName = product.name?.toLowerCase().includes(query)
-      const matchBrand = product.brands?.name?.toLowerCase().includes(query)
-      const matchCategory = product.categories?.name?.toLowerCase().includes(query)
-      if (!matchName && !matchBrand && !matchCategory) {
-        return false
-      }
-    }
-
-    if (productCategoryFilter) {
-      const categoryId = String(product.categories?.id || product.category_id || '')
-      if (categoryId !== String(productCategoryFilter)) {
-        return false
-      }
-    }
-
-    if (productBrandFilter) {
-      const brandId = String(product.brands?.id || product.brand_id || '')
-      if (brandId !== String(productBrandFilter)) {
-        return false
-      }
-    }
-
-    return true
-  })
+  const filteredProducts = products
 
   const groupedOffersBySupermarket = (offers = []) => {
     const grouped = offers.reduce((acc, offer) => {
@@ -678,10 +660,11 @@ export default function Admin() {
             const brandName = brands.find((brand) => String(brand.id) === String(update.filters?.brandId))?.name
             const appliedFilters = [categoryName ? `Categoría: ${categoryName}` : null, brandName ? `Marca: ${brandName}` : null, update.filters?.supermarket ? `Supermercado: ${update.filters.supermarket}` : null].filter(Boolean)
             const changes = Array.isArray(update.changes) ? update.changes : []
+            const affectedProductCount = new Set(changes.map((change) => String(change.productId)).filter(Boolean)).size
             const percentage = changes.length && Number(changes[0].previousCashPrice) > 0
               ? ((Number(changes[0].updatedCashPrice) - Number(changes[0].previousCashPrice)) / Number(changes[0].previousCashPrice)) * 100
               : Number(update.percentage)
-            return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')}</td><td className={`py-3 pr-4 font-bold ${percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{percentage > 0 ? '+' : ''}{percentage.toFixed(1)}%</td><td className="py-3 pr-4">{update.products_updated}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
+            return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')}</td><td className={`py-3 pr-4 font-bold ${percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{percentage > 0 ? '+' : ''}{percentage.toFixed(1)}%</td><td className="py-3 pr-4">{affectedProductCount || update.products_updated || 0}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
           })}
         </tbody>
       </table>
@@ -725,12 +708,12 @@ export default function Admin() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {taxonomy.map((category) => (
               <div key={category.id} className="rounded-2xl border border-stone-200 dark:border-stone-700 p-4 bg-stone-50 dark:bg-stone-900">
-                <h3 className="font-bold">{category.name}</h3>
+                <h3 className="font-bold">{category.name} <span className="text-xs font-semibold text-stone-500">({category.productCount || 0} productos)</span></h3>
                 {category.subcategories.length ? (
                   <ul className="mt-3 space-y-2 text-sm">
                     {category.subcategories.map((subcategory) => (
                       <li key={subcategory.id}>
-                        <div className="font-semibold text-sky-700 dark:text-sky-300">{subcategory.name}</div>
+                        <div className="font-semibold text-sky-700 dark:text-sky-300">{subcategory.name} <span className="text-xs font-normal text-stone-500">({subcategory.productCount || 0})</span></div>
                         <div className="ml-4 mt-1 text-xs text-stone-500 dark:text-stone-400">
                           <div>Clasificación lógica por subcategoría</div>
                         </div>

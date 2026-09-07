@@ -4,6 +4,12 @@ export function isValidCatalogProduct(product = {}) {
   const name = String(product.name || '').trim()
   if (!name) return false
 
+  const normalizedName = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (/\b(envio|envios|entrega|delivery|shipping|oferta|promo|promocion|promociones)\b/.test(normalizedName)) return false
+
   const offers = Array.isArray(product.offers) ? product.offers : []
   if (!offers.length) return false
 

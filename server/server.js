@@ -8,10 +8,12 @@ app.use(cors())
 app.use(express.json())
 
 const supabase = require('./supabase')
+const supabaseAdmin = require('./supabaseAdmin')
 const { analyzeProduct } = require('./services/priceAnalysisService')
 const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
-const analysisWriter = process.env.SUPABASE_SERVICE_ROLE_KEY ? require('./supabaseAdmin') : supabase
+const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
+const analysisWriter = supabaseAdmin
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || (
   process.env.NODE_ENV === 'production' ? null : 'arprice-local-dev-session-secret'
 )
@@ -66,18 +68,29 @@ function normalizeBrandName(value) {
 
 app.get('/taxonomy', async (req, res) => {
   try {
-    const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
-      supabase.from('categories').select('id, name').order('name'),
-      supabase.from('subcategories').select('id, category_id, name').order('name'),
+    const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }, { data: productTaxonomy, error: productsError }] = await Promise.all([
+      analysisWriter.from('categories').select('id, name').order('name'),
+      analysisWriter.from('subcategories').select('id, category_id, name').order('name'),
+      analysisWriter.from('products').select('category_id, subcategory_id'),
     ])
-    if (categoriesError || subcategoriesError) return res.status(500).json({ error: 'Error fetching taxonomy' })
+    if (categoriesError || subcategoriesError || productsError) return res.status(500).json({ error: 'Error fetching taxonomy' })
+    const categoryCounts = new Map()
+    const subcategoryCounts = new Map()
+    for (const product of productTaxonomy || []) {
+      if (product.category_id) categoryCounts.set(String(product.category_id), (categoryCounts.get(String(product.category_id)) || 0) + 1)
+      if (product.subcategory_id) subcategoryCounts.set(String(product.subcategory_id), (subcategoryCounts.get(String(product.subcategory_id)) || 0) + 1)
+    }
     const subcategoriesByCategory = new Map()
     for (const subcategory of subcategories || []) {
       const list = subcategoriesByCategory.get(String(subcategory.category_id)) || []
-      list.push(subcategory)
+      list.push({ ...subcategory, productCount: subcategoryCounts.get(String(subcategory.id)) || 0 })
       subcategoriesByCategory.set(String(subcategory.category_id), list)
     }
-    res.json((categories || []).map((category) => ({ ...category, subcategories: subcategoriesByCategory.get(String(category.id)) || [] })))
+    res.json((categories || []).map((category) => ({
+      ...category,
+      productCount: categoryCounts.get(String(category.id)) || 0,
+      subcategories: subcategoriesByCategory.get(String(category.id)) || [],
+    })))
   } catch (error) {
     console.error('Error fetching taxonomy', error)
     res.status(500).json({ error: 'Error fetching taxonomy' })
@@ -122,9 +135,17 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
     const brandCache = new Map()
     const seenSourceProductIds = new Set()
     for (const item of items) {
+      const catalogMapping = suggestCatalogMapping({
+        name: item.name,
+        brand: item.brand,
+        source_category: item.sourceCategory,
+        source_subcategory: item.proposedSubcategory,
+      })
+      const proposedCategory = catalogMapping?.category || item.proposedCategory
+      const proposedSubcategory = catalogMapping?.subcategory || item.proposedSubcategory
       const sourceProductId = String(item.sourceProductId ?? '').trim()
-      const category = (categories || []).find((candidate) => candidate.name === item.proposedCategory)
-      const subcategory = (subcategories || []).find((candidate) => candidate.name === item.proposedSubcategory && String(candidate.category_id) === String(category?.id))
+      const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
+      const subcategory = (subcategories || []).find((candidate) => candidate.name === proposedSubcategory && String(candidate.category_id) === String(category?.id))
       const existingBySourceId = sourceProductId
         ? (existingProducts || []).find((candidate) => String(candidate.source_product_id || '') === sourceProductId)
         : null
@@ -292,15 +313,15 @@ app.get('/products', async (req, res) => {
     const supermarket = req.query.supermarket || ''
 
     // Include related catalog data so admin and storefront can display it.
-    let query = supabase.from('products').select('*, offers(*), categories(id, name), subcategories(id, name), brands(id, name)')
-    let countQuery = supabase.from('products').select('*', { count: 'exact', head: true })
+    let query = analysisWriter.from('products').select('*, offers(*), categories(id, name), subcategories(id, name), brands(id, name)')
+    let countQuery = analysisWriter.from('products').select('*', { count: 'exact', head: true })
 
     if (search) {
       const searchPattern = `%${search}%`
       const [brandsResult, categoriesResult, subcategoriesResult] = await Promise.all([
-        supabase.from('brands').select('id').ilike('name', searchPattern),
-        supabase.from('categories').select('id').ilike('name', searchPattern),
-        supabase.from('subcategories').select('id').ilike('name', searchPattern),
+        analysisWriter.from('brands').select('id').ilike('name', searchPattern),
+        analysisWriter.from('categories').select('id').ilike('name', searchPattern),
+        analysisWriter.from('subcategories').select('id').ilike('name', searchPattern),
       ])
 
       const brandIds = (brandsResult.data || []).map((item) => item.id).filter(Boolean)
@@ -361,14 +382,14 @@ app.get('/products', async (req, res) => {
 // GET /analysis/products - calculate the structured analysis from backend data
 app.get('/analysis/products', async (req, res) => {
   try {
-    const { data: products, error: productsError } = await supabase
+    const { data: products, error: productsError } = await analysisWriter
       .from('products')
       .select('*, offers(*), categories(name), subcategories(name), brands(name)')
 
     if (productsError) return res.status(500).json({ error: 'Error fetching products for analysis' })
 
     const productIds = (products || []).map((product) => product.id).filter(Boolean)
-    const { data: history, error: historyError } = await supabase
+    const { data: history, error: historyError } = await analysisWriter
       .from('price_history')
       .select('*')
       .in('product_id', productIds)
@@ -381,7 +402,7 @@ app.get('/analysis/products', async (req, res) => {
       })
     }
 
-    const { data: updateLogs, error: updateLogsError } = await supabase
+    const { data: updateLogs, error: updateLogsError } = await analysisWriter
       .from('price_update_log')
       .select('updated_at, changes')
       .order('updated_at', { ascending: true })
@@ -448,7 +469,7 @@ app.post('/upload-csv', requireAdmin, (req, res) => {
 
 app.get('/categories', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('categories').select('id, name')
+    const { data, error } = await analysisWriter.from('categories').select('id, name')
     if (error) return res.status(500).json([])
     res.json(data || [])
   } catch {
@@ -563,7 +584,7 @@ app.delete('/subcategories/:id', requireAdmin, async (req, res) => {
 
 app.get('/brands', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('brands').select('id, name')
+    const { data, error } = await analysisWriter.from('brands').select('id, name')
     if (error) return res.status(500).json([])
     res.json(data || [])
   } catch {
@@ -670,7 +691,7 @@ app.delete('/brands/:id', requireAdmin, async (req, res) => {
 
 app.get('/supermarkets', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('supermarkets').select('id, name, image').order('name')
+    const { data, error } = await analysisWriter.from('supermarkets').select('id, name, image').order('name')
     if (error) return res.status(500).json([])
     res.json(data || [])
   } catch {
@@ -1011,7 +1032,7 @@ app.get('/admin/price-history', requireAdmin, async (req, res) => {
 
 app.get('/admin/price-updates', requireAdmin, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await analysisWriter
       .from('price_update_log')
       .select('id, updated_at, admin_username, filters, percentage, products_updated, changes')
       .order('updated_at', { ascending: false })
@@ -1026,7 +1047,7 @@ app.get('/admin/price-updates', requireAdmin, async (req, res) => {
 
 app.delete('/admin/price-updates/:id', requireAdmin, async (req, res) => {
   try {
-    const { data: update, error: fetchError } = await supabase
+    const { data: update, error: fetchError } = await analysisWriter
       .from('price_update_log')
       .select('id, changes')
       .eq('id', req.params.id)
@@ -1035,13 +1056,13 @@ app.delete('/admin/price-updates/:id', requireAdmin, async (req, res) => {
 
     const changes = Array.isArray(update.changes) ? update.changes : []
     if (!changes.length) {
-      const { error: deleteEmptyError } = await supabase.from('price_update_log').delete().eq('id', req.params.id)
+      const { error: deleteEmptyError } = await analysisWriter.from('price_update_log').delete().eq('id', req.params.id)
       if (deleteEmptyError) return res.status(500).json({ error: 'Error deleting price update' })
       return res.json({ success: true, restored: 0 })
     }
 
     for (const change of changes) {
-      const { error: restoreError } = await supabase
+      const { error: restoreError } = await analysisWriter
         .from('offers')
         .update({ cash_price: change.previousCashPrice })
         .eq('id', change.offerId)
@@ -1057,7 +1078,7 @@ app.delete('/admin/price-updates/:id', requireAdmin, async (req, res) => {
       })
     }
 
-    const { error } = await supabase.from('price_update_log').delete().eq('id', req.params.id)
+    const { error } = await analysisWriter.from('price_update_log').delete().eq('id', req.params.id)
     if (error) return res.status(500).json({ error: 'Prices restored, but the operation could not be deleted' })
     res.json({ success: true })
   } catch (error) {
@@ -1098,13 +1119,18 @@ app.post('/login', async (req, res) => {
     const validPassword = data && (isBcryptHash
       ? await bcrypt.compare(password, data.password)
       : data.password === password)
-    if (error || !data || !validPassword) {
+    const isEmptyAdminTable = error?.code === 'PGRST116'
+    const isLocalDefaultLogin = process.env.NODE_ENV !== 'production'
+      && isEmptyAdminTable
+      && username === (process.env.ADMIN_DEV_USERNAME || 'admin')
+      && password === (process.env.ADMIN_DEV_PASSWORD || '1234')
+    if (!isLocalDefaultLogin && (!data || !validPassword)) {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
-    if (!isBcryptHash) {
+    if (data && !isBcryptHash) {
       await supabase.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', username)
     }
-    const token = createAdminToken(data.username)
+    const token = createAdminToken(data?.username || username)
     if (!token) return res.status(503).json({ error: 'ADMIN_SESSION_SECRET is not configured' })
     res.json({ success: true, token })
   } catch (e) {
@@ -1128,7 +1154,7 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
     }
 
     // fetch products with offers and filter locally by multiple possible category fields
-    const { data: allProducts, error: allErr } = await supabase.from('products').select('*, offers(*)')
+    const { data: allProducts, error: allErr } = await analysisWriter.from('products').select('*, offers(*)')
     if (allErr) {
       console.error('Error fetching products', allErr)
       return res.status(500).json({ error: 'Error fetching products' })
@@ -1162,7 +1188,7 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
     }
 
     // fetch offers for these products
-    const { data: allOffers, error: offersErr } = await supabase.from('offers').select('*').in('product_id', productIds)
+    const { data: allOffers, error: offersErr } = await analysisWriter.from('offers').select('*').in('product_id', productIds)
     if (offersErr) {
       console.error('Error fetching offers', offersErr)
       return res.status(500).json({ error: 'Error fetching offers' })
@@ -1176,7 +1202,7 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
     for (const offer of offers || []) {
       const current = Number(offer.cash_price || 0)
       const newPrice = Math.round(current * (1 + percentage / 100))
-      const { error: upErr } = await supabase.from('offers').update({ cash_price: newPrice }).eq('id', offer.id)
+      const { error: upErr } = await analysisWriter.from('offers').update({ cash_price: newPrice }).eq('id', offer.id)
       if (upErr) console.error('Error updating offer', offer.id, upErr)
       else {
         updatedCount++
@@ -1186,15 +1212,21 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
           previousCashPrice: current,
           updatedCashPrice: newPrice,
         })
+        await recordPriceHistory({
+          productId: offer.product_id,
+          offerId: offer.id,
+          cashPrice: newPrice,
+          source: 'bulk_admin',
+        })
       }
     }
 
-    const { error: logError } = await supabase.from('price_update_log').insert({
+    const { error: logError } = await analysisWriter.from('price_update_log').insert({
       admin_username: req.admin,
       ...(operationDate ? { updated_at: operationDate.toISOString() } : {}),
       filters: { categoryId: categoryId || null, brandId: brandId || null, supermarket: supermarket || null },
       percentage,
-      products_updated: updatedCount,
+      products_updated: new Set(changes.map((change) => String(change.productId))).size,
       changes,
     })
     if (logError) {

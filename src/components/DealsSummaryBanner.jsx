@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Flame, AlertTriangle } from 'lucide-react';
+import { Flame, AlertTriangle, PackageOpen } from 'lucide-react';
 import { formatCurrency, formatPercentage } from '../utils/formatters';
 import { getProductImageUrl } from '../utils/productImage';
 
@@ -75,10 +75,8 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
                 className="w-14 h-14 rounded-xl object-cover border border-stone-200 dark:border-stone-700 shrink-0 group-hover:scale-105 transition-transform"
               />
             ) : (
-              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-sky-100 via-white to-emerald-100 dark:from-sky-950/70 dark:via-stone-800 dark:to-emerald-950/60 border border-sky-200 dark:border-sky-800 shrink-0 flex items-center justify-center p-1 text-center">
-                <div className="text-[9px] font-black leading-tight bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 dark:from-indigo-300 dark:via-sky-300 dark:to-emerald-300 bg-clip-text text-transparent line-clamp-3">
-                  {cleanProductName(product.name)}
-                </div>
+              <div className="w-14 h-14 rounded-xl border border-sky-700 bg-sky-950/70 text-sky-300 shrink-0 flex items-center justify-center">
+                <PackageOpen className="h-7 w-7" strokeWidth={1.7} />
               </div>
             )}
             <div className="flex-1 min-w-0">

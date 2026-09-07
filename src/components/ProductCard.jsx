@@ -42,9 +42,11 @@ export function ProductCard({
   const selectedOffer = sortedStores.find((store) => store.id === selectedOfferId) || sortedStores[0] || null;
   const productImage = getProductImageUrl(product.image);
   const hasRealImage = Boolean(product.image && typeof product.image === 'string' && product.image.trim() && product.image.trim().toLowerCase() !== 'null' && product.image.trim().toLowerCase() !== 'undefined');
+  const displayImage = failedImage ? getProductImageUrl(null) : productImage;
   const displayProductName = (product.name || 'Producto')
-    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
+    .replace(/\s*[\d]+(?:[.,]\d+)?\s*(?:ml|mililitros?|l|lt|lts|litros?|kg|kgs|kilos?|g|gr|gramos?|mg|cm|mm|unidades?|uds?|u)\b.*$/i, '')
     .trim();
+  const displayCategory = product.categories?.name || product.category?.name || product.category || product.subcategory || 'Producto';
 
   const handleAddToBasket = () => {
     // Always add the best (cheapest) available offer when clicking +Canasta
@@ -58,21 +60,24 @@ export function ProductCard({
   return (
     <div className="group relative bg-white dark:bg-stone-800/90 rounded-2xl border border-stone-200/90 dark:border-stone-700/80 hover:border-sky-400 dark:hover:border-sky-500 transition-all duration-200 hover:shadow-md flex flex-col justify-between h-full overflow-hidden">
       <div className="relative aspect-square w-full bg-stone-50 dark:bg-stone-900/60 p-4 flex items-center justify-center overflow-hidden border-b border-stone-100 dark:border-stone-800 shrink-0">
-        {hasRealImage && productImage && failedImage !== productImage ? (
+        {hasRealImage && !failedImage ? (
           <img
-            src={productImage}
-            alt={product.name}
+            src={displayImage}
+            alt={product.name || 'Producto'}
             onError={() => setFailedImage(productImage)}
             className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
           />
         ) : (
-          <img
-            src={productImage}
-            alt={product.name || 'Producto sin imagen'}
-            className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
-            loading="lazy"
-          />
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl bg-sky-50 px-6 text-center dark:bg-sky-950/40">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl border-2 border-sky-300 bg-sky-100 text-sky-600 shadow-sm dark:border-sky-700 dark:bg-sky-900/70 dark:text-sky-300">
+              <PackageOpen className="h-11 w-11" strokeWidth={1.6} />
+            </div>
+            <div className="max-w-full">
+              <p className="line-clamp-2 text-base font-black leading-tight text-sky-900 dark:text-sky-100">{displayProductName}</p>
+              <p className="mt-1 line-clamp-1 text-xs font-bold uppercase tracking-wide text-sky-600 dark:text-sky-300">{displayCategory}</p>
+            </div>
+          </div>
         )}
 
         <div className="absolute top-2.5 left-2.5 z-10">
