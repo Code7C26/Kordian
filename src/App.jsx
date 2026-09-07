@@ -18,6 +18,14 @@ import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 // Data will be loaded from backend API
 import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle } from 'lucide-react';
 
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -36,6 +44,14 @@ export default function App() {
   const [productsPage, setProductsPage] = useState(1)
   const [productsPageSize, setProductsPageSize] = useState(20)
   const [totalProducts, setTotalProducts] = useState(0)
+  const [searchHistory, setSearchHistory] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('arprice_search_history') || '[]')
+      return Array.isArray(saved) ? saved.filter(Boolean).slice(0, 6) : []
+    } catch {
+      return []
+    }
+  })
   const [storesList, setStoresList] = useState([])
   const [filters, setFilters] = useState({
     category: 'todos',
@@ -120,7 +136,8 @@ export default function App() {
       try {
         const requestPageSize = Math.max(productsPageSize, 200)
         const baseQuery = {
-          page: productsPage,
+          // Pagination is applied locally after all matching products are loaded.
+          page: 1,
           limit: requestPageSize,
           searchQuery: filters.searchQuery,
           category: filters.category,
@@ -273,7 +290,7 @@ export default function App() {
     return () => {
       mounted = false
     }
-  }, [productsPage, productsPageSize, filters.searchQuery, filters.category, filters.store])
+  }, [productsPageSize, filters.searchQuery, filters.category, filters.store])
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>
@@ -331,6 +348,8 @@ export default function App() {
   };
 
   const filteredProducts = useMemo(() => {
+    const searchQuery = normalizeSearchText(filters.searchQuery)
+
     return products.filter((product) => {
       if (!isValidCatalogProduct(product)) return false;
       if (favoritesOnlyView && !favorites.includes(product.id)) {
@@ -345,12 +364,11 @@ export default function App() {
         return false;
       }
 
-      if (filters.searchQuery.trim() !== '') {
-        const query = filters.searchQuery.toLowerCase();
-        const matchesName = (product.name || '').toLowerCase().includes(query);
-        const matchesBrand = (product.brand || '').toLowerCase().includes(query);
-        const matchesSubcat = (product.subcategory || '').toLowerCase().includes(query);
-        const matchesStore = (product.offers || []).some((o) => ((o.supermarket || '') + '').toLowerCase().includes(query));
+      if (searchQuery !== '') {
+        const matchesName = normalizeSearchText(product.name).includes(searchQuery);
+        const matchesBrand = normalizeSearchText(product.brand).includes(searchQuery);
+        const matchesSubcat = normalizeSearchText(product.subcategory).includes(searchQuery);
+        const matchesStore = (product.offers || []).some((o) => normalizeSearchText(o.supermarket).includes(searchQuery));
         if (!matchesName && !matchesBrand && !matchesSubcat && !matchesStore) {
           return false;
         }
@@ -379,6 +397,29 @@ export default function App() {
 
       return true;
     }).sort((a, b) => {
+      if (searchQuery) {
+        const normalizedName = normalizeSearchText(a.name)
+        const normalizedBrand = normalizeSearchText(a.brand)
+        const normalizedSubcategory = normalizeSearchText(a.subcategory)
+        const relevance = (name, fieldWeight) => {
+          if (name === searchQuery) return fieldWeight
+          if (name.startsWith(searchQuery)) return fieldWeight + 1
+          if (name.split(/\s+/).some((word) => word.startsWith(searchQuery))) return fieldWeight + 2
+          if (name.includes(searchQuery)) return fieldWeight + 3
+          return 100
+        }
+        const relevanceA = Math.min(relevance(normalizedName, 0), relevance(normalizedBrand, 20), relevance(normalizedSubcategory, 30))
+        const relevanceB = Math.min(relevance(normalizeSearchText(b.name), 0), relevance(normalizeSearchText(b.brand), 20), relevance(normalizeSearchText(b.subcategory), 30))
+        if (relevanceA !== relevanceB) return relevanceA - relevanceB
+      }
+
+      const brandA = normalizeSearchText(a.brand || a.name || '')
+      const brandB = normalizeSearchText(b.brand || b.name || '')
+
+      if (brandA !== brandB) {
+        return brandA.localeCompare(brandB)
+      }
+
       const primarySort = (() => {
         switch (filters.sortBy) {
           case 'price-asc':
@@ -398,13 +439,6 @@ export default function App() {
 
       if (primarySort !== 0) {
         return primarySort;
-      }
-
-      const brandA = (a.brand || a.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const brandB = (b.brand || b.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-      if (brandA !== brandB) {
-        return brandA.localeCompare(brandB);
       }
 
       return (a.name || '').localeCompare(b.name || '');
@@ -440,14 +474,24 @@ export default function App() {
 
   const navigateToSearch = () => {
     const query = filters.searchQuery.trim();
+    if (query) {
+      setSearchHistory((previous) => [query, ...previous.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6))
+    }
     navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
   };
 
   const handleQuickSearch = (term) => {
     const query = String(term || '').trim();
+    if (query) {
+      setSearchHistory((previous) => [query, ...previous.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6))
+    }
     setViewMode('products');
     navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
   };
+
+  useEffect(() => {
+    localStorage.setItem('arprice_search_history', JSON.stringify(searchHistory))
+  }, [searchHistory])
 
   const totalPages = useMemo(() => getTotalPages(totalProducts, productsPageSize), [totalProducts, productsPageSize]);
   const visiblePages = useMemo(() => getVisiblePageNumbers(productsPage, totalPages, 1), [productsPage, totalPages]);
@@ -484,6 +528,10 @@ export default function App() {
             setSearchQuery={(value) => setFilters((prev) => ({ ...prev, searchQuery: value }))}
             onSearchSubmit={navigateToSearch}
             onQuickSearch={handleQuickSearch}
+            searchHistory={searchHistory}
+            onSelectSearch={handleQuickSearch}
+            onRemoveSearch={(query) => setSearchHistory((previous) => previous.filter((item) => item !== query))}
+            onClearSearch={() => setSearchHistory([])}
           />
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -652,7 +700,7 @@ export default function App() {
                 >
                   <option value="todos">Todas las subcategorías</option>
                   {availableSubcategories.map((subcategory) => (
-                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
+                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name} ({subcategory.productCount || 0})</option>
                   ))}
                 </select>
               </div>

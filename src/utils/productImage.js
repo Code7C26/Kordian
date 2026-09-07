@@ -1,4 +1,4 @@
-import defaultProductImage from '../assets/no-product-image.svg';
+import defaultProductImage from '../assets/hero.png';
 
 export function getProductImageUrl(image) {
   if (typeof image !== 'string') return defaultProductImage;
