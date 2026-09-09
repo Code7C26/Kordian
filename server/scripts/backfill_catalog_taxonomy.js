@@ -2,15 +2,25 @@ const database = require('../supabaseAdmin')
 const { suggestCatalogMapping } = require('../services/catalogTaxonomy')
 
 async function main() {
-  const [{ data: products, error: productsError }, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
-    database.from('products').select('id,name,source_category,source_subcategory,category_id,subcategory_id,brands(name)'),
+  const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
     database.from('categories').select('id,name'),
     database.from('subcategories').select('id,name,category_id'),
   ])
 
-  if (productsError) throw productsError
   if (categoriesError) throw categoriesError
   if (subcategoriesError) throw subcategoriesError
+
+  const products = []
+  const pageSize = 1000
+  for (let from = 0; ; from += pageSize) {
+    const { data: page, error: productsError } = await database
+      .from('products')
+      .select('id,name,source_category,source_subcategory,category_id,subcategory_id,brands(name)')
+      .range(from, from + pageSize - 1)
+    if (productsError) throw productsError
+    products.push(...(page || []))
+    if (!page || page.length < pageSize) break
+  }
 
   const categoryByName = new Map((categories || []).map((category) => [category.name, category]))
   const subcategoryByKey = new Map((subcategories || []).map((subcategory) => [`${subcategory.category_id}:${subcategory.name}`, subcategory]))

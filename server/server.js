@@ -10,10 +10,13 @@ app.use(express.json())
 const supabase = require('./supabase')
 const supabaseAdmin = require('./supabaseAdmin')
 const { analyzeProduct } = require('./services/priceAnalysisService')
-const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
+const { fetchDiscoPreviewReport, findPreviewMatches, isValidDiscoProduct } = require('./services/discoImporter')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
+const { normalizeDiscoStoredPrice } = require('./priceNormalization')
 const analysisWriter = supabaseAdmin
+const publicDiscoSearchCache = new Map()
+const publicDiscoSearchMaxResults = Math.min(500, Math.max(50, Number(process.env.DISCO_PUBLIC_SEARCH_MAX_RESULTS || 500)))
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || (
   process.env.NODE_ENV === 'production' ? null : 'arprice-local-dev-session-secret'
 )
@@ -68,12 +71,26 @@ function normalizeBrandName(value) {
 
 app.get('/taxonomy', async (req, res) => {
   try {
-    const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }, { data: productTaxonomy, error: productsError }] = await Promise.all([
+    const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
       analysisWriter.from('categories').select('id, name').order('name'),
       analysisWriter.from('subcategories').select('id, category_id, name').order('name'),
-      analysisWriter.from('products').select('category_id, subcategory_id'),
     ])
-    if (categoriesError || subcategoriesError || productsError) return res.status(500).json({ error: 'Error fetching taxonomy' })
+    if (categoriesError || subcategoriesError) return res.status(500).json({ error: 'Error fetching taxonomy' })
+
+    // PostgREST limits a response to 1,000 rows by default. Counts must include
+    // the complete catalog, otherwise newly imported products disappear from categories.
+    const productTaxonomy = []
+    const pageSize = 1000
+    for (let from = 0; ; from += pageSize) {
+      const { data: page, error: productsError } = await analysisWriter
+        .from('products')
+        .select('category_id, subcategory_id')
+        .range(from, from + pageSize - 1)
+      if (productsError) return res.status(500).json({ error: 'Error fetching taxonomy' })
+      productTaxonomy.push(...(page || []))
+      if (!page || page.length < pageSize) break
+    }
+
     const categoryCounts = new Map()
     const subcategoryCounts = new Map()
     for (const product of productTaxonomy || []) {
@@ -103,12 +120,12 @@ app.get('/admin/import/disco/preview', requireAdmin, async (req, res) => {
     const from = Math.max(0, Number(req.query.from || 0))
     const requestedTo = Number.isFinite(Number(req.query.to)) ? Number(req.query.to) : 99
     const to = Math.max(from, requestedTo)
-    const [preview, { data: localProducts, error: productsError }] = await Promise.all([
-      fetchDiscoPreview({ query, from, to }),
+    const [previewReport, { data: localProducts, error: productsError }] = await Promise.all([
+      fetchDiscoPreviewReport({ query, from, to }),
       supabase.from('products').select('id, name, source_product_id, ean'),
     ])
     if (productsError) return res.status(500).json({ error: 'No se pudo consultar el inventario local' })
-    res.json({ source: 'Disco', query, from, to, products: findPreviewMatches(preview, localProducts || []) })
+    res.json({ source: 'Disco', query, from, to, products: findPreviewMatches(previewReport.products, localProducts || []), discarded: previewReport.discarded })
   } catch (error) {
     console.error('Error fetching Disco preview', error)
     res.status(502).json({ error: error.message || 'No se pudo consultar Disco' })
@@ -123,7 +140,7 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       supabase.from('categories').select('id, name'),
       supabase.from('subcategories').select('id, name, category_id'),
       supabase.from('brands').select('id, name'),
-      supabase.from('products').select('id, name, source_product_id'),
+      supabase.from('products').select('id, name, source_product_id, ean'),
     ])
     const catalogError = categoriesError || subcategoriesError || brandsError || productsError
     if (catalogError) {
@@ -135,6 +152,10 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
     const brandCache = new Map()
     const seenSourceProductIds = new Set()
     for (const item of items) {
+      if (!isValidDiscoProduct(item)) {
+        skipped.push({ sourceProductId: item.sourceProductId, reason: 'Producto inválido o sin precio válido' })
+        continue
+      }
       const catalogMapping = suggestCatalogMapping({
         name: item.name,
         brand: item.brand,
@@ -149,9 +170,12 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       const existingBySourceId = sourceProductId
         ? (existingProducts || []).find((candidate) => String(candidate.source_product_id || '') === sourceProductId)
         : null
-      const duplicate = existingBySourceId || seenSourceProductIds.has(sourceProductId)
-      if (!item.name || !item.price || !category || !subcategory || duplicate) {
-        skipped.push({ sourceProductId: item.sourceProductId, reason: duplicate ? 'Posible duplicado' : 'Falta precio o mapeo de categoría' })
+      const existingByEan = item.ean
+        ? (existingProducts || []).find((candidate) => String(candidate.ean || '') === String(item.ean))
+        : null
+      const duplicate = existingBySourceId || existingByEan || seenSourceProductIds.has(sourceProductId)
+      if (!category || !subcategory || duplicate) {
+        skipped.push({ sourceProductId: item.sourceProductId, reason: duplicate ? (existingByEan ? 'EAN duplicado' : 'Posible duplicado') : 'Falta precio o mapeo de categoría' })
         continue
       }
       if (sourceProductId) {
@@ -269,6 +293,30 @@ app.get('/admin/import/disco/sync-status', requireAdmin, async (req, res) => {
   }
 })
 
+app.get('/admin/import/disco/import-status', requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('price_update_log')
+      .select('updated_at, products_updated, filters, changes')
+      .eq('filters->>source', 'disco_public_search')
+      .order('updated_at', { ascending: false })
+      .limit(50)
+    if (error) throw error
+    const logs = data || []
+    const totals = logs.reduce((summary, log) => {
+      const change = Array.isArray(log.changes) ? log.changes[0] || {} : {}
+      summary.imported += Number(change.imported || 0)
+      summary.updated += Number(change.updated || 0)
+      summary.discarded += Number(change.discarded || 0)
+      return summary
+    }, { imported: 0, updated: 0, discarded: 0 })
+    res.json({ searches: logs.length, lastSearchAt: logs[0]?.updated_at || null, totals, logs })
+  } catch (error) {
+    console.error('Error fetching Disco import status', error)
+    res.status(500).json({ error: 'No se pudo consultar el estado de importación' })
+  }
+})
+
 app.put('/products/:id/classification', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params
@@ -300,6 +348,99 @@ async function recordPriceHistory({ productId, offerId, cashPrice, source = 'adm
   if (error) console.error('Error recording price history', error)
 }
 
+async function importDiscoSearchResults(search) {
+  const normalizedSearch = String(search || '').trim().toLowerCase()
+  if (!normalizedSearch) return { imported: 0, updated: 0 }
+  const cachedAt = publicDiscoSearchCache.get(normalizedSearch)
+  if (cachedAt && Date.now() - cachedAt < 5 * 60 * 1000) return { imported: 0, updated: 0 }
+
+  const previewReport = await fetchDiscoPreviewReport({ query: normalizedSearch, from: 0, to: publicDiscoSearchMaxResults - 1 })
+  const preview = previewReport.products
+  if (!preview.length && !previewReport.discarded.length) return { imported: 0, updated: 0 }
+  publicDiscoSearchCache.set(normalizedSearch, Date.now())
+
+  const [{ data: categories }, { data: subcategories }, { data: brands }, { data: existingProducts }] = await Promise.all([
+    analysisWriter.from('categories').select('id, name'),
+    analysisWriter.from('subcategories').select('id, name, category_id'),
+    analysisWriter.from('brands').select('id, name'),
+    analysisWriter.from('products').select('id, source_product_id, ean, offers(id, supermarket)'),
+  ])
+  const productsBySource = new Map((existingProducts || []).map((product) => [String(product.source_product_id || ''), product]))
+  const productsByEan = new Map((existingProducts || []).filter((product) => product.ean).map((product) => [String(product.ean), product]))
+  const brandCache = new Map((brands || []).map((brand) => [normalizeBrandName(brand.name), brand]))
+  let imported = 0
+  let updated = 0
+
+  for (const item of preview) {
+    const existing = productsBySource.get(String(item.sourceProductId)) || (item.ean && productsByEan.get(String(item.ean)))
+    const existingOffer = existing?.offers?.find((offer) => offer.supermarket === 'Disco')
+    if (existing && existingOffer) {
+      if (Number(existingOffer.cash_price) !== Number(item.price)) {
+        const { error } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
+        if (!error) {
+          await recordPriceHistory({ productId: existing.id, offerId: existingOffer.id, cashPrice: item.price, source: 'disco_public_search' })
+          updated++
+        }
+      }
+      continue
+    }
+    if (existing && !existingOffer) {
+      const { data: offer, error } = await analysisWriter.from('offers').insert({ product_id: existing.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
+      if (!error) {
+        await recordPriceHistory({ productId: existing.id, offerId: offer.id, cashPrice: item.price, source: 'disco_public_search' })
+        updated++
+      }
+      continue
+    }
+    if (!item.proposedCategory || !item.proposedSubcategory) continue
+    const category = (categories || []).find((candidate) => candidate.name === item.proposedCategory)
+    const subcategory = (subcategories || []).find((candidate) => candidate.name === item.proposedSubcategory && String(candidate.category_id) === String(category?.id))
+    if (!category || !subcategory) continue
+
+    const brandName = normalizeBrandName(item.brand)
+    let brand = brandName ? brandCache.get(brandName) : null
+    if (!brand && brandName) {
+      const { data: createdBrand, error: brandError } = await analysisWriter.from('brands').insert({ name: String(item.brand).trim() }).select('id, name').single()
+      if (brandError) continue
+      brand = createdBrand
+      brandCache.set(brandName, brand)
+    }
+    const { data: product, error: productError } = await analysisWriter.from('products').insert({
+      name: item.name,
+      brand_id: brand?.id || null,
+      category_id: category.id,
+      subcategory_id: subcategory.id,
+      image: item.image || null,
+      source: 'disco',
+      source_product_id: String(item.sourceProductId),
+      source_sku: item.sourceSku || null,
+      ean: item.ean || null,
+      source_url: item.sourceUrl || null,
+      source_category: item.sourceCategory || null,
+      source_subcategory: item.proposedSubcategory || null,
+    }).select('id').single()
+    if (productError) continue
+    const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: product.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
+    if (!offerError) {
+      await recordPriceHistory({ productId: product.id, offerId: offer.id, cashPrice: item.price, source: 'disco_public_search' })
+      imported++
+    }
+  }
+  const discardedByReason = previewReport.discarded.reduce((counts, product) => {
+    counts[product.reason] = (counts[product.reason] || 0) + 1
+    return counts
+  }, {})
+  const { error: logError } = await analysisWriter.from('price_update_log').insert({
+    admin_username: 'public_search',
+    filters: { source: 'disco_public_search', query: normalizedSearch, discarded: discardedByReason },
+    percentage: 0,
+    products_updated: imported + updated,
+    changes: [{ imported, updated, discarded: previewReport.discarded.length }],
+  })
+  if (logError) console.error('Error recording public Disco search', logError.message)
+  return { imported, updated, discarded: previewReport.discarded.length }
+}
+
 // GET /products - fetch from Supabase with simple filters + pagination
 app.get('/products', async (req, res) => {
   try {
@@ -311,6 +452,14 @@ app.get('/products', async (req, res) => {
     const category = req.query.category || ''
     const brand = req.query.brand || ''
     const supermarket = req.query.supermarket || ''
+
+    if (search) {
+      try {
+        await importDiscoSearchResults(search)
+      } catch (error) {
+        console.error('Disco search import failed', error.message)
+      }
+    }
 
     // Include related catalog data so admin and storefront can display it.
     let query = analysisWriter.from('products').select('*, offers(*), categories(id, name), subcategories(id, name), brands(id, name)')
@@ -367,8 +516,16 @@ app.get('/products', async (req, res) => {
       return res.status(500).json({ error: 'Error fetching products' })
     }
 
+    const normalizedData = (data || []).map((product) => ({
+      ...product,
+      offers: (product.offers || []).map((offer) => ({
+        ...offer,
+        cash_price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
+      })),
+    }))
+
     res.json({
-      data: data || [],
+      data: normalizedData,
       total: Number(count || 0),
       page: safePage,
       limit: safeLimit,
@@ -382,24 +539,35 @@ app.get('/products', async (req, res) => {
 // GET /analysis/products - calculate the structured analysis from backend data
 app.get('/analysis/products', async (req, res) => {
   try {
-    const { data: products, error: productsError } = await analysisWriter
-      .from('products')
-      .select('*, offers(*), categories(name), subcategories(name), brands(name)')
-
-    if (productsError) return res.status(500).json({ error: 'Error fetching products for analysis' })
+    const products = []
+    const productPageSize = 1000
+    for (let from = 0; ; from += productPageSize) {
+      const { data: page, error: productsError } = await analysisWriter
+        .from('products')
+        .select('*, offers(*), categories(name), subcategories(name), brands(name)')
+        .range(from, from + productPageSize - 1)
+      if (productsError) return res.status(500).json({ error: 'Error fetching products for analysis' })
+      products.push(...(page || []))
+      if (!page || page.length < productPageSize) break
+    }
 
     const productIds = (products || []).map((product) => product.id).filter(Boolean)
-    const { data: history, error: historyError } = await analysisWriter
-      .from('price_history')
-      .select('*')
-      .in('product_id', productIds)
-      .order('observed_at', { ascending: true })
-
-    if (historyError) {
-      return res.status(503).json({
-        error: 'Price analysis migration is not available',
-        detail: 'Apply server/migrations/20260822_price_analysis.sql before using this endpoint',
-      })
+    const history = []
+    const historyBatchSize = 500
+    for (let index = 0; index < productIds.length; index += historyBatchSize) {
+      const batchIds = productIds.slice(index, index + historyBatchSize)
+      const { data: batch, error: historyError } = await analysisWriter
+        .from('price_history')
+        .select('*')
+        .in('product_id', batchIds)
+        .order('observed_at', { ascending: true })
+      if (historyError) {
+        return res.status(503).json({
+          error: 'Price analysis migration is not available',
+          detail: 'Apply server/migrations/20260822_price_analysis.sql before using this endpoint',
+        })
+      }
+      history.push(...(batch || []))
     }
 
     const { data: updateLogs, error: updateLogsError } = await analysisWriter
@@ -409,7 +577,9 @@ app.get('/analysis/products', async (req, res) => {
     if (updateLogsError) console.error('Error fetching price update history', updateLogsError)
 
     const historyByProduct = new Map()
+    const activeOfferIds = new Set((products || []).flatMap((product) => (product.offers || []).map((offer) => String(offer.id))))
     for (const point of history || []) {
+      if (!point.offer_id || !activeOfferIds.has(String(point.offer_id))) continue
       const points = historyByProduct.get(String(point.product_id)) || []
       points.push(point)
       historyByProduct.set(String(point.product_id), points)
@@ -1244,7 +1414,7 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
 const desiredPort = process.env.PORT ? Number(process.env.PORT) : 3000
 let discoSyncRunning = false
 const discoSyncIntervalMs = Number(process.env.DISCO_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
-if (process.env.DISCO_SYNC_ENABLED === 'true') {
+if (process.env.DISCO_SYNC_ENABLED !== 'false') {
   setInterval(async () => {
     if (discoSyncRunning) return
     discoSyncRunning = true

@@ -4,6 +4,10 @@ const normalize = (value) => String(value || '')
   .replace(/[\u0300-\u036f]/g, '')
 
 const rules = [
+  { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['alfajor', 'golosina', 'chupetin', 'chicle', 'oblea', 'snack'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['chocolate', 'bombon', 'confite'] },
+  { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos', terms: ['queso', 'leche', 'yogur', 'yogurt', 'lacteo', 'manteca', 'crema'] },
+  { category: 'Hogar y Otros', subcategory: 'Cocina y bazar', terms: ['extractor de jugos', 'extractor jugos'] },
   { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['cerveza', 'gaseosa', 'jugo', 'agua mineral', 'vino', 'licor', 'vodka', 'soda', 'bebida'] },
   { category: 'Limpieza e Higiene', subcategory: 'Papel y descartables', terms: ['papel higienico', 'papel de cocina', 'toalla de papel', 'servilleta', 'panuelos', 'rollo de cocina', 'bolsa de residuos', 'bolsa para residuos', 'vasos descartables', 'platos descartables', 'cubiertos descartables', 'descartable'] },
   { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Helados', terms: ['helado', 'helados'] },
@@ -45,7 +49,19 @@ function matches(text, term) {
 
 function suggestCatalogMapping(product) {
   const text = normalize([product.name, product.brand, product.source_category, product.source_subcategory].join(' '))
-  return rules.find((rule) => rule.terms.some((term) => matches(text, term))) || null
+  const directMatch = rules.find((rule) => rule.terms.some((term) => matches(text, term)))
+  if (directMatch) return directMatch
+
+  // Disco often supplies the normalized subcategory even when its source
+  // category is a path such as "/Almacén/". Use that value as a fallback.
+  const sourceSubcategory = normalize(product.source_subcategory).trim()
+  const sourceMappings = {
+    'lacteos': { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos' },
+    'infusiones': { category: 'Almacén y Alimentos', subcategory: 'Infusiones' },
+    'azucares y dulces': { category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces' },
+    'computacion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Computación' },
+  }
+  return sourceMappings[sourceSubcategory] || null
 }
 
 module.exports = { suggestCatalogMapping }

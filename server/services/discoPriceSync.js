@@ -15,8 +15,16 @@ async function syncDiscoPrices({ database, historyRecorder, adminUsername = 'sys
     if (!product.source_product_id) continue
     const current = await fetchDiscoProductById(product.source_product_id)
     const offer = product.offers?.find((candidate) => candidate.supermarket === 'Disco')
-    if (!current || !offer || current.price <= 0) {
+    if (!current || !offer) {
       unavailable.push({ productId: product.id, name: product.name })
+      continue
+    }
+    if (!current.available || current.price <= 0) {
+      const { error: historyDeleteError } = await database.from('price_history').delete().eq('offer_id', offer.id)
+      if (historyDeleteError) throw historyDeleteError
+      const { error: deleteError } = await database.from('offers').delete().eq('id', offer.id)
+      if (deleteError) throw deleteError
+      unavailable.push({ productId: product.id, name: product.name, removedOfferId: offer.id })
       continue
     }
     const previousPrice = Number(offer.cash_price)

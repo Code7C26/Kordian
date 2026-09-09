@@ -38,18 +38,29 @@ function isImageNameMismatch(image, productName) {
 }
 
 async function auditCatalog({ database, taxonomyMapper, checkRemoteImages = true } = {}) {
-  const [{ data: products, error: productsError }, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
-    database.from('products').select('id,name,image,source,source_product_id,category_id,subcategory_id,source_category,source_subcategory,brands(name),categories(name),subcategories(name),offers(id,cash_price,supermarket)'),
+  const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
     database.from('categories').select('id,name'),
     database.from('subcategories').select('id,name,category_id'),
   ])
-  if (productsError) throw productsError
   if (categoriesError) throw categoriesError
   if (subcategoriesError) throw subcategoriesError
+
+  const products = []
+  const pageSize = 1000
+  for (let from = 0; ; from += pageSize) {
+    const { data: page, error: productsError } = await database
+      .from('products')
+      .select('id,name,image,source,source_product_id,category_id,subcategory_id,source_category,source_subcategory,brands(name),categories(name),subcategories(name),offers(id,cash_price,supermarket)')
+      .range(from, from + pageSize - 1)
+    if (productsError) throw productsError
+    products.push(...(page || []))
+    if (!page || page.length < pageSize) break
+  }
 
   const categoryById = new Map((categories || []).map((category) => [String(category.id), category.name]))
   const subcategoryById = new Map((subcategories || []).map((subcategory) => [String(subcategory.id), subcategory.name]))
   const sourceIds = new Map()
+  const eans = new Map()
   const findings = []
   let placeholderImages = 0
 
@@ -76,6 +87,13 @@ async function auditCatalog({ database, taxonomyMapper, checkRemoteImages = true
       const duplicate = sourceIds.get(sourceId)
       if (duplicate) productFindings.push({ type: 'duplicate_source', duplicateProductId: duplicate })
       else sourceIds.set(sourceId, product.id)
+    }
+
+    const ean = String(product.ean || '').trim()
+    if (ean) {
+      const duplicateEan = eans.get(ean)
+      if (duplicateEan) productFindings.push({ type: 'duplicate_ean', duplicateProductId: duplicateEan, ean })
+      else eans.set(ean, product.id)
     }
 
     const mapping = taxonomyMapper?.({ ...product, brand: product.brands?.name })

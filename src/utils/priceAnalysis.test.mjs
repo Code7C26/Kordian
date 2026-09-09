@@ -21,6 +21,10 @@ assert.equal(market.minimum, 1000);
 assert.equal(market.maximum, 1500);
 assert.equal(market.median, 1200);
 
+const outlierMarket = analyzeMarketOffers([{ price: 100 }, { price: 1000 }, { price: 1100 }]);
+assert.deepEqual(outlierMarket.discardedPrices, [100]);
+assert.equal(outlierMarket.median, 1050);
+
 const behavior = analyzePriceBehavior({ history, offers: [{ price: 1000 }, { price: 1200 }], currentPrice: 1200, inflationRate: 8.5 });
 assert.equal(behavior.market.count, 2);
 assert.equal(behavior.dataQuality.historyPoints, 2);

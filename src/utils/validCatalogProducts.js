@@ -1,3 +1,16 @@
+const PRODUCT_MEASURE_PATTERN = /\b\d+(?:[.,]\d+)?\s*(?:kg|kgs|kilo(?:s)?|g|gr|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|uds?|u)\b/i
+
+export function hasProductQuantity(product = {}) {
+  const text = [product.name, product.description, product.presentation, product.unit].filter(Boolean).join(' ')
+  return PRODUCT_MEASURE_PATTERN.test(text)
+}
+
+export function hasProductImage(product = {}) {
+  const image = String(product.image || '').trim().toLowerCase()
+  if (!image || image === 'null' || image === 'undefined') return false
+  return !/(?:no[-_ ]?product[-_ ]?image|placeholder|sin[-_ ]?imagen|default[-_ ]?product|hero\.(?:png|jpe?g|webp))/.test(image)
+}
+
 export function isValidCatalogProduct(product = {}) {
   if (!product || typeof product !== 'object') return false
 
@@ -12,6 +25,7 @@ export function isValidCatalogProduct(product = {}) {
 
   const offers = Array.isArray(product.offers) ? product.offers : []
   if (!offers.length) return false
+  if (!hasProductQuantity(product) && !hasProductImage(product)) return false
 
   return offers.some((offer) => {
     const price = Number(offer?.cash_price ?? offer?.cashPrice ?? offer?.price ?? 0)
