@@ -7,6 +7,31 @@ const numeric = (value) => {
 
 const normalizeName = (value) => String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
 
+const durableProductTerms = ['microondas', 'horno', 'televisor', 'televisores', 'heladera', 'lavarropas', 'aire acondicionado', 'notebook', 'celular', 'computadora']
+const invalidProductNamePattern = /\b(envio|envios|entrega|delivery|shipping|oferta|promo|promocion|promociones)\b/i
+const productMeasurePattern = /\b\d+(?:[.,]\d+)?\s*(?:kg|kgs|kilo(?:s)?|g|gr|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|uds?|u)\b/i
+
+function normalizeDiscoPrice(value, productName, categories = []) {
+  const price = numeric(value)
+  const searchableText = normalizeName([productName, ...categories].join(' '))
+  const isDurableProduct = durableProductTerms.some((term) => searchableText.includes(normalizeName(term)))
+
+  // Disco occasionally returns prices one hundred times too small.
+  if (price > 0 && price < 100) return price * 100
+  return isDurableProduct && price > 0 && price < 1000 ? price * 100 : price
+}
+
+function getTokenPrice(token) {
+  if (typeof token !== 'string') return null
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString())
+    const price = Number(payload?.data?.price)
+    return Number.isFinite(price) && price > 0 ? price : null
+  } catch {
+    return null
+  }
+}
+
 const categoryMapping = [
   { matches: ['bebidas', 'gaseosas', 'aguas', 'jugos', 'cervezas', 'vinos', 'soda', 'energizante'], category: 'Almacén y Alimentos', subcategory: 'Bebidas' },
   { matches: ['azucar', 'edulcorante', 'miel', 'endulzante'], category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces' },
@@ -37,14 +62,39 @@ function isOnlineOnly(item) {
   return /(exclusiv[oa]|solo|únicamente|unicamente)[^"\n]{0,30}(online|web|internet)|(online|web|internet)[^"\n]{0,30}(exclusiv[oa]|solo)/i.test(text)
 }
 
+function isLikelyProductImage(image, productName) {
+  if (!image || !productName) return false
+  const imageText = normalizeName(image)
+  const productTokens = normalizeName(productName).split(/\s+/).filter((token) => token.length >= 5)
+  return productTokens.some((token) => imageText.includes(token))
+}
+
+async function isPlaceholderRemoteImage(image) {
+  if (!image || !/^https?:\/\//i.test(image)) return false
+  try {
+    const response = await fetch(image, { method: 'HEAD' })
+    return response.ok && response.headers.get('content-length') === '6948'
+  } catch {
+    return false
+  }
+}
+
 function getOffer(item) {
   const sellers = (item.items || []).flatMap((catalogItem) => catalogItem.sellers || [])
   const seller = sellers.find((candidate) => candidate.commertialOffer?.IsAvailable && numeric(candidate.commertialOffer?.Price) > 0)
     || sellers.find((candidate) => numeric(candidate.commertialOffer?.Price) > 0)
   const offer = seller?.commertialOffer || {}
+  const rawPrice = offer.Price || offer.PriceWithoutDiscount || offer.FullSellingPrice
+  const tokenPrice = getTokenPrice(offer.PriceToken)
+  const normalizedPrice = normalizeDiscoPrice(rawPrice, item.productName, item.categories)
+  const rawNumericPrice = Number(rawPrice)
+  const tokenMatchesScaledPrice = tokenPrice && rawNumericPrice > 0 && Math.abs(tokenPrice - rawNumericPrice * 100) < 0.01
+  const normalizedProductName = normalizeName(item.productName)
+  const isDurableProduct = durableProductTerms.some((term) => normalizedProductName.includes(normalizeName(term)))
+    && !/(pochoclo|popcorn|comida|pizza|empanada|para microondas)/.test(normalizedProductName)
   return {
-    price: numeric(offer.Price || offer.PriceWithoutDiscount || offer.FullSellingPrice),
-    listPrice: numeric(offer.ListPrice || offer.PriceWithoutDiscount),
+    price: tokenMatchesScaledPrice && (rawNumericPrice < 100 || (isDurableProduct && rawNumericPrice < 10000)) ? tokenPrice : normalizedPrice,
+    listPrice: normalizeDiscoPrice(offer.ListPrice || offer.PriceWithoutDiscount, item.productName, item.categories),
     available: Boolean(offer.IsAvailable),
     quantity: numeric(offer.AvailableQuantity),
     seller: seller?.sellerName || 'Disco',
@@ -63,7 +113,7 @@ export function normalizeDiscoProduct(item) {
     ean: firstItem.ean || null,
     name: item.productName || firstItem.name || '',
     brand: item.brand || '',
-    image: firstItem.images?.[0]?.imageUrl || '',
+    image: isLikelyProductImage(firstItem.images?.[0]?.imageUrl, item.productName) ? firstItem.images[0].imageUrl : '',
     price: offer.price,
     listPrice: offer.listPrice,
     available: offer.available,
@@ -77,6 +127,25 @@ export function normalizeDiscoProduct(item) {
     onlineOnly: isOnlineOnly(item),
     seller: offer.seller,
   }
+}
+
+export function getDiscoProductInvalidReason(product = {}) {
+  const name = String(product.name || '').trim()
+  const price = numeric(product.price)
+  if (!product.sourceProductId) return 'Sin identificador'
+  if (!name) return 'Sin nombre'
+  if (invalidProductNamePattern.test(name)) return 'Promoción, envío u oferta no válida'
+  if (price <= 0) return 'Sin precio válido'
+  if (product.available === false) return 'Sin stock disponible'
+  if (product.onlineOnly) return 'Exclusivo online'
+  const hasImage = typeof product.image === 'string' && product.image.trim().length > 0
+  const hasMeasure = productMeasurePattern.test([name, product.description, product.presentation, product.unit].filter(Boolean).join(' '))
+  if (!hasImage && !hasMeasure) return 'Sin imagen ni cantidad identificable'
+  return null
+}
+
+export function isValidDiscoProduct(product = {}) {
+  return !getDiscoProductInvalidReason(product)
 }
 
 async function fetchDiscoPage({ query = '', from = 0, to = 49 } = {}) {
@@ -95,23 +164,32 @@ async function fetchDiscoPage({ query = '', from = 0, to = 49 } = {}) {
 }
 
 export async function fetchDiscoPreview({ query = '', from = 0, to = 49 } = {}) {
+  const report = await fetchDiscoPreviewReport({ query, from, to })
+  return report.products
+}
+
+export async function fetchDiscoPreviewReport({ query = '', from = 0, to = 49 } = {}) {
   const safeFrom = Math.max(0, Number(from) || 0)
   const safeTo = Math.max(safeFrom, Number(to) || safeFrom)
 
   const products = []
+  const discarded = []
   for (let pageFrom = safeFrom; pageFrom <= safeTo; pageFrom += 50) {
     const pageTo = Math.min(pageFrom + 49, safeTo)
     const data = await fetchDiscoPage({ query, from: pageFrom, to: pageTo })
     if (!data.length) break
 
-    products.push(...data
-      .map(normalizeDiscoProduct)
-      .filter((product) => product.sourceProductId && product.price > 0 && !product.onlineOnly))
+    for (const product of data.map(normalizeDiscoProduct)) {
+      if (await isPlaceholderRemoteImage(product.image)) product.image = ''
+      const reason = getDiscoProductInvalidReason(product)
+      if (reason) discarded.push({ sourceProductId: product.sourceProductId, name: product.name, reason })
+      else products.push(product)
+    }
 
     if (data.length < pageTo - pageFrom + 1) break
   }
 
-  return products
+  return { products, discarded }
 }
 
 export async function fetchDiscoProductById(sourceProductId) {

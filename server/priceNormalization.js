@@ -61,4 +61,10 @@ function normalizeNumericValue(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-module.exports = { parsePrice, normalizeNumericValue }
+function normalizeDiscoStoredPrice(value, source) {
+  const price = normalizeNumericValue(value)
+  if (price === null || price <= 0) return price
+  return source === 'disco' && price < 100 ? Number((price * 100).toFixed(2)) : price
+}
+
+module.exports = { parsePrice, normalizeNumericValue, normalizeDiscoStoredPrice }

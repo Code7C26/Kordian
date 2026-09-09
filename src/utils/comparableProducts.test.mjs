@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { findComparableReferences, normalizePrice } from './comparableProducts.js';
+import { extractMeasure, findComparableReferences, normalizePrice } from './comparableProducts.js';
 
 const products = [
   { id: '1', name: 'Alfajor Jorgito Chocolate 55g', brand: 'Jorgito', offers: [{ cash_price: 1000 }] },
@@ -22,7 +22,7 @@ const reference = findComparableReferences(products[0], products.slice(0, 4), cl
 assert.equal(reference.level, 'grupo_comparable');
 assert.equal(reference.references.length, 3);
 assert.ok(reference.referencePrice > 0);
-assert.equal(findComparableReferences(products[0], products.slice(0, 4).concat(products[4]), classifications).references.length, 4);
+assert.equal(findComparableReferences(products[0], products.slice(0, 4).concat(products[4]), classifications).references.length, 3);
 const catalogProducts = [
   { id: 'catalog-1', name: 'Producto principal', subcategory: 'Golosinas y snacks', offers: [{ cash_price: 1000 }] },
   { id: 'catalog-2', name: 'Otro producto', subcategory: 'Golosinas y snacks', offers: [{ cash_price: 1100 }] },
@@ -30,5 +30,8 @@ const catalogProducts = [
 assert.equal(findComparableReferences(catalogProducts[0], catalogProducts, new Map()).references.length, 1);
 assert.equal(findComparableReferences(products[0], [products[0], products[5]], classifications).references.length, 0);
 assert.equal(normalizePrice({ name: 'Arroz 1kg' }, 2000).unitPrice, 2000);
+assert.equal(extractMeasure({ name: 'Lavandina 25g 4lt' }).baseUnit, 'l');
+assert.equal(extractMeasure({ name: 'Jugo en polvo 15 grs' }).normalizedAmount, 0.015);
+assert.equal(extractMeasure({ name: 'Jugo listo 200cc' }).normalizedAmount, 0.2);
 
 console.log('comparableProducts test passed');

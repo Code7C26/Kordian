@@ -7,6 +7,7 @@ import {
   Store 
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
+import { ProductImage } from './ProductImage';
 
 export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveItem, onClearBasket }) {
   if (basket.length === 0) {
@@ -107,7 +108,7 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
                       {items.map((item) => (
                         <div key={item.id} className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-900/60 border border-stone-200/80 dark:border-stone-800 flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3">
-                            <img src={item.product.image} alt={item.product.name} className="w-12 h-12 rounded-xl object-cover border border-stone-200 dark:border-stone-700" />
+                            <ProductImage src={item.product.image} alt={item.product.name} productName={item.product.name} productCategory={item.product.categories?.name || item.product.category?.name || item.product.category || item.product.subcategory} className="w-12 h-12 rounded-xl border border-stone-200 dark:border-stone-700" />
                             <div>
                               <h4 className="font-bold text-stone-900 dark:text-white text-sm line-clamp-1">{item.product.name}</h4>
                               <p className="text-xs text-stone-500 dark:text-stone-400">

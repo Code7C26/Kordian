@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Flame, AlertTriangle, TrendingDown, ArrowRight, Store } from 'lucide-react';
+import { Percent, TrendingUp, TrendingDown, ArrowRight, Store } from 'lucide-react';
 import { Product } from '../types';
 import { formatCurrency, formatPercentage } from '../utils/formatters';
 
@@ -40,8 +40,8 @@ export const DealsSummaryBanner: React.FC<DealsSummaryBannerProps> = ({
                 : 'bg-stone-100 dark:bg-stone-700/60 text-stone-600 dark:text-stone-300 hover:bg-stone-200'
             }`}
           >
-            <Flame className="w-4 h-4 fill-current" />
-            <span>🔥 Mayores Descuentos y Ofertas</span>
+            <Percent className="w-4 h-4" aria-hidden="true" />
+            <span>Mayores Descuentos y Ofertas</span>
           </button>
 
           <button
@@ -52,8 +52,8 @@ export const DealsSummaryBanner: React.FC<DealsSummaryBannerProps> = ({
                 : 'bg-stone-100 dark:bg-stone-700/60 text-stone-600 dark:text-stone-300 hover:bg-stone-200'
             }`}
           >
-            <AlertTriangle className="w-4 h-4" />
-            <span>⚠️ Alertas de Precios Inflados</span>
+            <TrendingUp className="w-4 h-4" aria-hidden="true" />
+            <span>Alertas de Precios Inflados</span>
           </button>
         </div>
 
