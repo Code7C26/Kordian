@@ -9,3 +9,6 @@ admin_src.txt
 
 # Local env overrides
 .env.local
+
+.idea/
+android/.idea/
