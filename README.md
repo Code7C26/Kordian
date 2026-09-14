@@ -172,7 +172,7 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 ---
 
 ## Video Publicitario
-*(Espacio reservado para incrustar o enlazar el video promocional/pitch de Ar-Price)*
+*(video no disponible por el momento)*
 
 ---
 
