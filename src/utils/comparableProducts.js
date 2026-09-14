@@ -10,13 +10,13 @@ const getCatalogValue = (product, field) => product[field]
 
 export function extractMeasure(product) {
   const text = [product.name, product.description, product.presentation, product.unit].join(' ')
-  const matches = [...text.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(kg|kgs|kilo(?:s)?|g|gr|grs|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|un(?:idad(?:es)?)?|uds?|u)\b/gi)]
-    .filter((match) => !/^u|un|ud/i.test(match[2]))
+  const matches = [...text.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(kg|kgs|kilo(?:s)?|g|gr|grs|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|u|uds?|ud)\b/gi)]
   const match = matches.at(-1)
   if (!match) return null
   const amount = Number(match[1].replace(',', '.'))
   const unit = match[2].toLowerCase()
-  if (!amount || unit === 'u' || unit.startsWith('un')) return null
+  if (!amount) return null
+  if (/^u$|^un$|^uds?$|^ud$|^unidad(?:es)?$/.test(unit)) return { amount, baseUnit: 'unit', normalizedAmount: amount }
   if (/^kg|^kilo/.test(unit)) return { amount, baseUnit: 'kg', normalizedAmount: amount }
   if (/^g|^gr|^gramo/.test(unit)) return { amount, baseUnit: 'kg', normalizedAmount: amount / 1000 }
   if (unit === 'mg') return { amount, baseUnit: 'kg', normalizedAmount: amount / 1000000 }

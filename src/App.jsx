@@ -81,14 +81,6 @@ function normalizeSearchText(value) {
     .trim()
 }
 
-function normalizeSearchText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-}
-
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();

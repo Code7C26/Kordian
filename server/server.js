@@ -11,6 +11,8 @@ const supabase = require('./supabase')
 const supabaseAdmin = require('./supabaseAdmin')
 const { analyzeProduct } = require('./services/priceAnalysisService')
 const { fetchDiscoPreviewReport, findPreviewMatches, isValidDiscoProduct } = require('./services/discoImporter')
+const { fetchPreview: fetchMamiPreview, findMatches: findMamiMatches, isValidProduct: isValidMamiProduct, source: mamiSource, getInvalidReason: getMamiInvalidReason } = require('./services/mamiImporter')
+const { compareSimulationReport, buildTaxonomyComparison } = require('./services/importerContract')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
 const { normalizeDiscoStoredPrice } = require('./priceNormalization')
@@ -129,6 +131,72 @@ app.get('/admin/import/disco/preview', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error fetching Disco preview', error)
     res.status(502).json({ error: error.message || 'No se pudo consultar Disco' })
+  }
+})
+
+app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
+  try {
+    const query = String(req.query.query || '').slice(0, 100)
+    const from = Math.max(0, Number(req.query.from || 0))
+    const requestedTo = Number.isFinite(Number(req.query.to)) ? Number(req.query.to) : 99
+    const to = Math.max(from, requestedTo)
+    const [previewReport, { data: localProducts, error: productsError }, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
+      fetchMamiPreview({ query, from, to }),
+      supabase.from('products').select('id, name, source_product_id, ean, brand, offers(id, supermarket, cash_price)'),
+      supabase.from('categories').select('id, name'),
+      supabase.from('subcategories').select('id, name, category_id'),
+    ])
+    if (productsError || categoriesError || subcategoriesError) return res.status(500).json({ error: 'No se pudo consultar el inventario local o el catálogo de categorías' })
+    const comparison = compareSimulationReport({
+      source: mamiSource,
+      isValidProduct: isValidMamiProduct,
+      getInvalidReason: getMamiInvalidReason,
+      findMatches: findMamiMatches,
+    }, previewReport, localProducts || [])
+    const taxonomyComparison = (previewReport.products || []).map((product) => ({
+      ...buildTaxonomyComparison(product, categories || [], subcategories || []),
+      sourceProductId: product.sourceProductId,
+      name: product.name,
+    }))
+    res.json({
+      source: mamiSource,
+      query,
+      from,
+      to,
+      products: previewReport.products,
+      discarded: previewReport.discarded,
+      dryRun: true,
+      writeSafety: {
+        productWritesAllowed: false,
+        priceHistoryWritesAllowed: false,
+        mutationSurface: 'preview_only',
+        reason: 'Mami preview is simulation-only and must not touch product or price_history tables',
+      },
+      comparison,
+      taxonomyComparison,
+    })
+  } catch (error) {
+    console.error('Error fetching Mami preview', error)
+    res.status(502).json({ error: error.message || 'No se pudo consultar Mami' })
+  }
+})
+
+app.post('/admin/import/mami', requireAdmin, async (req, res) => {
+  try {
+    return res.status(403).json({
+      source: mamiSource,
+      dryRun: true,
+      writeSafety: {
+        productWritesAllowed: false,
+        priceHistoryWritesAllowed: false,
+        mutationSurface: 'preview_only',
+        reason: 'Mami import is locked to simulation-only preview and must never perform product or price_history writes',
+      },
+      error: 'La importación de Mami está bloqueada en modo simulación. Usa /admin/import/mami/preview para comparar sin escribir.',
+    })
+  } catch (error) {
+    console.error('Error trying to import Mami', error)
+    return res.status(502).json({ error: error.message || 'No se pudo iniciar la importación de Mami' })
   }
 })
 
