@@ -33,5 +33,8 @@ assert.equal(normalizePrice({ name: 'Arroz 1kg' }, 2000).unitPrice, 2000);
 assert.equal(extractMeasure({ name: 'Lavandina 25g 4lt' }).baseUnit, 'l');
 assert.equal(extractMeasure({ name: 'Jugo en polvo 15 grs' }).normalizedAmount, 0.015);
 assert.equal(extractMeasure({ name: 'Jugo listo 200cc' }).normalizedAmount, 0.2);
+assert.equal(extractMeasure({ name: 'Galletitas 12 unidades' }).baseUnit, 'unit');
+assert.equal(extractMeasure({ name: 'Galletitas 12 unidades' }).normalizedAmount, 12);
+assert.equal(normalizePrice({ name: 'Galletitas 12 unidades' }, 240).unitPrice, 20);
 
 console.log('comparableProducts test passed');
