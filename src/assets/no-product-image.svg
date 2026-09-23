@@ -1,0 +1,16 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="48" fill="#EAF4FF"/>
+  <rect x="88" y="160" width="336" height="208" rx="36" fill="#DDEAFB"/>
+  <path d="M160 200C160 178.461 176.461 162 198 162H314C335.539 162 352 178.461 352 200V250C352 271.539 335.539 288 314 288H198C176.461 288 160 271.539 160 250V200Z" stroke="#2B6CB0" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M166 208L246 276H266L346 208" stroke="#2B6CB0" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M160 232L218 284H294L352 232" stroke="#2B6CB0" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="144" y="284" width="224" height="56" rx="18" fill="#F8FBFF" stroke="#2B6CB0" stroke-width="12"/>
+  <path d="M204 312H308" stroke="#2B6CB0" stroke-width="12" stroke-linecap="round"/>
+  <path d="M231 130L256 90L281 130H231Z" fill="#B7D4F7"/>
+  <path d="M145 108L200 78L256 108H145Z" fill="#CFE1F9"/>
+  <path d="M312 108L367 78L422 108H312Z" fill="#CFE1F9"/>
+  <path d="M174 76L256 40L338 76H174Z" fill="#A8C9F0"/>
+  <circle cx="256" cy="288" r="86" fill="#F5F9FF" stroke="#2B6CB0" stroke-width="12"/>
+  <path d="M256 234V288L302 318" stroke="#2B6CB0" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="256" y="415" text-anchor="middle" fill="#2B6CB0" font-size="32" font-family="Arial, Helvetica, sans-serif" font-weight="700">SIN IMAGEN</text>
+</svg>

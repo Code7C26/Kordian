@@ -1,4 +1,4 @@
-const API_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) || 'http://localhost:3000'
+import { API_BASE_URL as API_URL } from '../config/api.js'
 
 // =====================================
 // GET PRODUCTS

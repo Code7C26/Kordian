@@ -6,6 +6,7 @@ import {
   Wrench,
   Shirt,
   Dog,
+  Grid,
   Search,
   Sparkles,
   TrendingDown,
@@ -16,12 +17,12 @@ import {
 } from 'lucide-react';
 
 const QUICK_SEARCH_TAGS = [
-  'Yerba Mate',
-  'Ibupirac',
-  'Smart TV 50"',
-  'Taladro DeWalt',
-  'Aceite Oliva',
-  'Zapatillas Nike',
+  'Chocolate',        // Alimentos Frescos y Refrigerados
+  'Licor',            // Almacén y Alimentos
+  'Smart TV',         // Electrónica y Electrodomésticos
+  'Cocina',           // Hogar y Otros
+  'Desodorante',      // Limpieza e Higiene
+  'Zapatillas',       // Ropa y Calzado
 ];
 
 const getIcon = (iconName) => {
@@ -50,10 +51,11 @@ export function HeroCategoryGrid({
   searchQuery,
   setSearchQuery,
   onSearchSubmit,
+  onQuickSearch,
 }) {
   return (
     <div className="relative overflow-hidden bg-gradient-to-b from-sky-50/80 via-white to-stone-50/50 dark:from-stone-900 dark:via-stone-900 dark:to-stone-950 pb-12 pt-8 sm:pt-12 border-b border-stone-200/60 dark:border-stone-800">
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-sky-400/10 via-emerald-400/5 to-purple-400/10 blur-3xl pointer-events-none rounded-full" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-sky-400/10 via-blue-400/5 to-purple-400/10 blur-3xl pointer-events-none rounded-full" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="text-center max-w-3xl mx-auto space-y-4">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-100/80 dark:bg-sky-950/80 border border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-300 text-xs font-semibold shadow-xs">
@@ -62,7 +64,7 @@ export function HeroCategoryGrid({
           </div>
 
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-stone-900 dark:text-white tracking-tight leading-tight">
-            Encuentra el <span className="bg-gradient-to-r from-sky-600 via-blue-600 to-emerald-600 bg-clip-text text-transparent">precio justo</span> en un solo lugar
+            Encuentra el <span className="bg-gradient-to-r from-sky-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">precio justo</span> en un solo lugar
           </h1>
 
           <p className="text-sm sm:text-base text-stone-600 dark:text-stone-300 leading-relaxed font-normal max-w-2xl mx-auto">
@@ -104,8 +106,12 @@ export function HeroCategoryGrid({
                   key={tag}
                   type="button"
                   onClick={() => {
-                    setSearchQuery(tag);
-                    onSearchSubmit();
+                    if (onQuickSearch) {
+                      onQuickSearch(tag);
+                    } else {
+                      setSearchQuery(tag);
+                      onSearchSubmit();
+                    }
                   }}
                   className="px-2.5 py-1 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-sky-100 dark:hover:bg-sky-950/60 hover:text-sky-700 dark:hover:text-sky-300 text-stone-600 dark:text-stone-300 transition-colors border border-stone-200/60 dark:border-stone-700/60"
                 >
@@ -123,18 +129,9 @@ export function HeroCategoryGrid({
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400">Selecciona una categoría para explorar productos y ofertas</p>
           </div>
-          {selectedCategory !== 'todos' && (
-            <button
-              type="button"
-              onClick={() => onSelectCategory('todos')}
-              className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline"
-            >
-              Ver todas las categorías →
-            </button>
-          )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
           {categories.map((cat) => {
             const isSelected = selectedCategory === cat.id;
             return (
@@ -142,7 +139,7 @@ export function HeroCategoryGrid({
                 type="button"
                 key={cat.id}
                 onClick={() => onSelectCategory(cat.id)}
-                className={`group relative text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
+                className={`group relative min-w-[180px] sm:min-w-[190px] flex-1 snap-start text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
                   isSelected
                     ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/20 ring-2 ring-sky-400'
                     : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 text-stone-800 dark:text-stone-100 hover:border-sky-300 dark:hover:border-sky-700 shadow-xs hover:shadow-md'
@@ -179,11 +176,32 @@ export function HeroCategoryGrid({
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => onSelectCategory('todos')}
+            className={`group relative order-first min-w-[180px] sm:min-w-[190px] flex-1 snap-start text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
+              selectedCategory === 'todos'
+                ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/20 ring-2 ring-sky-400'
+                : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 text-stone-800 dark:text-stone-100 hover:border-sky-300 dark:hover:border-sky-700 shadow-xs hover:shadow-md'
+            }`}
+          >
+            <div className={`p-2.5 rounded-xl w-fit ${selectedCategory === 'todos' ? 'bg-white/20 text-white' : 'bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400'}`}>
+              <Grid className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className={`font-bold text-sm leading-tight ${selectedCategory === 'todos' ? 'text-white' : 'text-stone-900 dark:text-white'}`}>
+                Todos
+              </h3>
+              <p className={`text-[11px] line-clamp-1 mt-0.5 ${selectedCategory === 'todos' ? 'text-sky-100' : 'text-stone-400 dark:text-stone-400'}`}>
+                Todos los productos
+              </p>
+            </div>
+          </button>
         </div>
 
         <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3 bg-white dark:bg-stone-800/60 p-3 sm:p-4 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs">
           <div className="flex items-center gap-3 p-2">
-            <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
               <TrendingDown className="w-5 h-5" />
             </div>
             <div>

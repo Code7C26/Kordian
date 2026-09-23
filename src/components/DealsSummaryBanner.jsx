@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Flame, AlertTriangle } from 'lucide-react';
 import { formatCurrency, formatPercentage } from '../utils/formatters';
+import { getProductImageUrl } from '../utils/productImage';
 
 const cleanProductName = (name) => (name || 'Producto')
   .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
@@ -11,12 +12,12 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
   const [failedImages, setFailedImages] = useState([]);
 
   const topDeals = [...products]
-    .filter((p) => p.status === 'OFERTA' || p.status === 'EN_PRECIO')
+    .filter((p) => p.status === 'OFERTA' || p.status === 'PRECIO_NORMAL')
     .sort((a, b) => a.percentageDiff - b.percentageDiff)
     .slice(0, 4);
 
   const topInflated = [...products]
-    .filter((p) => p.status === 'INFLADO' || p.status === 'SOBREPRECIO')
+    .filter((p) => p.status === 'INFLADO' || p.status === 'AUMENTO_ATIPICO')
     .sort((a, b) => b.percentageDiff - a.percentageDiff)
     .slice(0, 4);
 
@@ -57,16 +58,18 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {displayedList.map((product) => (
+        {displayedList.map((product) => {
+          const productImage = getProductImageUrl(product.image);
+          return (
           <button
             key={product.id}
             type="button"
             onClick={() => onSelectProduct(product)}
             className="group p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-900/50 hover:bg-sky-50/50 dark:hover:bg-sky-950/30 border border-stone-200/60 dark:border-stone-700/60 hover:border-sky-300 dark:hover:border-sky-600 transition-all cursor-pointer flex items-center gap-3"
           >
-            {product.image && !failedImages.includes(product.id) ? (
+            {productImage && !failedImages.includes(product.id) ? (
               <img
-                src={product.image}
+                src={productImage}
                 alt={product.name}
                 onError={() => setFailedImages((current) => current.includes(product.id) ? current : [...current, product.id])}
                 className="w-14 h-14 rounded-xl object-cover border border-stone-200 dark:border-stone-700 shrink-0 group-hover:scale-105 transition-transform"
@@ -101,7 +104,8 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
               </div>
             </div>
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

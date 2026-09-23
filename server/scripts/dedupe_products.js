@@ -4,7 +4,7 @@ function normalize(s) {
   if (!s) return ''
   try {
     return String(s).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()
-  } catch (e) {
+  } catch {
     return String(s).toLowerCase().trim()
   }
 }
@@ -24,7 +24,7 @@ async function run() {
     groups[key].push(p)
   }
 
-  for (const [key, group] of Object.entries(groups)) {
+  for (const group of Object.values(groups)) {
     if (group.length < 2) continue
     console.log(`Found duplicate group (${group.length}):`, group.map(g => `${g.id}:${g.name}`))
 

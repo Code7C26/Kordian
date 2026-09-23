@@ -1,5 +1,5 @@
-import React from 'react'
 import { UploadCloud } from 'lucide-react'
+import { adminFetch } from '../config/api.js'
 
 export default function CsvUploader({ onUploaded }) {
   const handleFile = async (file) => {
@@ -7,7 +7,7 @@ export default function CsvUploader({ onUploaded }) {
     const formData = new FormData()
     formData.append('file', file)
     try {
-      const response = await fetch('http://localhost:3000/upload-csv', { method: 'POST', body: formData })
+      const response = await adminFetch('/upload-csv', { method: 'POST', body: formData })
       const data = await response.json()
       if (data.success) {
         onUploaded?.(null, 'CSV importado correctamente')

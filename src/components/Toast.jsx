@@ -1,4 +1,3 @@
-import React from 'react'
 
 export default function Toast({ toast }) {
   if (!toast || !toast.visible) return null
