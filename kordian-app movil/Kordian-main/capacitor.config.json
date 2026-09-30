@@ -1,0 +1,15 @@
+{
+  "appId": "com.Arprice.app",
+  "appName": "Ar-Price",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": true,
+      "showSpinner": false
+    }
+  }
+}

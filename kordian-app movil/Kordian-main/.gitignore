@@ -12,6 +12,7 @@ admin_src.txt
 
 .idea/
 android/.idea/
+
 # Android / Capacitor generated files
 **/.gradle/
 **/build/
@@ -21,9 +22,3 @@ android/.idea/
 **/.env
 **/.env.*
 !**/.env.example
-
-# Generated mobile files
-**/dist/
-**/.artifacts/
-**/*.apk
-**/*.tgz

@@ -1,0 +1,2 @@
+const fs=require('fs'); const s=fs.readFileSync('server.js','utf8'); function report(pos){ const lines=s.slice(0,pos).split(/\r?\n/); const lineNo=lines.length; const all=s.split(/\r?\n/); console.log('pos',pos+1,'line',lineNo); const start=Math.max(0,lineNo-5); const end=Math.min(all.length,lineNo+5); for(let i=start;i<end;i++){ console.log((i+1)+': '+all[i]); } console.log('---'); }
+report(1328); report(3941);
