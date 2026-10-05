@@ -2,6 +2,7 @@ const express = require('express')
 const cors = require('cors')
 const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
+const { createClient } = require('@supabase/supabase-js')
 const app = express()
 
 app.use(cors())
@@ -1374,6 +1375,145 @@ app.post('/login', async (req, res) => {
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+function createCustomerAuthClient() {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  })
+}
+
+async function getCustomerProfile(user) {
+  const { data, error } = await supabaseAdmin
+    .from('customer_profiles')
+    .select('username, email, role')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  if (error) throw error
+  return data || {
+    username: user.user_metadata?.username || '',
+    email: user.email || '',
+    role: 'customer',
+  }
+}
+
+function sendCustomerAuthUnavailable(res, error) {
+  console.error('Customer auth profile error', error)
+  return res.status(503).json({ error: 'La autenticación de clientes no está lista. Aplica la migración de perfiles en Supabase.' })
+}
+
+app.post('/auth/customer-register', async (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim().toLowerCase()
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    const password = String(req.body?.password || '')
+    if (!/^[a-z0-9]{1,32}$/.test(username)) {
+      return res.status(400).json({ error: 'El usuario debe tener solo letras y números (máximo 32).' })
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' })
+    }
+    if (!/^[a-zA-Z0-9]{4,}$/.test(password)) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres alfanuméricos.' })
+    }
+
+    let existingProfile
+    try {
+      const result = await supabaseAdmin
+        .from('customer_profiles')
+        .select('user_id')
+        .eq('username', username)
+        .maybeSingle()
+      if (result.error) return sendCustomerAuthUnavailable(res, result.error)
+      existingProfile = result.data
+    } catch (error) {
+      return sendCustomerAuthUnavailable(res, error)
+    }
+    if (existingProfile) return res.status(409).json({ error: 'Este usuario ya se encuentra registrado.' })
+
+    const authClient = createCustomerAuthClient()
+    const { data, error } = await authClient.auth.signUp({
+      email,
+      password,
+      options: { data: { username } },
+    })
+    if (error) {
+      const normalizedMessage = String(error.message || '').toLowerCase()
+      if (normalizedMessage.includes('already registered') || normalizedMessage.includes('already been registered')) {
+        return res.status(409).json({ error: 'Este correo ya se encuentra registrado.' })
+      }
+      if (normalizedMessage.includes('database error saving new user')) {
+        return res.status(503).json({ error: 'No se pudo crear el perfil. Verifica la migración de perfiles en Supabase.' })
+      }
+      return res.status(400).json({ error: error.message || 'No se pudo crear la cuenta.' })
+    }
+
+    res.status(201).json({
+      session: data.session,
+      user: data.user,
+      confirmationRequired: !data.session,
+    })
+  } catch (error) {
+    console.error('Customer registration failed', error)
+    res.status(500).json({ error: 'No se pudo completar el registro.' })
+  }
+})
+
+app.post('/auth/customer-login', async (req, res) => {
+  try {
+    const identifier = String(req.body?.identifier || '').trim()
+    const password = String(req.body?.password || '')
+    if (!identifier || !password) return res.status(400).json({ error: 'Ingresa tus credenciales.' })
+
+    let email = identifier
+    if (!identifier.includes('@')) {
+      if (!/^[a-zA-Z0-9]{1,32}$/.test(identifier)) {
+        return res.status(401).json({ error: 'Credenciales inválidas.' })
+      }
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from('customer_profiles')
+        .select('email')
+        .eq('username', identifier.toLowerCase())
+        .maybeSingle()
+      if (profileError) {
+        return sendCustomerAuthUnavailable(res, profileError)
+      }
+      if (!profile?.email) return res.status(401).json({ error: 'Credenciales inválidas.' })
+      email = profile.email
+    }
+
+    const authClient = createCustomerAuthClient()
+    const { data, error } = await authClient.auth.signInWithPassword({ email, password })
+    if (error || !data.session) return res.status(401).json({ error: 'Credenciales inválidas.' })
+    res.json({ session: data.session, profile: await getCustomerProfile(data.user) })
+  } catch (error) {
+    console.error('Customer login failed', error)
+    return sendCustomerAuthUnavailable(res, error)
+  }
+})
+
+app.post('/auth/customer-refresh', async (req, res) => {
+  try {
+    const refreshToken = String(req.body?.refreshToken || '')
+    if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' })
+    const { data, error } = await createCustomerAuthClient().auth.refreshSession({ refresh_token: refreshToken })
+    if (error || !data.session) return res.status(401).json({ error: 'La sesión expiró. Inicia sesión nuevamente.' })
+    res.json({ session: data.session, profile: await getCustomerProfile(data.user) })
+  } catch (error) {
+    return sendCustomerAuthUnavailable(res, error)
+  }
+})
+
+app.get('/auth/customer-session', async (req, res) => {
+  try {
+    const accessToken = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    if (!accessToken) return res.status(401).json({ error: 'Authentication required' })
+    const { data, error } = await createCustomerAuthClient().auth.getUser(accessToken)
+    if (error || !data.user) return res.status(401).json({ error: 'Invalid session' })
+    res.json({ user: data.user, profile: await getCustomerProfile(data.user) })
+  } catch (error) {
+    return sendCustomerAuthUnavailable(res, error)
   }
 })
 

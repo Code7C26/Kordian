@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { 
   MapPin, 
   Sun, 
   Moon, 
   ShoppingBag, 
   Heart, 
+  LogIn,
+  LogOut,
+  UserPlus,
+  UserRound,
 } from 'lucide-react';
 import { adminFetch, apiUrl } from '../config/api.js';
+import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
 
@@ -23,6 +28,7 @@ export function Header({
   isAdminPage = false,
 }) {
   const location = useLocation()
+  const { user, profile, signOut } = useCustomerAuth()
   const isAdminHeader = isAdminPage || location.pathname === '/admin'
   const [showAdminPanel, setShowAdminPanel] = useState(false)
   const [panelCategories, setPanelCategories] = useState([])
@@ -130,6 +136,39 @@ export function Header({
                   </span>
                 )}
               </button>
+
+              {user ? (
+                <>
+                  <Link to="/perfil" aria-label="Perfil" title="Perfil" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
+                    <UserRound className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Perfil</span>
+                  </Link>
+                  <Link to="/mis-alertas" aria-label="Mis alertas" title="Mis alertas" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
+                    <Heart className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Mis alertas</span>
+                  </Link>
+                  {profile?.role === 'business' && (
+                    <Link to="/panel-gestion" aria-label="Panel de gestión" title="Panel de gestión" className="inline-flex items-center rounded-lg bg-emerald-500 px-2 py-2 text-xs font-bold text-white hover:bg-emerald-600">
+                      <span className="hidden sm:inline">Panel de gestión</span>
+                      <span className="sm:hidden">Panel</span>
+                    </Link>
+                  )}
+                  <button type="button" onClick={() => signOut()} aria-label="Cerrar sesión" title="Cerrar sesión" className="rounded-lg p-2 text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
+                    <LogOut className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link to="/ingresar" aria-label="Iniciar sesión" title="Iniciar sesión" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
+                    <LogIn className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden lg:inline">Iniciar sesión</span>
+                  </Link>
+                  <Link to="/registro" aria-label="Registrarse" title="Registrarse" className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-2 text-xs font-bold text-sky-800 hover:bg-sky-50 dark:bg-sky-700 dark:text-white dark:hover:bg-sky-600 sm:px-3">
+                    <UserPlus className="h-4 w-4" aria-hidden="true" />
+                    <span>Registrarse</span>
+                  </Link>
+                </>
+              )}
             </>
           )}
 
