@@ -11,6 +11,10 @@
     "test": "node --test src/utils/*.test.mjs src/data/*.test.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/splash-screen": "^8.0.2",
     "@supabase/supabase-js": "^2.106.1",
     "lucide-react": "^0.546.0",
     "react": "^19.2.6",
@@ -19,6 +23,7 @@
     "sass": "^1.99.0"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@eslint/js": "^10.0.1",
     "@rolldown/pluginutils": "^1.0.1",
     "@tailwindcss/vite": "^4.1.14",
@@ -31,5 +36,8 @@
     "globals": "^17.6.0",
     "tailwindcss": "^4.1.14",
     "vite": "8.1.5"
+  },
+  "allowScripts": {
+    "sharp@0.32.6": true
   }
 }
