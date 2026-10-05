@@ -5,10 +5,11 @@ import ProductForm from '../components/ProductForm.jsx'
 import CategoryBrandForm from '../components/CategoryBrandForm.jsx'
 import CsvUploader from '../components/CsvUploader.jsx'
 import Toast from '../components/Toast.jsx'
-import { PackageOpen, Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { adminFetch, apiUrl } from '../config/api.js'
 import { formatCurrency } from '../utils/formatters.js'
 import { getVisiblePageNumbers } from '../utils/pagination.js'
+import { ProductImage } from '../components/ProductImage.jsx'
 
 export default function Admin() {
   // theme state to reuse site header dark toggle
@@ -35,10 +36,12 @@ export default function Admin() {
   const [priceUpdates, setPriceUpdates] = useState([])
   const [discoQuery, setDiscoQuery] = useState('yerba')
   const [discoPreview, setDiscoPreview] = useState([])
+  const [discoDiscarded, setDiscoDiscarded] = useState([])
   const [selectedDiscoProducts, setSelectedDiscoProducts] = useState([])
   const [discoLoading, setDiscoLoading] = useState(false)
   const [discoError, setDiscoError] = useState('')
   const [discoSyncStatus, setDiscoSyncStatus] = useState(null)
+  const [discoImportStatus, setDiscoImportStatus] = useState(null)
 
   const [editingProduct, setEditingProduct] = useState(null)
   const [editingOfferId, setEditingOfferId] = useState(null)
@@ -86,7 +89,11 @@ export default function Admin() {
   // data loaders
   const loadProducts = async (page = productPage) => {
     try {
-      const res = await fetch(apiUrl(`/products?page=${page}&limit=${productPageSize}`))
+      const params = new URLSearchParams({ page: String(page), limit: String(productPageSize) })
+      if (productSearch.trim()) params.set('search', productSearch.trim())
+      if (productCategoryFilter) params.set('category', productCategoryFilter)
+      if (productBrandFilter) params.set('brand', productBrandFilter)
+      const res = await fetch(apiUrl(`/products?${params.toString()}`))
       const payload = await res.json()
       const data = Array.isArray(payload) ? payload : payload.data || []
       setProducts(data)
@@ -114,6 +121,7 @@ export default function Admin() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'No se pudo consultar Disco')
       setDiscoPreview(data.products || [])
+      setDiscoDiscarded(data.discarded || [])
       setSelectedDiscoProducts([])
     } catch (error) {
       setDiscoError(error.message || 'No se pudo consultar Disco')
@@ -173,6 +181,15 @@ export default function Admin() {
     try {
       const response = await adminFetch('/admin/import/disco/sync-status')
       if (response.ok) setDiscoSyncStatus(await response.json())
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const loadDiscoImportStatus = async () => {
+    try {
+      const response = await adminFetch('/admin/import/disco/import-status')
+      if (response.ok) setDiscoImportStatus(await response.json())
     } catch (error) {
       console.error(error)
     }
@@ -253,7 +270,12 @@ export default function Admin() {
     loadTaxonomy()
     loadPriceUpdates()
     loadDiscoSyncStatus()
-  }, [productPage, productPageSize])
+    loadDiscoImportStatus()
+  }, [productPage, productPageSize, productSearch, productCategoryFilter, productBrandFilter])
+
+  useEffect(() => {
+    if (productPage !== 1) setProductPage(1)
+  }, [productSearch, productCategoryFilter, productBrandFilter])
 
   useEffect(() => {
     window.addEventListener('price-updates-changed', loadPriceUpdates)
@@ -616,33 +638,7 @@ export default function Admin() {
   const totalPages = Math.max(1, Math.ceil(totalProductCount / productPageSize))
   const visibleProductPages = getVisiblePageNumbers(productPage, totalPages, 1)
 
-  const filteredProducts = products.filter((product) => {
-    const query = productSearch.trim().toLowerCase()
-    if (query) {
-      const matchName = product.name?.toLowerCase().includes(query)
-      const matchBrand = product.brands?.name?.toLowerCase().includes(query)
-      const matchCategory = product.categories?.name?.toLowerCase().includes(query)
-      if (!matchName && !matchBrand && !matchCategory) {
-        return false
-      }
-    }
-
-    if (productCategoryFilter) {
-      const categoryId = String(product.categories?.id || product.category_id || '')
-      if (categoryId !== String(productCategoryFilter)) {
-        return false
-      }
-    }
-
-    if (productBrandFilter) {
-      const brandId = String(product.brands?.id || product.brand_id || '')
-      if (brandId !== String(productBrandFilter)) {
-        return false
-      }
-    }
-
-    return true
-  })
+  const filteredProducts = products
 
   const groupedOffersBySupermarket = (offers = []) => {
     const grouped = offers.reduce((acc, offer) => {
@@ -678,10 +674,11 @@ export default function Admin() {
             const brandName = brands.find((brand) => String(brand.id) === String(update.filters?.brandId))?.name
             const appliedFilters = [categoryName ? `Categoría: ${categoryName}` : null, brandName ? `Marca: ${brandName}` : null, update.filters?.supermarket ? `Supermercado: ${update.filters.supermarket}` : null].filter(Boolean)
             const changes = Array.isArray(update.changes) ? update.changes : []
+            const affectedProductCount = new Set(changes.map((change) => String(change.productId)).filter(Boolean)).size
             const percentage = changes.length && Number(changes[0].previousCashPrice) > 0
               ? ((Number(changes[0].updatedCashPrice) - Number(changes[0].previousCashPrice)) / Number(changes[0].previousCashPrice)) * 100
               : Number(update.percentage)
-            return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')}</td><td className={`py-3 pr-4 font-bold ${percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{percentage > 0 ? '+' : ''}{percentage.toFixed(1)}%</td><td className="py-3 pr-4">{update.products_updated}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
+            return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')}</td><td className={`py-3 pr-4 font-bold ${percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{percentage > 0 ? '+' : ''}{percentage.toFixed(1)}%</td><td className="py-3 pr-4">{affectedProductCount || update.products_updated || 0}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
           })}
         </tbody>
       </table>
@@ -725,12 +722,12 @@ export default function Admin() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {taxonomy.map((category) => (
               <div key={category.id} className="rounded-2xl border border-stone-200 dark:border-stone-700 p-4 bg-stone-50 dark:bg-stone-900">
-                <h3 className="font-bold">{category.name}</h3>
+                <h3 className="font-bold">{category.name} <span className="text-xs font-semibold text-stone-500">({category.productCount || 0} productos)</span></h3>
                 {category.subcategories.length ? (
                   <ul className="mt-3 space-y-2 text-sm">
                     {category.subcategories.map((subcategory) => (
                       <li key={subcategory.id}>
-                        <div className="font-semibold text-sky-700 dark:text-sky-300">{subcategory.name}</div>
+                        <div className="font-semibold text-sky-700 dark:text-sky-300">{subcategory.name} <span className="text-xs font-normal text-stone-500">({subcategory.productCount || 0})</span></div>
                         <div className="ml-4 mt-1 text-xs text-stone-500 dark:text-stone-400">
                           <div>Clasificación lógica por subcategoría</div>
                         </div>
@@ -854,6 +851,11 @@ export default function Admin() {
                   ? `Última sincronización: ${new Date(discoSyncStatus.lastSyncAt).toLocaleString('es-AR')} · ${discoSyncStatus.changes} cambio(s)`
                   : 'Todavía no hay sincronizaciones automáticas registradas.'}
               </p>
+              {discoImportStatus && (
+                <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">
+                  Búsquedas públicas: {discoImportStatus.searches} · Importados: {discoImportStatus.totals.imported} · Actualizados: {discoImportStatus.totals.updated} · Descartados: {discoImportStatus.totals.discarded}
+                </p>
+              )}
             </div>
             <form className="flex w-full gap-2 sm:w-auto" onSubmit={(event) => { event.preventDefault(); previewDiscoProducts() }}>
               <input className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100" value={discoQuery} onChange={(event) => setDiscoQuery(event.target.value)} placeholder="Buscar en Disco" aria-label="Buscar productos en Disco" />
@@ -861,6 +863,16 @@ export default function Admin() {
             </form>
           </div>
           {discoError && <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{discoError}</p>}
+          {discoDiscarded.length > 0 && (
+            <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+              <summary className="cursor-pointer font-semibold">{discoDiscarded.length} producto(s) descartado(s) automáticamente</summary>
+              <div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs">
+                {discoDiscarded.map((product, index) => (
+                  <p key={`${product.sourceProductId || 'sin-id'}-${index}`}><strong>{product.name || 'Sin nombre'}</strong>: {product.reason}</p>
+                ))}
+              </div>
+            </details>
+          )}
           {!discoLoading && !discoError && discoPreview.length === 0 && <p className="mt-4 rounded-lg bg-stone-50 p-3 text-sm text-stone-500 dark:bg-stone-900 dark:text-stone-400">Consultá una categoría o producto para ver una vista previa.</p>}
           {discoPreview.length > 0 && (
             <>
@@ -872,7 +884,7 @@ export default function Admin() {
               {discoPreview.map((product) => (
                 <article key={product.sourceProductId} className={`flex gap-3 rounded-xl border p-3 dark:border-stone-700 ${product.possibleDuplicate ? 'border-amber-300 opacity-70' : 'border-stone-200'}`}>
                   <input type="checkbox" disabled={product.possibleDuplicate} checked={selectedDiscoProducts.includes(product.sourceProductId)} onChange={(event) => setSelectedDiscoProducts((selected) => event.target.checked ? [...selected, product.sourceProductId] : selected.filter((id) => id !== product.sourceProductId))} className="mt-2 h-4 w-4 accent-emerald-600" aria-label={`Seleccionar ${product.name}`} />
-                  {product.image ? <img src={product.image} alt="" className="h-20 w-20 rounded-lg bg-stone-100 object-contain dark:bg-stone-900" /> : <div className="h-20 w-20 rounded-lg bg-stone-100 dark:bg-stone-900" />}
+                  <ProductImage src={product.image} alt={product.name} productName={product.name} productCategory={product.categories?.name || product.category?.name || product.category} className="h-20 w-20 rounded-lg bg-stone-100 dark:bg-stone-900" />
                   <div className="min-w-0 flex-1">
                     <h3 className="font-bold text-stone-900 dark:text-white">{product.name}</h3>
                     <p className="text-sm text-stone-500 dark:text-stone-400">{product.brand || 'Marca no informada'} · {product.available ? 'Disponible' : 'Sin stock'}</p>
@@ -964,19 +976,7 @@ export default function Admin() {
               <div key={product.id} className="bg-white dark:bg-stone-800 rounded-2xl p-4 shadow-sm">
                 <div className="flex flex-col gap-4">
                   <div className="flex gap-4">
-                    {product.image ? (
-                      <img src={product.image} alt={product.name} className="w-28 h-28 object-cover rounded-lg" />
-                    ) : (
-                      <div className="w-28 h-28 shrink-0 rounded-lg bg-gradient-to-br from-sky-100 via-white to-emerald-100 dark:from-sky-950/70 dark:via-stone-800 dark:to-emerald-950/60 text-sky-700 dark:text-sky-300 flex flex-col items-center justify-center gap-1 p-2">
-                        <div className="w-9 h-9 rounded-xl bg-white/80 dark:bg-stone-900/70 border border-sky-200 dark:border-sky-800 flex items-center justify-center shadow-sm">
-                          <PackageOpen className="w-5 h-5" />
-                        </div>
-                        <div className="text-center leading-tight max-w-full">
-                          <div className="text-xs font-black line-clamp-2 bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 dark:from-indigo-300 dark:via-sky-300 dark:to-emerald-300 bg-clip-text text-transparent">{product.name || 'Producto'}</div>
-                          <div className="text-[8px] font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400 truncate">{product.categories?.name || 'Producto'}</div>
-                        </div>
-                      </div>
-                    )}
+                    <ProductImage src={product.image} alt={product.name} productName={product.name} productCategory={product.categories?.name || product.category?.name || product.category} className="w-28 h-28 shrink-0 rounded-lg" />
                     <div className="flex-1">
                       <h3 className="font-bold">{product.name}</h3>
                       <p className="text-sm text-stone-500">Marca: {product.brands?.name}</p>

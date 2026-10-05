@@ -445,10 +445,10 @@ export default function App() {
                   onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value as any }))}
                   className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-bold"
                 >
-                  <option value="discount-desc">🔥 Mayor Descuento primero</option>
-                  <option value="price-asc">💵 Menor Precio primero</option>
-                  <option value="price-desc">💰 Mayor Precio primero</option>
-                  <option value="name-asc">🔤 Orden Alfabético (A-Z)</option>
+                  <option value="discount-desc">Mayor Descuento primero</option>
+                  <option value="price-asc">Menor Precio primero</option>
+                  <option value="price-desc">Mayor Precio primero</option>
+                  <option value="name-asc">Orden Alfabético (A-Z)</option>
                 </select>
               </div>
 

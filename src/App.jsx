@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
@@ -16,7 +16,70 @@ import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 // Data will be loaded from backend API
-import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle } from 'lucide-react';
+import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+
+const SORT_OPTIONS = [
+  { value: 'discount-desc', label: 'Mayor Descuento primero', icon: Percent },
+  { value: 'price-asc', label: 'Menor Precio primero', icon: ArrowDownWideNarrow },
+  { value: 'price-desc', label: 'Mayor Precio primero', icon: ArrowUpWideNarrow },
+  { value: 'name-asc', label: 'Orden Alfabético (A-Z)', icon: ArrowDownAZ },
+];
+
+function SortMenu({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const selectedOption = SORT_OPTIONS.find((option) => option.value === value) || SORT_OPTIONS[0];
+  const SelectedIcon = selectedOption.icon;
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((isOpen) => !isOpen)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-left text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-stone-700 dark:bg-stone-900 dark:text-white"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <SelectedIcon className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
+          <span className="truncate">{selectedOption.label}</span>
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-xl dark:border-stone-700 dark:bg-stone-800" role="listbox" aria-label="Ordenar lista por">
+          {SORT_OPTIONS.map((option) => {
+            const OptionIcon = option.icon;
+            const isSelected = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors ${isSelected ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300' : 'text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-stone-700'}`}
+              >
+                <OptionIcon className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
+                <span>{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
 
 export default function App() {
   const location = useLocation();
@@ -33,13 +96,24 @@ export default function App() {
   const [categories, setCategories] = useState([])
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true)
+  const catalogReferenceCache = useRef(null)
+  const analysisCache = useRef(null)
   const [productsPage, setProductsPage] = useState(1)
-  const [productsPageSize, setProductsPageSize] = useState(20)
-  const [totalProducts, setTotalProducts] = useState(0)
+  const productsPageSize = 20
+  const initialSearchParams = new URLSearchParams(location.search)
+  const [searchHistory, setSearchHistory] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('arprice_search_history') || '[]')
+      return Array.isArray(saved) ? saved.filter(Boolean).slice(0, 6) : []
+    } catch {
+      return []
+    }
+  })
   const [storesList, setStoresList] = useState([])
   const [filters, setFilters] = useState({
     category: 'todos',
-    searchQuery: '',
+    searchQuery: initialSearchParams.get('q') || '',
     store: 'todos',
     subcategory: 'todos',
     priceStatus: 'todos',
@@ -116,31 +190,47 @@ export default function App() {
   // Load categories and products from backend
   useEffect(() => {
     let mounted = true
+    const controller = new AbortController()
+    let searchTimer
+    setIsLoadingProducts(true)
     const loadData = async () => {
       try {
         const requestPageSize = Math.max(productsPageSize, 200)
         const baseQuery = {
-          page: productsPage,
+          // Pagination is applied locally after all matching products are loaded.
+          page: 1,
           limit: requestPageSize,
           searchQuery: filters.searchQuery,
           category: filters.category,
           store: filters.store,
         }
 
-        const [catsRes, firstPageRes, taxonomyRes, supermarketsRes] = await Promise.all([
-          fetch(apiUrl('/categories')),
-          fetch(apiUrl(`/products?${buildProductsQuery(baseQuery).toString()}`)),
-          fetch(apiUrl('/taxonomy')),
-          fetch(apiUrl('/supermarkets')),
+        const referencesPromise = catalogReferenceCache.current
+          ? Promise.resolve(catalogReferenceCache.current)
+          : Promise.all([
+            fetch(apiUrl('/categories'), { signal: controller.signal }),
+            fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
+            fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
+          ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
+            const references = {
+              categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
+              taxonomy: taxonomyResponse.ok ? await taxonomyResponse.json() : [],
+              supermarkets: supermarketsResponse.ok ? await supermarketsResponse.json() : [],
+            }
+            catalogReferenceCache.current = references
+            return references
+          })
+        const [firstPageRes, references] = await Promise.all([
+          fetch(apiUrl(`/products?${buildProductsQuery(baseQuery).toString()}`), { signal: controller.signal }),
+          referencesPromise,
         ])
 
         if (!mounted) return
 
-        if (!catsRes.ok || !firstPageRes.ok) {
+        if (!firstPageRes.ok) {
           throw new Error('Backend returned non-ok response')
         }
 
-        const cats = await catsRes.json()
         const firstPagePayload = await firstPageRes.json()
         const firstPageData = Array.isArray(firstPagePayload) ? firstPagePayload : firstPagePayload.data || []
         const firstPageTotal = Array.isArray(firstPagePayload)
@@ -158,7 +248,7 @@ export default function App() {
               limit: requestPageSize,
             })
 
-            const response = await fetch(apiUrl(`/products?${pageQuery.toString()}`))
+            const response = await fetch(apiUrl(`/products?${pageQuery.toString()}`), { signal: controller.signal })
             if (!response.ok) {
               throw new Error('Backend returned non-ok response')
             }
@@ -174,12 +264,13 @@ export default function App() {
         })
         const validProds = allProductsFromApi.filter((product) => isValidCatalogProduct(product))
 
-        setTotalProducts(firstPageTotal)
-        const taxonomyData = taxonomyRes.ok ? await taxonomyRes.json() : []
-        const supermarkets = supermarketsRes.ok ? await supermarketsRes.json() : []
+        const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
         const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
-        const analysisRes = await fetch(apiUrl('/analysis/products'))
-        const analyses = analysisRes.ok ? await analysisRes.json() : []
+        if (!analysisCache.current && !filters.searchQuery.trim()) {
+          const analysisRes = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
+          analysisCache.current = analysisRes.ok ? await analysisRes.json() : []
+        }
+        const analyses = analysisCache.current || []
         const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
 
         // enrich products with derived fields for the UI (defensive)
@@ -265,15 +356,19 @@ export default function App() {
 
         const storesArr = Array.from(storesSet).map((name) => ({ id: name, name }))
         setStoresList(storesArr)
+      } finally {
+        if (mounted) setIsLoadingProducts(false)
       }
     }
 
-    loadData()
+    searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? 250 : 0)
 
     return () => {
       mounted = false
+      controller.abort()
+      clearTimeout(searchTimer)
     }
-  }, [productsPage, productsPageSize, filters.searchQuery, filters.category, filters.store])
+  }, [productsPageSize, filters.searchQuery, filters.category, filters.store])
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>
@@ -331,6 +426,8 @@ export default function App() {
   };
 
   const filteredProducts = useMemo(() => {
+    const searchQuery = normalizeSearchText(filters.searchQuery)
+
     return products.filter((product) => {
       if (!isValidCatalogProduct(product)) return false;
       if (favoritesOnlyView && !favorites.includes(product.id)) {
@@ -345,12 +442,11 @@ export default function App() {
         return false;
       }
 
-      if (filters.searchQuery.trim() !== '') {
-        const query = filters.searchQuery.toLowerCase();
-        const matchesName = (product.name || '').toLowerCase().includes(query);
-        const matchesBrand = (product.brand || '').toLowerCase().includes(query);
-        const matchesSubcat = (product.subcategory || '').toLowerCase().includes(query);
-        const matchesStore = (product.offers || []).some((o) => ((o.supermarket || '') + '').toLowerCase().includes(query));
+      if (searchQuery !== '') {
+        const matchesName = normalizeSearchText(product.name).includes(searchQuery);
+        const matchesBrand = normalizeSearchText(product.brand).includes(searchQuery);
+        const matchesSubcat = normalizeSearchText(product.subcategory).includes(searchQuery);
+        const matchesStore = (product.offers || []).some((o) => normalizeSearchText(o.supermarket).includes(searchQuery));
         if (!matchesName && !matchesBrand && !matchesSubcat && !matchesStore) {
           return false;
         }
@@ -379,6 +475,29 @@ export default function App() {
 
       return true;
     }).sort((a, b) => {
+      if (searchQuery) {
+        const normalizedName = normalizeSearchText(a.name)
+        const normalizedBrand = normalizeSearchText(a.brand)
+        const normalizedSubcategory = normalizeSearchText(a.subcategory)
+        const relevance = (name, fieldWeight) => {
+          if (name === searchQuery) return fieldWeight
+          if (name.startsWith(searchQuery)) return fieldWeight + 1
+          if (name.split(/\s+/).some((word) => word.startsWith(searchQuery))) return fieldWeight + 2
+          if (name.includes(searchQuery)) return fieldWeight + 3
+          return 100
+        }
+        const relevanceA = Math.min(relevance(normalizedName, 0), relevance(normalizedBrand, 20), relevance(normalizedSubcategory, 30))
+        const relevanceB = Math.min(relevance(normalizeSearchText(b.name), 0), relevance(normalizeSearchText(b.brand), 20), relevance(normalizeSearchText(b.subcategory), 30))
+        if (relevanceA !== relevanceB) return relevanceA - relevanceB
+      }
+
+      const brandA = normalizeSearchText(a.brand || a.name || '')
+      const brandB = normalizeSearchText(b.brand || b.name || '')
+
+      if (brandA !== brandB) {
+        return brandA.localeCompare(brandB)
+      }
+
       const primarySort = (() => {
         switch (filters.sortBy) {
           case 'price-asc':
@@ -398,13 +517,6 @@ export default function App() {
 
       if (primarySort !== 0) {
         return primarySort;
-      }
-
-      const brandA = (a.brand || a.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const brandB = (b.brand || b.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-      if (brandA !== brandB) {
-        return brandA.localeCompare(brandB);
       }
 
       return (a.name || '').localeCompare(b.name || '');
@@ -440,17 +552,34 @@ export default function App() {
 
   const navigateToSearch = () => {
     const query = filters.searchQuery.trim();
+    if (query) {
+      setSearchHistory((previous) => [query, ...previous.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6))
+    }
     navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
   };
 
   const handleQuickSearch = (term) => {
     const query = String(term || '').trim();
+    if (query) {
+      setSearchHistory((previous) => [query, ...previous.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6))
+    }
     setViewMode('products');
     navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
   };
 
-  const totalPages = useMemo(() => getTotalPages(totalProducts, productsPageSize), [totalProducts, productsPageSize]);
+  useEffect(() => {
+    localStorage.setItem('arprice_search_history', JSON.stringify(searchHistory))
+  }, [searchHistory])
+
+  const totalPages = useMemo(() => getTotalPages(filteredProducts.length, productsPageSize), [filteredProducts.length, productsPageSize]);
   const visiblePages = useMemo(() => getVisiblePageNumbers(productsPage, totalPages, 1), [productsPage, totalPages]);
+
+  useEffect(() => {
+    if (productsPage > totalPages) {
+      setProductsPage(totalPages);
+    }
+  }, [productsPage, totalPages]);
+
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
   const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
   const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
@@ -484,6 +613,10 @@ export default function App() {
             setSearchQuery={(value) => setFilters((prev) => ({ ...prev, searchQuery: value }))}
             onSearchSubmit={navigateToSearch}
             onQuickSearch={handleQuickSearch}
+            searchHistory={searchHistory}
+            onSelectSearch={handleQuickSearch}
+            onRemoveSearch={(query) => setSearchHistory((previous) => previous.filter((item) => item !== query))}
+            onClearSearch={() => setSearchHistory([])}
           />
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -652,23 +785,17 @@ export default function App() {
                 >
                   <option value="todos">Todas las subcategorías</option>
                   {availableSubcategories.map((subcategory) => (
-                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
+                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name} ({subcategory.productCount || 0})</option>
                   ))}
                 </select>
               </div>
 
               <div>
                 <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Ordenar Lista Por</label>
-                <select
+                <SortMenu
                   value={filters.sortBy}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, sortBy: e.target.value }))}
-                  className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-bold"
-                >
-                  <option value="discount-desc">🔥 Mayor Descuento primero</option>
-                  <option value="price-asc">💵 Menor Precio primero</option>
-                  <option value="price-desc">💰 Mayor Precio primero</option>
-                  <option value="name-asc">🔤 Orden Alfabético (A-Z)</option>
-                </select>
+                  onChange={(sortBy) => setFilters((prev) => ({ ...prev, sortBy }))}
+                />
 
               </div>
             </div>
@@ -703,7 +830,15 @@ export default function App() {
 
           </div>
 
-          {filteredProducts.length === 0 ? (
+          {isLoadingProducts ? (
+            <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-sky-200 dark:border-sky-800 space-y-4" role="status" aria-live="polite">
+              <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
+                <Loader2 className="w-8 h-8 animate-spin" aria-hidden="true" />
+              </div>
+              <h3 className="text-xl font-bold text-stone-900 dark:text-white">Cargando productos</h3>
+              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Estamos actualizando los productos de esta categoría.</p>
+            </div>
+          ) : filteredProducts.length === 0 ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-stone-200/80 dark:border-stone-700/80 space-y-4">
               <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
                 <Search className="w-8 h-8" />

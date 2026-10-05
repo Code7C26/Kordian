@@ -1,4 +1,5 @@
 // Component for hero category grid
+import { useState } from 'react';
 import {
   ShoppingCart,
   Pill,
@@ -14,6 +15,8 @@ import {
   Store,
   Zap,
   ArrowRight,
+  Clock3,
+  X,
 } from 'lucide-react';
 
 const QUICK_SEARCH_TAGS = [
@@ -52,7 +55,13 @@ export function HeroCategoryGrid({
   setSearchQuery,
   onSearchSubmit,
   onQuickSearch,
+  searchHistory = [],
+  onSelectSearch,
+  onRemoveSearch,
+  onClearSearch,
 }) {
+  const [searchFocused, setSearchFocused] = useState(false);
+
   return (
     <div className="relative overflow-hidden bg-gradient-to-b from-sky-50/80 via-white to-stone-50/50 dark:from-stone-900 dark:via-stone-900 dark:to-stone-950 pb-12 pt-8 sm:pt-12 border-b border-stone-200/60 dark:border-stone-800">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-sky-400/10 via-blue-400/5 to-purple-400/10 blur-3xl pointer-events-none rounded-full" />
@@ -77,6 +86,7 @@ export function HeroCategoryGrid({
               onSubmit={(e) => {
                 e.preventDefault();
                 onSearchSubmit();
+                setSearchFocused(false);
               }}
               className="relative flex items-center shadow-lg shadow-stone-200/50 dark:shadow-none rounded-2xl border-2 border-sky-500/30 dark:border-sky-500/40 bg-white dark:bg-stone-800 focus-within:border-sky-600 transition-all p-1.5"
             >
@@ -87,9 +97,27 @@ export function HeroCategoryGrid({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
                 placeholder="Busca por producto, marca o categoría (ej: Yerba, TV, Leche)..."
                 className="w-full px-3 py-2.5 text-stone-900 dark:text-white placeholder-stone-400 bg-transparent text-sm sm:text-base focus:outline-none"
               />
+              {searchFocused && searchHistory.length > 0 && (
+                <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-sky-200 bg-white text-left shadow-xl dark:border-sky-900 dark:bg-stone-800">
+                  <div className="flex items-center justify-between border-b border-stone-100 px-3 py-2 dark:border-stone-700">
+                    <span className="flex items-center gap-2 text-xs font-bold text-stone-500 dark:text-stone-300"><Clock3 className="h-3.5 w-3.5 text-sky-500" /> Búsquedas recientes</span>
+                    <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={onClearSearch} className="text-[11px] font-semibold text-sky-600 hover:text-sky-800 dark:text-sky-300">Borrar historial</button>
+                  </div>
+                  {searchHistory.map((query) => (
+                    <div key={query} className="flex items-center gap-2 px-3 py-2 hover:bg-sky-50 dark:hover:bg-sky-950/40">
+                      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onSelectSearch(query); setSearchFocused(false) }} className="flex min-w-0 flex-1 items-center gap-2 text-sm text-stone-700 dark:text-stone-200">
+                        <Clock3 className="h-4 w-4 shrink-0 text-sky-500" /><span className="truncate">{query}</span>
+                      </button>
+                      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onRemoveSearch(query)} className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-700 dark:hover:bg-stone-700" aria-label={`Eliminar búsqueda ${query}`}><X className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <button
                 type="submit"
                 className="px-5 py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-semibold text-sm rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
