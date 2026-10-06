@@ -11,9 +11,9 @@ import { ComparisonModal } from './components/ComparisonModal.jsx';
 import { SmartBasketModal } from './components/SmartBasketModal.jsx';
 import PriceExplanationModal from './components/PriceExplanationModal.jsx';
 import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js';
-import { apiUrl } from './config/api.js';
+import { apiFetch } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
-import { buildProductsQuery } from './utils/catalogQuery.js';
+import { appendUniqueProducts, buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 // Data will be loaded from backend API
 import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
@@ -97,6 +97,10 @@ export default function App() {
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
+<<<<<<< HEAD
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
+=======
+>>>>>>> origin/main
   const catalogReferenceCache = useRef(null)
   const analysisCache = useRef(null)
   const [productsPage, setProductsPage] = useState(1)
@@ -187,6 +191,17 @@ export default function App() {
     }
   }, [filters.searchQuery, filters.category, filters.store]);
 
+  useEffect(() => {
+    const handleReviewDecisionUpdated = () => {
+      catalogReferenceCache.current = null
+      setCatalogRefreshKey((previous) => previous + 1)
+      setProductsPage(1)
+    }
+
+    window.addEventListener('arprice:review-decision-updated', handleReviewDecisionUpdated)
+    return () => window.removeEventListener('arprice:review-decision-updated', handleReviewDecisionUpdated)
+  }, [])
+
   // Load categories and products from backend
   useEffect(() => {
     let mounted = true
@@ -194,6 +209,7 @@ export default function App() {
     let searchTimer
     setIsLoadingProducts(true)
     const loadData = async () => {
+      let hasLoadedCatalog = false
       try {
         const requestPageSize = Math.max(productsPageSize, 200)
         const baseQuery = {
@@ -202,15 +218,21 @@ export default function App() {
           limit: requestPageSize,
           searchQuery: filters.searchQuery,
           category: filters.category,
-          store: filters.store,
+          store: 'todos',
         }
 
         const referencesPromise = catalogReferenceCache.current
           ? Promise.resolve(catalogReferenceCache.current)
           : Promise.all([
+<<<<<<< HEAD
+            apiFetch('/categories', { signal: controller.signal }),
+            apiFetch('/taxonomy', { signal: controller.signal }),
+            apiFetch('/supermarkets', { signal: controller.signal }),
+=======
             fetch(apiUrl('/categories'), { signal: controller.signal }),
             fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
             fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
+>>>>>>> origin/main
           ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
             const references = {
               categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
@@ -221,7 +243,11 @@ export default function App() {
             return references
           })
         const [firstPageRes, references] = await Promise.all([
+<<<<<<< HEAD
+          apiFetch(`/products?${buildProductsQuery(baseQuery).toString()}`, { signal: controller.signal }),
+=======
           fetch(apiUrl(`/products?${buildProductsQuery(baseQuery).toString()}`), { signal: controller.signal }),
+>>>>>>> origin/main
           referencesPromise,
         ])
 
@@ -236,8 +262,11 @@ export default function App() {
         const firstPageTotal = Array.isArray(firstPagePayload)
           ? firstPageData.length
           : Number(firstPagePayload.total || firstPageData.length || 0)
-
         const totalPagesToFetch = Math.max(1, Math.ceil(firstPageTotal / requestPageSize))
+<<<<<<< HEAD
+        const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
+        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+=======
         const pageNumbers = Array.from({ length: totalPagesToFetch }, (_, index) => index + 1)
 
         const remainingPageResponses = await Promise.all(
@@ -270,11 +299,13 @@ export default function App() {
           const analysisRes = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
           analysisCache.current = analysisRes.ok ? await analysisRes.json() : []
         }
+>>>>>>> origin/main
         const analyses = analysisCache.current || []
         const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
 
-        // enrich products with derived fields for the UI (defensive)
-        const enriched = validProds.map((p) => {
+        const enrichProducts = (productsToEnrich) => productsToEnrich
+          .filter((product) => isValidCatalogProduct(product))
+          .map((p) => {
           const offers = p.offers || []
           const otherStores = offers.map((o) => ({
             id: o.id,
@@ -315,23 +346,45 @@ export default function App() {
           }
         })
 
-        setCategories(cats || [])
-        setTaxonomy(taxonomyData || [])
-        setProducts(enriched)
+        const populatedTaxonomy = (taxonomyData || [])
+          .map((category) => ({
+            ...category,
+            subcategories: (category.subcategories || []).filter((subcategory) => Number(subcategory.productCount || 0) > 0),
+          }))
+          .filter((category) => Number(category.productCount || 0) > 0)
+        const populatedCategoryIds = new Set(populatedTaxonomy.map((category) => String(category.id)))
+        setCategories((cats || []).filter((category) => populatedCategoryIds.has(String(category.id))))
+        setTaxonomy(populatedTaxonomy)
+        setProducts(enrichProducts(firstPageData))
+        setIsLoadingProducts(false)
+        hasLoadedCatalog = true
 
-        // derive stores list from offers
         const storesSet = new Set()
-        validProds.forEach((p) => {
-          (p.offers || []).forEach((o) => {
-            if (o.supermarket) storesSet.add(o.supermarket)
+        const addStoreOptions = (productRows) => {
+          productRows.forEach((product) => {
+            (product.offers || []).forEach((offer) => {
+              if (offer.supermarket) storesSet.add(offer.supermarket)
+            })
           })
-        })
+          const storesArr = Array.from(storesSet).map((name) => ({ id: name, name, image: supermarketImages.get(name) || '' }))
+          setStoresList(storesArr)
+        }
+        addStoreOptions(firstPageData)
 
-        const storesArr = Array.from(storesSet).map((name) => ({ id: name, name, image: supermarketImages.get(name) || '' }))
-        setStoresList(storesArr)
+        for (let pageNumber = 2; pageNumber <= totalPagesToFetch; pageNumber += 1) {
+          const pageQuery = buildProductsQuery({ ...baseQuery, page: pageNumber, limit: requestPageSize })
+          const response = await apiFetch(`/products?${pageQuery.toString()}`, { signal: controller.signal })
+          if (!response.ok) throw new Error('Backend returned non-ok response')
+          const pagePayload = await response.json()
+          const pageData = Array.isArray(pagePayload) ? pagePayload : pagePayload?.data || []
+          if (!mounted) return
+          setProducts((current) => appendUniqueProducts(current, enrichProducts(pageData)))
+          addStoreOptions(pageData)
+        }
       } catch (err) {
         console.error('Error loading data', err)
         if (!mounted) return
+        if (hasLoadedCatalog) return
 
         const enriched = MOCK_PRODUCTS.map((p) => ({
           ...p,
@@ -368,7 +421,11 @@ export default function App() {
       controller.abort()
       clearTimeout(searchTimer)
     }
+<<<<<<< HEAD
+  }, [productsPageSize, filters.searchQuery, filters.category, filters.store, catalogRefreshKey])
+=======
   }, [productsPageSize, filters.searchQuery, filters.category, filters.store])
+>>>>>>> origin/main
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>
