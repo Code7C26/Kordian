@@ -7,7 +7,7 @@ import {
   ShoppingBag, 
   Heart, 
 } from 'lucide-react';
-import { adminFetch, apiUrl } from '../config/api.js';
+import { adminFetch, apiFetch } from '../config/api.js';
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
 
@@ -38,21 +38,21 @@ export function Header({
     // load categories and brands for the floating panel
     ;(async () => {
       try {
-        const cRes = await fetch(apiUrl('/categories'))
+        const cRes = await apiFetch('/categories')
         const cats = await cRes.json()
         setPanelCategories(cats.value || cats)
       } catch {
         // ignore
       }
       try {
-        const bRes = await fetch(apiUrl('/brands'))
+        const bRes = await apiFetch('/brands')
         const bs = await bRes.json()
         setPanelBrands(bs.value || bs)
       } catch {
         // ignore
       }
       try {
-        const sRes = await fetch(apiUrl('/supermarkets'))
+        const sRes = await apiFetch('/supermarkets')
         const supermarkets = await sRes.json()
         setPanelSupermarkets(supermarkets)
       } catch {

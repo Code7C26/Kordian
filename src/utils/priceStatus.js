@@ -105,6 +105,8 @@ export function calculatePriceStatus({
   if (historicalDifference != null && historicalDifference > PRICE_CLASSIFICATION_CONFIG.inflationDeviation) addSignal('history_high', 'por encima del historial ajustado', PRICE_CLASSIFICATION_CONFIG.weights.historyHigh)
   if (analysis?.inflationDeviation > PRICE_CLASSIFICATION_CONFIG.inflationDeviation) addSignal('inflation_deviation', 'supera la inflación esperada', PRICE_CLASSIFICATION_CONFIG.weights.inflationDeviation)
   if (analysis?.comparableDeviation > PRICE_CLASSIFICATION_CONFIG.comparableDeviation) addSignal('comparable_deviation', 'supera a productos comparables', PRICE_CLASSIFICATION_CONFIG.weights.comparableDeviation)
+  if (peerDifference != null && peerDifference > PRICE_CLASSIFICATION_CONFIG.comparableDeviation) addSignal('peer_high', 'supera a productos comparables', PRICE_CLASSIFICATION_CONFIG.weights.comparableDeviation)
+  if (peerDifference != null && peerDifference <= PRICE_CLASSIFICATION_CONFIG.offerThreshold) addSignal('peer_low', 'por debajo de productos comparables', PRICE_CLASSIFICATION_CONFIG.weights.comparableDeviation, 'offer')
   if ((recentDifference ?? analysis?.recentVariation ?? 0) > PRICE_CLASSIFICATION_CONFIG.abruptIncrease && (analysis?.recentPeriodDays || 999) <= 30) addSignal('abrupt_increase', 'aumento abrupto reciente', PRICE_CLASSIFICATION_CONFIG.weights.abruptIncrease)
   if (analysis?.supermarkets?.isolated) addSignal('isolated_increase', 'aumento aislado de un supermercado', PRICE_CLASSIFICATION_CONFIG.weights.isolatedIncrease)
   if (analysis?.supermarkets?.generalized) addSignal('generalized_increase', 'aumento compartido por varios supermercados', -PRICE_CLASSIFICATION_CONFIG.weights.generalizedIncreasePenalty, 'mitigating')
@@ -125,10 +127,12 @@ export function calculatePriceStatus({
   const qualityFactors = [hasMarketSample, hasHistorySample, hasComparableSample, evidenceCount >= 2]
   const qualityScore = qualityFactors.filter(Boolean).length
   const rawConfidencePercentage = Math.round(20 + (sourceCount * 12) + (Math.min(evidenceCount, 6) * 6) + (qualityScore * 8))
-  const confidencePercentage = Math.min(
-    hasMarketSample && hasHistorySample ? 98 : 50,
-    rawConfidencePercentage,
-  )
+  const confidenceCeiling = hasMarketSample && hasHistorySample
+    ? 98
+    : hasComparableSample || hasMarketSample || hasHistorySample
+      ? 74
+      : 38
+  const confidencePercentage = Math.min(confidenceCeiling, rawConfidencePercentage)
   const confidence = !hasMarketSample && !hasHistorySample && !hasComparableSample
     ? 'baja'
     : confidencePercentage >= 75

@@ -5,12 +5,25 @@ import ProductForm from '../components/ProductForm.jsx'
 import CategoryBrandForm from '../components/CategoryBrandForm.jsx'
 import CsvUploader from '../components/CsvUploader.jsx'
 import Toast from '../components/Toast.jsx'
-import { PackageOpen, Pencil, Trash2 } from 'lucide-react'
-import { adminFetch, apiUrl } from '../config/api.js'
+import { ChevronLeft, ChevronRight, Eye, FolderTree, GitMerge, History, Package, Pencil, RefreshCw, RotateCcw, Trash2, Users, Zap } from 'lucide-react'
+import { adminFetch, apiFetch, readApiResponse } from '../config/api.js'
 import { formatCurrency } from '../utils/formatters.js'
 import { getVisiblePageNumbers } from '../utils/pagination.js'
+import { ProductImage } from '../components/ProductImage.jsx'
+
+const ADMIN_PAGES = [
+  { id: 'arbol', label: 'Árbol', icon: FolderTree },
+  { id: 'acciones', label: 'Acciones', icon: Zap },
+  { id: 'producto', label: 'Producto', icon: Package },
+  { id: 'registro', label: 'Registro de actualizaciones', icon: History },
+  { id: 'vista-previa', label: 'Vista previa', icon: Eye },
+  { id: 'agrupacion', label: 'Agrupación', icon: GitMerge },
+  { id: 'usuario', label: 'Usuario', icon: Users },
+]
 
 export default function Admin() {
+  const [activePage, setActivePage] = useState('arbol')
+
   // theme state to reuse site header dark toggle
   const [darkMode, setDarkMode] = useState(() => {
     return (
@@ -33,12 +46,29 @@ export default function Admin() {
   const [supermarkets, setSupermarkets] = useState([])
   const [taxonomy, setTaxonomy] = useState([])
   const [priceUpdates, setPriceUpdates] = useState([])
+  const [reviewSummary, setReviewSummary] = useState(null)
+  const [reviewCandidates, setReviewCandidates] = useState([])
+  const [reviewCandidateIndex, setReviewCandidateIndex] = useState(0)
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const [reviewDecisions, setReviewDecisions] = useState({})
+  const [reviewHistory, setReviewHistory] = useState([])
+  const [reviewHistorySummary, setReviewHistorySummary] = useState({ total: 0, byStatus: { match: 0, no_match: 0, revisión: 0 }, byAdmin: {} })
   const [discoQuery, setDiscoQuery] = useState('yerba')
   const [discoPreview, setDiscoPreview] = useState([])
+  const [discoDiscarded, setDiscoDiscarded] = useState([])
   const [selectedDiscoProducts, setSelectedDiscoProducts] = useState([])
   const [discoLoading, setDiscoLoading] = useState(false)
   const [discoError, setDiscoError] = useState('')
   const [discoSyncStatus, setDiscoSyncStatus] = useState(null)
+  const [discoImportStatus, setDiscoImportStatus] = useState(null)
+  const [mamiQuery, setMamiQuery] = useState('yerba')
+  const [mamiPreview, setMamiPreview] = useState([])
+  const [mamiDiscarded, setMamiDiscarded] = useState([])
+  const [mamiLoading, setMamiLoading] = useState(false)
+  const [mamiError, setMamiError] = useState('')
+  const [mamiImportSkipped, setMamiImportSkipped] = useState([])
+  const [selectedMamiProducts, setSelectedMamiProducts] = useState([])
 
   const [editingProduct, setEditingProduct] = useState(null)
   const [editingOfferId, setEditingOfferId] = useState(null)
@@ -71,6 +101,7 @@ export default function Admin() {
   const [editingSubcategory, setEditingSubcategory] = useState(null)
   const [productSearch, setProductSearch] = useState('')
   const [productCategoryFilter, setProductCategoryFilter] = useState('')
+  const [productSubcategoryFilter, setProductSubcategoryFilter] = useState('')
   const [productBrandFilter, setProductBrandFilter] = useState('')
   const [productPage, setProductPage] = useState(1)
   const [productPageSize, setProductPageSize] = useState(20)
@@ -83,10 +114,24 @@ export default function Admin() {
     setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3500)
   }
 
+  const formatLowestPrice = (offers = []) => {
+    const values = (offers || [])
+      .map((offer) => Number(offer?.cash_price || 0))
+      .filter((value) => Number.isFinite(value) && value > 0)
+
+    if (!values.length) return 'Sin precio'
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(Math.min(...values))
+  }
+
   // data loaders
   const loadProducts = async (page = productPage) => {
     try {
-      const res = await fetch(apiUrl(`/products?page=${page}&limit=${productPageSize}`))
+      const params = new URLSearchParams({ page: String(page), limit: String(productPageSize) })
+      if (productSearch.trim()) params.set('search', productSearch.trim())
+      if (productCategoryFilter) params.set('category', productCategoryFilter)
+      if (productSubcategoryFilter) params.set('subcategory', productSubcategoryFilter)
+      if (productBrandFilter) params.set('brand', productBrandFilter)
+      const res = await apiFetch(`/products?${params.toString()}`)
       const payload = await res.json()
       const data = Array.isArray(payload) ? payload : payload.data || []
       setProducts(data)
@@ -106,6 +151,114 @@ export default function Admin() {
     }
   }
 
+  const buildReviewPairKey = (leftId, rightId) => `cross_source:${leftId ?? 'mami'}:${rightId ?? 'disco'}`
+
+  const loadReviewDecisions = async () => {
+    try {
+      const response = await adminFetch('/review/cross-source-decisions')
+      if (!response.ok) return
+      const data = await response.json()
+      const nextMap = {}
+      for (const decision of data.decisions || []) {
+        nextMap[decision.pairKey] = decision.status
+      }
+      setReviewDecisions(nextMap)
+      setReviewHistory(data.decisions || [])
+      setReviewHistorySummary(data.summary || { total: 0, byStatus: { match: 0, no_match: 0, revisión: 0 }, byAdmin: {} })
+    } catch (error) {
+      console.error('Error loading review decisions', error)
+    }
+  }
+
+  const persistReviewDecision = async (pairKey, nextStatus, pairData = {}) => {
+    try {
+      const candidateIndex = reviewCandidates.findIndex((candidate) => {
+        const leftId = candidate?.products?.mami?.id ?? null
+        const rightId = candidate?.products?.disco?.id ?? null
+        return buildReviewPairKey(leftId, rightId) === pairKey
+      })
+      const payload = {
+        pairKey,
+        status: nextStatus,
+        reasonCodes: pairData.reasonCodes || [],
+        confidence: pairData.confidence || 'media',
+        evidence: pairData.evidence || {},
+        mamiProductId: pairData.mamiProductId || null,
+        discoProductId: pairData.discoProductId || null,
+      }
+      const response = await adminFetch('/review/cross-source-decisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await readApiResponse(response, 'No se pudo guardar la decisión de revisión')
+      const savedStatus = data.decision?.status || nextStatus
+      setReviewDecisions((prev) => ({ ...prev, [pairKey]: savedStatus }))
+      if (savedStatus === 'match') {
+        setReviewCandidates((prev) => prev.filter((candidate) => {
+          const leftId = candidate?.products?.mami?.id ?? null
+          const rightId = candidate?.products?.disco?.id ?? null
+          return !(leftId === pairData.mamiProductId && rightId === pairData.discoProductId)
+        }))
+        setReviewCandidateIndex((currentIndex) => {
+          if (candidateIndex >= 0 && currentIndex > candidateIndex) return currentIndex - 1
+          return Math.min(currentIndex, Math.max(reviewCandidates.length - 2, 0))
+        })
+      } else {
+        setReviewCandidates((prev) => prev.map((candidate) => {
+          const leftId = candidate?.products?.mami?.id ?? null
+          const rightId = candidate?.products?.disco?.id ?? null
+          if (leftId === pairData.mamiProductId && rightId === pairData.discoProductId) {
+            return { ...candidate, status: savedStatus, decisionStatus: savedStatus }
+          }
+          return candidate
+        }))
+      }
+      window.dispatchEvent(new CustomEvent('arprice:review-decision-updated'))
+      showToast(`Decisión guardada: ${savedStatus}`, 'success')
+      await loadReviewDecisions()
+      await loadProducts(productPage)
+    } catch (error) {
+      console.error('Error persisting review decision', error)
+      showToast(error.message || 'No se pudo guardar la decisión', 'error')
+    }
+  }
+
+  const resetReviewDecisions = async () => {
+    if (!window.confirm('¿Reiniciar las decisiones guardadas? Se borrará el historial manual y los pares volverán a su estado sugerido.')) return
+
+    try {
+      const response = await adminFetch('/review/cross-source-decisions', { method: 'DELETE' })
+      const data = await readApiResponse(response, 'No se pudieron reiniciar las decisiones')
+      if (!data.success) return
+      setReviewDecisions({})
+      showToast('Decisiones reiniciadas', 'success')
+      await Promise.all([loadReviewDecisions(), loadCrossSourceReview()])
+    } catch (error) {
+      console.error('Error resetting review decisions', error)
+      showToast(error.message || 'No se pudieron reiniciar las decisiones', 'error')
+    }
+  }
+
+  const loadCrossSourceReview = async () => {
+    setReviewLoading(true)
+    setReviewError('')
+    try {
+      const response = await adminFetch('/analysis/cross-source-matches?source=all')
+      const data = await readApiResponse(response, 'No se pudo cargar la revisión de agrupación')
+      setReviewSummary(data.summary || null)
+      setReviewCandidates(Array.isArray(data.pairs) ? data.pairs : [])
+      setReviewCandidateIndex(0)
+    } catch (error) {
+      setReviewError(error.message || 'No se pudo cargar la revisión de agrupación')
+      setReviewSummary(null)
+      setReviewCandidates([])
+      setReviewCandidateIndex(0)
+    } finally {
+      setReviewLoading(false)
+    }
+  }
+
   const previewDiscoProducts = async () => {
     setDiscoLoading(true)
     setDiscoError('')
@@ -114,12 +267,70 @@ export default function Admin() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'No se pudo consultar Disco')
       setDiscoPreview(data.products || [])
+      setDiscoDiscarded(data.discarded || [])
       setSelectedDiscoProducts([])
     } catch (error) {
       setDiscoError(error.message || 'No se pudo consultar Disco')
     } finally {
       setDiscoLoading(false)
     }
+  }
+
+  const previewMamiProducts = async () => {
+    setMamiLoading(true)
+    setMamiError('')
+    try {
+      const response = await adminFetch(`/admin/import/mami/preview?query=${encodeURIComponent(mamiQuery)}`)
+      const data = await readApiResponse(response, 'No se pudo consultar Mami')
+      setMamiPreview(data.products || [])
+      setMamiDiscarded(data.discarded || [])
+      setSelectedMamiProducts([])
+    } catch (error) {
+      setMamiError(error.message || 'No se pudo consultar Mami')
+      setMamiPreview([])
+      setMamiDiscarded([])
+    } finally {
+      setMamiLoading(false)
+    }
+  }
+
+  const importSelectedMamiProducts = async () => {
+    const selected = mamiPreview.filter((product) => selectedMamiProducts.includes(product.sourceProductId))
+    if (!selected.length) {
+      showToast('Seleccioná al menos un producto de Mami', 'error')
+      return
+    }
+    setMamiLoading(true)
+    try {
+      const response = await adminFetch('/admin/import/mami', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: selected, query: mamiQuery }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error([result.error, result.detail].filter(Boolean).join(': ') || 'No se pudieron importar los productos de Mami')
+      setSelectedMamiProducts([])
+      setMamiImportSkipped(result.skipped || [])
+      await loadProducts()
+      const importedCount = result.imported?.length || 0
+      const updatedCount = result.updated?.length || 0
+      const unchangedCount = result.unchanged?.length || 0
+      const skippedCount = result.skipped?.length || 0
+      await loadPriceUpdates()
+      showToast(`Mami: ${importedCount} nuevo(s), ${updatedCount} oferta(s) actualizada(s), ${unchangedCount} sin cambios, ${skippedCount} omitido(s).`, importedCount || updatedCount || unchangedCount ? 'success' : 'error')
+      await previewMamiProducts()
+    } catch (error) {
+      showToast(error.message || 'No se pudieron importar los productos de Mami', 'error')
+    } finally {
+      setMamiLoading(false)
+    }
+  }
+
+  const selectEligibleMamiProducts = () => {
+    const eligible = mamiPreview
+      .filter((product) => product.existingProduct || (product.proposedCategory && product.proposedSubcategory))
+      .map((product) => product.sourceProductId)
+    setSelectedMamiProducts(eligible)
   }
 
   const importSelectedDiscoProducts = async () => {
@@ -178,6 +389,15 @@ export default function Admin() {
     }
   }
 
+  const loadDiscoImportStatus = async () => {
+    try {
+      const response = await adminFetch('/admin/import/disco/import-status')
+      if (response.ok) setDiscoImportStatus(await response.json())
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
   const deletePriceUpdate = async (id) => {
     if (!window.confirm('¿Eliminar este registro y restaurar los precios anteriores?')) return
     try {
@@ -206,7 +426,7 @@ export default function Admin() {
 
   const loadCategories = async () => {
     try {
-      const res = await fetch(apiUrl('/categories'))
+      const res = await apiFetch('/categories')
       const data = await res.json()
       setCategories(data)
     } catch (err) {
@@ -216,7 +436,7 @@ export default function Admin() {
 
   const loadBrands = async () => {
     try {
-      const res = await fetch(apiUrl('/brands'))
+      const res = await apiFetch('/brands')
       const data = await res.json()
       setBrands(data)
     } catch (err) {
@@ -226,7 +446,7 @@ export default function Admin() {
 
   const loadSupermarkets = async () => {
     try {
-      const res = await fetch(apiUrl('/supermarkets'))
+      const res = await apiFetch('/supermarkets')
       const data = await res.json()
       setSupermarkets(data)
     } catch (err) {
@@ -236,7 +456,7 @@ export default function Admin() {
 
   const loadTaxonomy = async () => {
     try {
-      const res = await fetch(apiUrl('/taxonomy'))
+      const res = await apiFetch('/taxonomy')
       if (!res.ok) throw new Error('Error cargando árbol de categorías')
       setTaxonomy(await res.json())
     } catch (err) {
@@ -253,7 +473,14 @@ export default function Admin() {
     loadTaxonomy()
     loadPriceUpdates()
     loadDiscoSyncStatus()
-  }, [productPage, productPageSize])
+    loadDiscoImportStatus()
+    loadCrossSourceReview()
+    loadReviewDecisions()
+  }, [productPage, productPageSize, productSearch, productCategoryFilter, productSubcategoryFilter, productBrandFilter])
+
+  useEffect(() => {
+    if (productPage !== 1) setProductPage(1)
+  }, [productSearch, productCategoryFilter, productSubcategoryFilter, productBrandFilter])
 
   useEffect(() => {
     window.addEventListener('price-updates-changed', loadPriceUpdates)
@@ -372,6 +599,7 @@ export default function Admin() {
           brand_id: form.brand_id,
           rating: form.rating,
           image: form.image,
+          priceHistoryRecorded: !skipPriceChangeRecording && Boolean(editingOfferId || form.cashPrice || form.installmentsQuantity || form.installmentPrice),
         }),
       })
 
@@ -385,7 +613,7 @@ export default function Admin() {
         const classificationRes = await adminFetch(`/products/${editingProduct.id}/classification`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subcategory_id: form.subcategory_id }),
+          body: JSON.stringify({ subcategory_id: form.subcategory_id, priceHistoryRecorded: !skipPriceChangeRecording && Boolean(editingOfferId || form.cashPrice || form.installmentsQuantity || form.installmentPrice) }),
         })
         if (!classificationRes.ok) {
           const err = await classificationRes.json()
@@ -404,6 +632,7 @@ export default function Admin() {
             installments_quantity: form.installmentsQuantity || null,
             installment_price: form.installmentPrice || null,
             skipPriceChangeRecording,
+            skipPriceChangeRecording,
           }),
         })
 
@@ -413,7 +642,7 @@ export default function Admin() {
           return
         }
 
-        if (!skipPriceChangeRecording) loadPriceUpdates()
+        if (!skipPriceChangeRecording) await loadPriceUpdates()
         showToast('Oferta actualizada', 'success')
       } else if (form.cashPrice || form.installmentsQuantity || form.installmentPrice) {
         const offerRes = await adminFetch('/offers', {
@@ -616,33 +845,7 @@ export default function Admin() {
   const totalPages = Math.max(1, Math.ceil(totalProductCount / productPageSize))
   const visibleProductPages = getVisiblePageNumbers(productPage, totalPages, 1)
 
-  const filteredProducts = products.filter((product) => {
-    const query = productSearch.trim().toLowerCase()
-    if (query) {
-      const matchName = product.name?.toLowerCase().includes(query)
-      const matchBrand = product.brands?.name?.toLowerCase().includes(query)
-      const matchCategory = product.categories?.name?.toLowerCase().includes(query)
-      if (!matchName && !matchBrand && !matchCategory) {
-        return false
-      }
-    }
-
-    if (productCategoryFilter) {
-      const categoryId = String(product.categories?.id || product.category_id || '')
-      if (categoryId !== String(productCategoryFilter)) {
-        return false
-      }
-    }
-
-    if (productBrandFilter) {
-      const brandId = String(product.brands?.id || product.brand_id || '')
-      if (brandId !== String(productBrandFilter)) {
-        return false
-      }
-    }
-
-    return true
-  })
+  const filteredProducts = products
 
   const groupedOffersBySupermarket = (offers = []) => {
     const grouped = offers.reduce((acc, offer) => {
@@ -667,6 +870,16 @@ export default function Admin() {
   const renderPriceUpdates = (updates, emptyMessage, automatic = false) => {
     if (!updates.length) return <p className="rounded-xl bg-stone-50 dark:bg-stone-900 p-4 text-sm text-stone-500 dark:text-stone-400">{emptyMessage}</p>
 
+    const priceChangeByProduct = new Map()
+    for (const update of updates) {
+      for (const change of Array.isArray(update.changes) ? update.changes : []) {
+        const previousPrice = Number(change.previousCashPrice)
+        const updatedPrice = Number(change.updatedCashPrice)
+        if (!change.productId || previousPrice <= 0 || updatedPrice <= 0) continue
+        priceChangeByProduct.set(String(change.productId), ((updatedPrice - previousPrice) / previousPrice) * 100)
+      }
+    }
+
     const renderTable = (tableUpdates) => (
       <table className="w-full text-left text-sm">
         <thead className="border-b border-stone-200 dark:border-stone-700 text-xs uppercase tracking-wide text-stone-500 dark:text-stone-400">
@@ -678,10 +891,21 @@ export default function Admin() {
             const brandName = brands.find((brand) => String(brand.id) === String(update.filters?.brandId))?.name
             const appliedFilters = [categoryName ? `Categoría: ${categoryName}` : null, brandName ? `Marca: ${brandName}` : null, update.filters?.supermarket ? `Supermercado: ${update.filters.supermarket}` : null].filter(Boolean)
             const changes = Array.isArray(update.changes) ? update.changes : []
+            const changeType = changes[0]?.type
+            const affectedProductCount = new Set(changes.map((change) => String(change.productId)).filter(Boolean)).size
             const percentage = changes.length && Number(changes[0].previousCashPrice) > 0
               ? ((Number(changes[0].updatedCashPrice) - Number(changes[0].previousCashPrice)) / Number(changes[0].previousCashPrice)) * 100
               : Number(update.percentage)
-            return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')}</td><td className={`py-3 pr-4 font-bold ${percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{percentage > 0 ? '+' : ''}{percentage.toFixed(1)}%</td><td className="py-3 pr-4">{update.products_updated}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
+            const isProductEdit = changeType === 'product_edit' || changeType === 'classification_edit'
+            const isMamiImport = update.filters?.source === 'mami_import'
+            const changeLabel = changeType === 'classification_edit' ? 'Clasificación de producto' : changeType === 'product_edit' ? `Producto: ${changes[0]?.productName || update.filters?.productId || 'editado'}` : null
+            const linkedPricePercentage = isProductEdit && changes[0]?.priceHistoryRecorded === true
+              ? priceChangeByProduct.get(String(changes[0]?.productId || update.filters?.productId))
+              : null
+            const linkedPriceLabel = Number.isFinite(linkedPricePercentage) ? `Edición (${linkedPricePercentage > 0 ? '+' : ''}${linkedPricePercentage.toFixed(1)}%)` : 'Edición'
+            const updateLabel = isProductEdit ? changeLabel : isMamiImport ? `Importación Mami${update.filters?.query ? `: ${update.filters.query}` : ''}` : automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')
+            const updateValue = isProductEdit ? linkedPriceLabel : isMamiImport ? 'Importación' : `${percentage > 0 ? '+' : ''}${percentage.toFixed(1)}%`
+            return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{updateLabel}</td><td className={`py-3 pr-4 font-bold ${isProductEdit ? 'text-sky-600' : isMamiImport ? 'text-emerald-600' : percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{updateValue}</td><td className="py-3 pr-4">{affectedProductCount || update.products_updated || 0}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
           })}
         </tbody>
       </table>
@@ -693,6 +917,12 @@ export default function Admin() {
       </div>
     )
   }
+
+  const reviewStatusCounts = reviewSummary?.statusCounts || {}
+  const reviewMatchCount = reviewStatusCounts.match ?? 0
+  const reviewRevisionCount = reviewStatusCounts.revisión ?? reviewStatusCounts.revision ?? 0
+  const reviewNoMatchCount = reviewStatusCounts.no_match ?? 0
+  const visibleReviewIndex = Math.min(reviewCandidateIndex, Math.max(reviewCandidates.length - 1, 0))
 
   // ===== UI =====
   return (
@@ -720,17 +950,289 @@ export default function Admin() {
           </div>
         </div>
 
+        <nav className="mt-6 border-b border-emerald-950/30" aria-label="Secciones de administración">
+          <div className="flex gap-1 overflow-x-auto rounded-t-xl bg-[#2576b5] px-2 pt-2" role="tablist" aria-label="Páginas del panel admin">
+            {ADMIN_PAGES.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={activePage === id}
+                id={`admin-tab-${id}`}
+                aria-controls="admin-page-content"
+                onClick={() => setActivePage(id)}
+                style={activePage === id ? { color: '#ffffff', borderBottomColor: '#ffffff' } : undefined}
+                className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition-colors md:min-w-0 md:flex-1 md:shrink md:justify-center md:px-2 md:text-center md:whitespace-normal ${activePage === id ? 'border-white text-white' : 'border-transparent text-white/85 hover:bg-white/10 hover:text-white'}`}
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                </span>
+                {label}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        <div id="admin-page-content" role="tabpanel" aria-labelledby={`admin-tab-${activePage}`}>
+        {activePage === 'agrupacion' && (
+        <section className="mt-6 bg-white dark:bg-stone-800 rounded-3xl border border-stone-200/80 dark:border-stone-700 p-6 shadow-sm">
+          <div>
+            <div>
+              <h2 className="text-xl font-bold">Revisión de agrupación</h2>
+              <p className="mt-1 max-w-3xl text-sm text-stone-500 dark:text-stone-400">Evalúa cada par como Agrupar, No agrupar o Revisión. Las decisiones se guardan en el historial, sin modificar productos ni ofertas.</p>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 border-y border-stone-200 py-4 dark:border-stone-700 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-bold">Acciones de revisión</h3>
+              <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">Actualiza los pares o limpia las decisiones manuales.</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button type="button" onClick={loadCrossSourceReview} disabled={reviewLoading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:cursor-wait disabled:opacity-60">
+                <RefreshCw className={`h-4 w-4 ${reviewLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+                {reviewLoading ? 'Actualizando pares…' : 'Actualizar pares'}
+              </button>
+              <button type="button" onClick={resetReviewDecisions} disabled={reviewHistory.length === 0} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-300 px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/30">
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                Reiniciar decisiones
+              </button>
+            </div>
+          </div>
+
+          {reviewError && (
+            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
+              {reviewError}
+            </div>
+          )}
+
+          {reviewSummary && (
+            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-900">
+                <div className="text-[11px] uppercase tracking-wide text-stone-500 dark:text-stone-400">Pares analizados</div>
+                <div className="mt-2 text-2xl font-black">{reviewSummary.pairsCompared ?? 0}</div>
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-700/60 dark:bg-emerald-950/20">
+                <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Match</div>
+                <div className="mt-2 text-2xl font-black text-emerald-700 dark:text-emerald-300">{reviewMatchCount}</div>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-950/20">
+                <div className="text-[11px] uppercase tracking-wide text-amber-700 dark:text-amber-300">Revisión</div>
+                <div className="mt-2 text-2xl font-black text-amber-700 dark:text-amber-300">{reviewRevisionCount}</div>
+              </div>
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-700/60 dark:bg-rose-950/20">
+                <div className="text-[11px] uppercase tracking-wide text-rose-700 dark:text-rose-300">No match</div>
+                <div className="mt-2 text-2xl font-black text-rose-700 dark:text-rose-300">{reviewNoMatchCount}</div>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-stone-700 dark:bg-stone-900">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-bold">Decisiones guardadas</h3>
+              <span className="text-xs uppercase tracking-wide text-stone-500 dark:text-stone-400">{reviewHistorySummary.total || 0} registros</span>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-700/60 dark:bg-emerald-950/20">
+                <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Match</div>
+                <div className="mt-2 text-xl font-black text-emerald-700 dark:text-emerald-300">{reviewHistorySummary.byStatus?.match ?? 0}</div>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-950/20">
+                <div className="text-[11px] uppercase tracking-wide text-amber-700 dark:text-amber-300">Revisión</div>
+                <div className="mt-2 text-xl font-black text-amber-700 dark:text-amber-300">{reviewHistorySummary.byStatus?.revisión ?? 0}</div>
+              </div>
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-700/60 dark:bg-rose-950/20">
+                <div className="text-[11px] uppercase tracking-wide text-rose-700 dark:text-rose-300">No match</div>
+                <div className="mt-2 text-xl font-black text-rose-700 dark:text-rose-300">{reviewHistorySummary.byStatus?.no_match ?? 0}</div>
+              </div>
+            </div>
+            {Object.keys(reviewHistorySummary.byAdmin || {}).length > 0 && (
+              <div className="mt-4">
+                <div className="text-[11px] uppercase tracking-wide text-stone-500 dark:text-stone-400">Por administrador</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {Object.entries(reviewHistorySummary.byAdmin).map(([admin, count]) => (
+                    <span key={admin} className="inline-flex rounded-full bg-stone-200 px-2.5 py-1 text-xs font-bold text-stone-700 dark:bg-stone-700 dark:text-stone-200">
+                      {admin}: {count}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {reviewHistory.length > 0 && (
+              <div className="mt-4 max-h-56 overflow-y-auto rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-700 dark:bg-stone-950">
+                <div className="space-y-2 text-sm">
+                  {reviewHistory.slice(0, 8).map((decision) => (
+                    <div key={decision.pairKey} className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 px-2 py-2 dark:border-stone-700">
+                      <div>
+                        <div className="font-semibold text-stone-800 dark:text-stone-100">{decision.pairKey}</div>
+                        <div className="text-xs text-stone-500 dark:text-stone-400">{decision.admin || 'system'}</div>
+                      </div>
+                      <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${decision.status === 'match' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' : decision.status === 'no_match' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'}`}>
+                        {decision.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {reviewCandidates.length > 0 && (
+              <nav className="flex items-center justify-center gap-4" aria-label="Navegación de pares de agrupación">
+                <button
+                  type="button"
+                  onClick={() => setReviewCandidateIndex((index) => Math.max(0, index - 1))}
+                  disabled={visibleReviewIndex === 0}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-700 transition-colors hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-35 dark:border-stone-600 dark:bg-stone-900 dark:text-stone-200 dark:hover:border-emerald-500"
+                  aria-label="Par anterior"
+                  title="Par anterior"
+                >
+                  <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                </button>
+                <span className="min-w-24 text-center text-sm font-bold text-stone-600 dark:text-stone-300" aria-live="polite">
+                  Par {visibleReviewIndex + 1} de {reviewCandidates.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setReviewCandidateIndex((index) => Math.min(reviewCandidates.length - 1, index + 1))}
+                  disabled={visibleReviewIndex >= reviewCandidates.length - 1}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-700 transition-colors hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-35 dark:border-stone-600 dark:bg-stone-900 dark:text-stone-200 dark:hover:border-emerald-500"
+                  aria-label="Par siguiente"
+                  title="Par siguiente"
+                >
+                  <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </nav>
+            )}
+
+            {reviewCandidates.length === 0 && !reviewLoading && !reviewError && (
+              <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 p-5 text-sm text-stone-500 dark:border-stone-600 dark:bg-stone-900 dark:text-stone-400">
+                No hay candidatos de revisión disponibles en este momento.
+              </div>
+            )}
+
+            {reviewCandidates.slice(visibleReviewIndex, visibleReviewIndex + 1).map((pair) => {
+              const left = pair.products?.mami || null
+              const right = pair.products?.disco || null
+              const pairKey = buildReviewPairKey(left?.id, right?.id)
+              const decision = reviewDecisions[pairKey] || pair.status || 'revisión'
+              const statusColor = decision === 'match' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' : decision === 'no_match' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+
+              return (
+                <div key={pairKey} className="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-stone-700 dark:bg-stone-900">
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${statusColor}`}>
+                        {decision === 'match' ? 'Agrupar' : decision === 'no_match' ? 'No agrupar' : 'Revisión'}
+                      </span>
+                      <span className="inline-flex rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-800 dark:bg-sky-950/30 dark:text-sky-300">
+                        Confianza: {pair.confidence || 'media'}
+                      </span>
+                      <span className="inline-flex rounded-full bg-stone-200 px-2.5 py-1 text-xs font-bold text-stone-700 dark:bg-stone-700 dark:text-stone-200">
+                        {pair.nameCompatibility || 'unknown'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => persistReviewDecision(pairKey, 'match', { mamiProductId: left?.id, discoProductId: right?.id, confidence: pair.confidence || 'media', reasonCodes: pair.reasonCodes || [], evidence: { matchedAttributes: pair.matchedAttributes, mismatchedAttributes: pair.mismatchedAttributes } })} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500">Agrupar</button>
+                      <button type="button" onClick={() => persistReviewDecision(pairKey, 'no_match', { mamiProductId: left?.id, discoProductId: right?.id, confidence: pair.confidence || 'media', reasonCodes: pair.reasonCodes || [], evidence: { matchedAttributes: pair.matchedAttributes, mismatchedAttributes: pair.mismatchedAttributes } })} className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500">No agrupar</button>
+                      <button type="button" onClick={() => persistReviewDecision(pairKey, 'revisión', { mamiProductId: left?.id, discoProductId: right?.id, confidence: pair.confidence || 'media', reasonCodes: pair.reasonCodes || [], evidence: { matchedAttributes: pair.matchedAttributes, mismatchedAttributes: pair.mismatchedAttributes } })} className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-white hover:bg-amber-400">Revisión</button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <article className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-700 dark:bg-stone-950">
+                      <div className="mb-3 flex items-center gap-3">
+                        <ProductImage src={left?.image} alt={left?.name || 'Producto Mami'} productName={left?.name || 'Producto Mami'} productCategory={left?.category || 'Mami'} className="h-16 w-16 rounded-lg" />
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-stone-500 dark:text-stone-400">Mami</div>
+                          <h3 className="font-bold text-stone-900 dark:text-white">{left?.name || 'Sin nombre'}</h3>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 text-sm">
+                        <p><span className="font-semibold">Marca:</span> {left?.brand || left?.brands?.name || 'Sin marca'}</p>
+                        <p><span className="font-semibold">Familia:</span> {left?.attributes?.family || 'Sin familia'}</p>
+                        <p><span className="font-semibold">Medida:</span> {left?.attributes?.measure ? `${left.attributes.measure.amount} ${left.attributes.measure.baseUnit}` : 'Sin medida'}</p>
+                        <p><span className="font-semibold">Presentación:</span> {left?.attributes?.container || 'Sin presentación'}</p>
+                        <p><span className="font-semibold">Sabor:</span> {left?.attributes?.flavor || 'Sin sabor'}</p>
+                        <p><span className="font-semibold">GTIN:</span> {left?.validGtin || left?.ean || 'Sin GTIN'}</p>
+                        <p><span className="font-semibold">Precio:</span> {formatLowestPrice(left?.offers)}</p>
+                      </div>
+                    </article>
+
+                    <article className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-700 dark:bg-stone-950">
+                      <div className="mb-3 flex items-center gap-3">
+                        <ProductImage src={right?.image} alt={right?.name || 'Producto Disco'} productName={right?.name || 'Producto Disco'} productCategory={right?.category || 'Disco'} className="h-16 w-16 rounded-lg" />
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-stone-500 dark:text-stone-400">Disco</div>
+                          <h3 className="font-bold text-stone-900 dark:text-white">{right?.name || 'Sin nombre'}</h3>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 text-sm">
+                        <p><span className="font-semibold">Marca:</span> {right?.brand || right?.brands?.name || 'Sin marca'}</p>
+                        <p><span className="font-semibold">Familia:</span> {right?.attributes?.family || 'Sin familia'}</p>
+                        <p><span className="font-semibold">Medida:</span> {right?.attributes?.measure ? `${right.attributes.measure.amount} ${right.attributes.measure.baseUnit}` : 'Sin medida'}</p>
+                        <p><span className="font-semibold">Presentación:</span> {right?.attributes?.container || 'Sin presentación'}</p>
+                        <p><span className="font-semibold">Sabor:</span> {right?.attributes?.flavor || 'Sin sabor'}</p>
+                        <p><span className="font-semibold">GTIN:</span> {right?.validGtin || right?.ean || 'Sin GTIN'}</p>
+                        <p><span className="font-semibold">Precio:</span> {formatLowestPrice(right?.offers)}</p>
+                      </div>
+                    </article>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                    <div className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-700 dark:bg-stone-950">
+                      <h4 className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Coinciden</h4>
+                      <ul className="mt-2 list-disc pl-5 text-sm text-stone-700 dark:text-stone-200">
+                        {(pair.matchedAttributes || []).length ? pair.matchedAttributes.map((field) => <li key={field}>{field}</li>) : <li>Sin coincidencias</li>}
+                      </ul>
+                    </div>
+                    <div className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-700 dark:bg-stone-950">
+                      <h4 className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Diferencias</h4>
+                      <ul className="mt-2 list-disc pl-5 text-sm text-stone-700 dark:text-stone-200">
+                        {(pair.mismatchedAttributes || []).length ? pair.mismatchedAttributes.map((field) => <li key={`${field.field || field}`}>{field.field || field}</li>) : <li>Sin diferencias</li>}
+                      </ul>
+                    </div>
+                    <div className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-700 dark:bg-stone-950">
+                      <h4 className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Razones</h4>
+                      <ul className="mt-2 list-disc pl-5 text-sm text-stone-700 dark:text-stone-200">
+                        {(pair.reasonCodes || []).length ? pair.reasonCodes.map((reason) => <li key={reason}>{reason}</li>) : <li>Sin motivos</li>}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {pair.priceSignal && (
+                    <div className="mt-4 rounded-xl border border-stone-200 bg-white p-3 text-sm dark:border-stone-700 dark:bg-stone-950">
+                      <h4 className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Señal de precio</h4>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        <span>Mami: {pair.priceSignal.mamiPrice ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(pair.priceSignal.mamiPrice) : 'n/a'}</span>
+                        <span>Disco: {pair.priceSignal.discoPrice ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(pair.priceSignal.discoPrice) : 'n/a'}</span>
+                        <span>Diferencia: {pair.priceSignal.differencePercent ?? 'n/a'}%</span>
+                        <span>Sospechoso: {pair.priceSignal.suspicious ? 'Sí' : 'No'}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+        )}
+
+        {activePage === 'arbol' && (
         <section className="mt-6 bg-white dark:bg-stone-800 rounded-3xl border border-stone-200/80 dark:border-stone-700 p-6 shadow-sm">
           <h2 className="text-xl font-bold mb-4">Árbol de categorías</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {taxonomy.map((category) => (
               <div key={category.id} className="rounded-2xl border border-stone-200 dark:border-stone-700 p-4 bg-stone-50 dark:bg-stone-900">
-                <h3 className="font-bold">{category.name}</h3>
+                <h3 className="font-bold">{category.name} <span className="text-xs font-semibold text-stone-500">({category.productCount || 0} productos)</span></h3>
                 {category.subcategories.length ? (
                   <ul className="mt-3 space-y-2 text-sm">
                     {category.subcategories.map((subcategory) => (
                       <li key={subcategory.id}>
-                        <div className="font-semibold text-sky-700 dark:text-sky-300">{subcategory.name}</div>
+                        <div className="font-semibold text-sky-700 dark:text-sky-300">{subcategory.name} <span className="text-xs font-normal text-stone-500">({subcategory.productCount || 0})</span></div>
                         <div className="ml-4 mt-1 text-xs text-stone-500 dark:text-stone-400">
                           <div>Clasificación lógica por subcategoría</div>
                         </div>
@@ -742,8 +1244,10 @@ export default function Admin() {
             ))}
           </div>
         </section>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 items-start">
+          {activePage === 'acciones' && (
           <div className="col-span-1 lg:col-span-2">
             <CategoryBrandForm
               newCategory={newCategory}
@@ -782,11 +1286,13 @@ export default function Admin() {
               editingBrand={editingBrand}
             />
           </div>
+          )}
 
-          <div className="col-span-1 lg:col-span-1">
+          {activePage === 'producto' && (
+          <div className="col-span-1 lg:col-span-3">
             <div className="bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm">
               <h3 className="font-semibold mb-4">Filtros rápidos</h3>
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <input
                   className="w-full px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100"
                   placeholder="Buscar producto"
@@ -796,11 +1302,25 @@ export default function Admin() {
                 <select
                   className="w-full px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100"
                   value={productCategoryFilter}
-                  onChange={(e) => setProductCategoryFilter(e.target.value)}
+                  onChange={(e) => {
+                    setProductCategoryFilter(e.target.value)
+                    setProductSubcategoryFilter('')
+                  }}
                 >
                   <option value="">Todas las categorías</option>
                   {categories.map((cat) => (
                     <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+                <select
+                  className="w-full px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  value={productSubcategoryFilter}
+                  onChange={(e) => setProductSubcategoryFilter(e.target.value)}
+                  disabled={!productCategoryFilter}
+                >
+                  <option value="">{productCategoryFilter ? 'Todas las subcategorías' : 'Elegí una categoría primero'}</option>
+                  {(taxonomy.find((category) => String(category.id) === String(productCategoryFilter))?.subcategories || []).map((subcategory) => (
+                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
                   ))}
                 </select>
                 <select
@@ -816,11 +1336,15 @@ export default function Admin() {
               </div>
             </div>
           </div>
+          )}
 
+          {activePage === 'acciones' && (
           <div className="col-span-1 lg:col-span-1">
             <CsvUploader onUploaded={() => { loadProducts(); loadPriceUpdates() }} />
           </div>
+          )}
 
+          {activePage === 'registro' && (
           <section className="col-span-1 lg:col-span-3 bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
@@ -834,16 +1358,11 @@ export default function Admin() {
             <h3 className="mb-3 mt-8 text-sm font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Sincronizaciones automáticas de Disco</h3>
             {renderPriceUpdates(discoPriceUpdates, 'Todavía no hay sincronizaciones automáticas registradas.', true)}
           </section>
-
-          <div className="col-span-1 lg:col-span-1">
-            {/* reserved for quick stats or actions */}
-            <div className="bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-lg font-bold">Acciones rápidas</h3>
-              <p className="text-sm text-stone-500 mt-2">Aquí puedes añadir accesos rápidos, reportes o links.</p>
-            </div>
-          </div>
+          )}
         </div>
 
+        {activePage === 'vista-previa' && (
+        <div>
         <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -854,6 +1373,11 @@ export default function Admin() {
                   ? `Última sincronización: ${new Date(discoSyncStatus.lastSyncAt).toLocaleString('es-AR')} · ${discoSyncStatus.changes} cambio(s)`
                   : 'Todavía no hay sincronizaciones automáticas registradas.'}
               </p>
+              {discoImportStatus && (
+                <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">
+                  Búsquedas públicas: {discoImportStatus.searches} · Importados: {discoImportStatus.totals.imported} · Actualizados: {discoImportStatus.totals.updated} · Descartados: {discoImportStatus.totals.discarded}
+                </p>
+              )}
             </div>
             <form className="flex w-full gap-2 sm:w-auto" onSubmit={(event) => { event.preventDefault(); previewDiscoProducts() }}>
               <input className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100" value={discoQuery} onChange={(event) => setDiscoQuery(event.target.value)} placeholder="Buscar en Disco" aria-label="Buscar productos en Disco" />
@@ -861,6 +1385,16 @@ export default function Admin() {
             </form>
           </div>
           {discoError && <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{discoError}</p>}
+          {discoDiscarded.length > 0 && (
+            <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+              <summary className="cursor-pointer font-semibold">{discoDiscarded.length} producto(s) descartado(s) automáticamente</summary>
+              <div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs">
+                {discoDiscarded.map((product, index) => (
+                  <p key={`${product.sourceProductId || 'sin-id'}-${index}`}><strong>{product.name || 'Sin nombre'}</strong>: {product.reason}</p>
+                ))}
+              </div>
+            </details>
+          )}
           {!discoLoading && !discoError && discoPreview.length === 0 && <p className="mt-4 rounded-lg bg-stone-50 p-3 text-sm text-stone-500 dark:bg-stone-900 dark:text-stone-400">Consultá una categoría o producto para ver una vista previa.</p>}
           {discoPreview.length > 0 && (
             <>
@@ -872,7 +1406,7 @@ export default function Admin() {
               {discoPreview.map((product) => (
                 <article key={product.sourceProductId} className={`flex gap-3 rounded-xl border p-3 dark:border-stone-700 ${product.possibleDuplicate ? 'border-amber-300 opacity-70' : 'border-stone-200'}`}>
                   <input type="checkbox" disabled={product.possibleDuplicate} checked={selectedDiscoProducts.includes(product.sourceProductId)} onChange={(event) => setSelectedDiscoProducts((selected) => event.target.checked ? [...selected, product.sourceProductId] : selected.filter((id) => id !== product.sourceProductId))} className="mt-2 h-4 w-4 accent-emerald-600" aria-label={`Seleccionar ${product.name}`} />
-                  {product.image ? <img src={product.image} alt="" className="h-20 w-20 rounded-lg bg-stone-100 object-contain dark:bg-stone-900" /> : <div className="h-20 w-20 rounded-lg bg-stone-100 dark:bg-stone-900" />}
+                  <ProductImage src={product.image} alt={product.name} productName={product.name} productCategory={product.categories?.name || product.category?.name || product.category} className="h-20 w-20 rounded-lg bg-stone-100 dark:bg-stone-900" />
                   <div className="min-w-0 flex-1">
                     <h3 className="font-bold text-stone-900 dark:text-white">{product.name}</h3>
                     <p className="text-sm text-stone-500 dark:text-stone-400">{product.brand || 'Marca no informada'} · {product.available ? 'Disponible' : 'Sin stock'}</p>
@@ -887,6 +1421,37 @@ export default function Admin() {
           )}
         </section>
 
+        <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Vista previa de Mami</h2>
+              <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">Consulta productos externos, revisa sus ofertas y selecciona cuáles importar.</p>
+            </div>
+            <form className="flex w-full gap-2 sm:w-auto" onSubmit={(event) => { event.preventDefault(); previewMamiProducts() }}>
+              <input className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100" value={mamiQuery} onChange={(event) => setMamiQuery(event.target.value)} placeholder="Buscar en Mami" aria-label="Buscar productos en Mami" />
+              <button type="submit" className="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50" disabled={mamiLoading}>{mamiLoading ? 'Consultando...' : 'Consultar'}</button>
+            </form>
+          </div>
+          {mamiError && <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{mamiError}</p>}
+          {mamiImportSkipped.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><summary className="cursor-pointer font-semibold">{mamiImportSkipped.length} producto(s) omitido(s) en la última importación</summary><div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs">{mamiImportSkipped.map((item, index) => <p key={`${item.sourceProductId || 'sin-id'}-${index}`}><strong>{item.sourceProductId || 'Sin ID'}</strong>: {item.reason}</p>)}</div></details>}
+          {mamiDiscarded.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><summary className="cursor-pointer font-semibold">{mamiDiscarded.length} producto(s) descartado(s) automáticamente</summary><div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs">{mamiDiscarded.map((product, index) => <p key={`${product.sourceProductId || 'sin-id'}-${index}`}><strong>{product.name || 'Sin nombre'}</strong>: {product.reason}</p>)}</div></details>}
+          {!mamiLoading && !mamiError && mamiPreview.length === 0 && <p className="mt-4 rounded-lg bg-stone-50 p-3 text-sm text-stone-500 dark:bg-stone-900 dark:text-stone-400">Consultá un producto para ver la vista previa de Mami.</p>}
+          {mamiPreview.length > 0 && <>
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-stone-500 dark:text-stone-400">Los productos nuevos sin categoría o subcategoría quedan fuera de la selección masiva.</p><div className="flex gap-2"><button type="button" onClick={selectEligibleMamiProducts} disabled={mamiLoading} className="rounded-lg border border-emerald-600 px-4 py-2 font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-stone-700">Seleccionar válidos</button><button type="button" onClick={importSelectedMamiProducts} disabled={mamiLoading || !selectedMamiProducts.length} className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">Importar seleccionados</button></div></div>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              {mamiPreview.map((product) => <label key={product.sourceProductId} className="flex cursor-pointer gap-3 rounded-xl border border-stone-200 p-3 dark:border-stone-700">
+                <input type="checkbox" disabled={!product.existingProduct && !(product.proposedCategory && product.proposedSubcategory)} checked={selectedMamiProducts.includes(product.sourceProductId)} onChange={(event) => setSelectedMamiProducts((selected) => event.target.checked ? [...selected, product.sourceProductId] : selected.filter((id) => id !== product.sourceProductId))} className="mt-2 h-4 w-4 accent-emerald-600" aria-label={`Seleccionar ${product.name}`} />
+                <ProductImage src={product.image} alt={product.name} productName={product.name} productCategory={product.sourceCategory} className="h-20 w-20 rounded-lg bg-stone-100 dark:bg-stone-900" />
+                <div className="min-w-0 flex-1"><p className="font-bold text-stone-900 dark:text-white">{product.name}</p><p className="text-xs text-stone-500 dark:text-stone-400">{product.brand || 'Marca no informada'} · {product.existingProduct ? 'Producto existente' : 'Producto nuevo'}</p><p className="mt-1 font-black text-emerald-700 dark:text-emerald-400">Mami: {formatCurrency(product.price)}</p>{product.priceOptions?.map((offer) => <p key={`${product.sourceProductId}-${offer.supermarket}`} className="text-xs text-stone-500 dark:text-stone-400">{offer.supermarket}: {formatCurrency(offer.price)}</p>)}{!product.existingProduct && <p className="mt-1 text-xs text-sky-700 dark:text-sky-300">{product.proposedCategory && product.proposedSubcategory ? `${product.proposedCategory} > ${product.proposedSubcategory}` : 'Mapeo pendiente'}</p>}{product.possibleDuplicate && <span className="mt-2 inline-block rounded-md bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">Oferta/producto existente</span>}</div>
+              </label>)}
+            </div>
+          </>}
+        </section>
+        </div>
+        )}
+
+        {activePage === 'producto' && (
+        <>
         <ProductForm
           form={form}
           setForm={setForm}
@@ -964,19 +1529,7 @@ export default function Admin() {
               <div key={product.id} className="bg-white dark:bg-stone-800 rounded-2xl p-4 shadow-sm">
                 <div className="flex flex-col gap-4">
                   <div className="flex gap-4">
-                    {product.image ? (
-                      <img src={product.image} alt={product.name} className="w-28 h-28 object-cover rounded-lg" />
-                    ) : (
-                      <div className="w-28 h-28 shrink-0 rounded-lg bg-gradient-to-br from-sky-100 via-white to-emerald-100 dark:from-sky-950/70 dark:via-stone-800 dark:to-emerald-950/60 text-sky-700 dark:text-sky-300 flex flex-col items-center justify-center gap-1 p-2">
-                        <div className="w-9 h-9 rounded-xl bg-white/80 dark:bg-stone-900/70 border border-sky-200 dark:border-sky-800 flex items-center justify-center shadow-sm">
-                          <PackageOpen className="w-5 h-5" />
-                        </div>
-                        <div className="text-center leading-tight max-w-full">
-                          <div className="text-xs font-black line-clamp-2 bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 dark:from-indigo-300 dark:via-sky-300 dark:to-emerald-300 bg-clip-text text-transparent">{product.name || 'Producto'}</div>
-                          <div className="text-[8px] font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400 truncate">{product.categories?.name || 'Producto'}</div>
-                        </div>
-                      </div>
-                    )}
+                    <ProductImage src={product.image} alt={product.name} productName={product.name} productCategory={product.categories?.name || product.category?.name || product.category} className="w-28 h-28 shrink-0 rounded-lg" />
                     <div className="flex-1">
                       <h3 className="font-bold">{product.name}</h3>
                       <p className="text-sm text-stone-500">Marca: {product.brands?.name}</p>
@@ -1045,7 +1598,10 @@ export default function Admin() {
             ))}
           </div>
         </section>
+        </>
+        )}
 
+        {activePage === 'usuario' && (
         <section className="mt-6 bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm">
           <h2 className="text-lg font-bold mb-3">Administradores</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1061,6 +1617,8 @@ export default function Admin() {
             ))}
           </div>
         </section>
+        )}
+        </div>
       </main>
     </div>
   )

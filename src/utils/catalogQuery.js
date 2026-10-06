@@ -12,3 +12,23 @@ export function buildProductsQuery({ page = 1, limit = 20, searchQuery = '', cat
 
   return params;
 }
+
+export function appendUniqueProducts(current = [], incoming = []) {
+  const existingIds = new Set((Array.isArray(current) ? current : []).map((product) => String(product?.id)))
+  const additions = []
+
+  for (const product of Array.isArray(incoming) ? incoming : []) {
+    const id = product?.id
+    if (id === null || id === undefined) {
+      additions.push(product)
+      continue
+    }
+
+    const key = String(id)
+    if (existingIds.has(key)) continue
+    existingIds.add(key)
+    additions.push(product)
+  }
+
+  return [...current, ...additions]
+}

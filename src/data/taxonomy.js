@@ -106,8 +106,12 @@ export function suggestTaxonomy(product) {
   ].join(' '))
   const match = classificationRules.find((rule) => rule.terms.some((term) => searchableText.includes(normalize(term))))
 
-  const presentation = searchableText.match(/\b(\d+(?:[.,]\d+)?\s*(?:kg|g|mg|l|ml|cc|un(?:idad(?:es)?)?|u))\b/i)?.[1] || product.presentation || null
-  const variantTerms = ['chocolate', 'dulce de leche', 'vainilla', 'frutilla', 'triple', 'light', 'sin tacc']
+  const presentation = searchableText.match(/\b(\d+(?:[.,]\d+)?\s*(?:kg|kgs|kilo(?:s)?|g|gr|grs|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|un(?:idad(?:es)?)?|uds?|u))\b/i)?.[1] || product.presentation || null
+  const variantTerms = [
+    'chocolate', 'dulce de leche', 'sin azucar', 'sin azúcar', 'light', 'reducido en', 'integral', 'sin tacc',
+    'vainilla', 'frutilla', 'manzana', 'naranja', 'multifruta', 'limon', 'limón',
+    'durazno', 'pomelo', 'mousse', 'triple', 'blanco', 'negro', 'saborizado', 'clasico', 'clásico',
+  ]
   const variant = variantTerms.find((term) => searchableText.includes(normalize(term))) || product.variant || null
   const brand = product.brands?.name || product.brand || null
 
