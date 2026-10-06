@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 const { createCommonProduct, createImporterContract, getCommonInvalidReason, isValidCommonProduct } = require('./importerContract')
 const { parseHtmlProductDetails } = require('./htmlProductParser')
 const fs = require('fs')
@@ -11,6 +12,10 @@ const MAMI_MAX_ATTEMPTS = Math.min(6, Math.max(2, Number(process.env.MAMI_MAX_AT
 const MAMI_REQUEST_TIMEOUT_MS = Math.max(1000, Number(process.env.MAMI_REQUEST_TIMEOUT_MS || 15000))
 const MAMI_RETRY_BASE_MS = Math.max(50, Number(process.env.MAMI_RETRY_BASE_MS || 500))
 const MAMI_HOME_ATTEMPTS = Math.min(4, Math.max(1, Number(process.env.MAMI_HOME_ATTEMPTS || 2)))
+=======
+const https = require('https')
+const { createCommonProduct, createImporterContract, getCommonInvalidReason, isValidCommonProduct } = require('./importerContract')
+>>>>>>> origin/main
 
 function normalizeText(value = '') {
   return String(value || '')
@@ -45,6 +50,7 @@ function isValidMamiProduct(product = {}) {
   return isValidCommonProduct(product)
 }
 
+<<<<<<< HEAD
 function matchesMamiQuery(product = {}, query = '') {
   const terms = normalizeText(query).split(/\s+/).filter(Boolean)
   if (!terms.length) return true
@@ -147,10 +153,35 @@ async function fetchMamiHomeHtml() {
     }
   }
   return html
+=======
+async function fetchMamiHomeHtml() {
+  return await new Promise((resolve) => {
+    try {
+      const req = https.get('https://www.dinoonline.com.ar/super/home', {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; arprice-local/1.0)',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      }, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          resolve('')
+          return
+        }
+        let html = ''
+        res.on('data', (chunk) => { html += String(chunk) })
+        res.on('end', () => resolve(html))
+      })
+      req.on('error', () => resolve(''))
+    } catch {
+      resolve('')
+    }
+  })
+>>>>>>> origin/main
 }
 
 async function fetchMamiProductHtml(productRoute = '') {
   if (!productRoute) return ''
+<<<<<<< HEAD
   const route = productRoute.startsWith('http') ? productRoute : `https://www.supermami.com.ar${productRoute}`
   const cached = mamiDetailCache.get(route)
   if (cached && Date.now() - cached.cachedAt < MAMI_DETAIL_CACHE_TTL_MS) return cached.html
@@ -161,6 +192,30 @@ async function fetchMamiProductHtml(productRoute = '') {
 
 async function fetchMamiCategoryHtml(categoryRoute = '') {
   return fetchMamiProductHtml(categoryRoute)
+=======
+  return await new Promise((resolve) => {
+    try {
+      const route = productRoute.startsWith('http') ? productRoute : `https://www.supermami.com.ar${productRoute}`
+      const req = https.get(route, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; arprice-local/1.0)',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      }, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          resolve('')
+          return
+        }
+        let html = ''
+        res.on('data', (chunk) => { html += String(chunk) })
+        res.on('end', () => resolve(html))
+      })
+      req.on('error', () => resolve(''))
+    } catch {
+      resolve('')
+    }
+  })
+>>>>>>> origin/main
 }
 
 function extractMamiCategoryHints(html = '') {
@@ -174,7 +229,11 @@ function extractMamiCategoryHints(html = '') {
   return Array.from(seen).slice(0, 12)
 }
 
+<<<<<<< HEAD
 function extractMamiCategoryRoutes(html = '', limit = Number(process.env.MAMI_MAX_CATEGORY_ROUTES || 1000)) {
+=======
+function extractMamiCategoryRoutes(html = '') {
+>>>>>>> origin/main
   if (!html) return []
   const routes = new Set()
   const regex = /\/super\/categoria\/supermami-[^"'\s<>]+/g
@@ -182,10 +241,17 @@ function extractMamiCategoryRoutes(html = '', limit = Number(process.env.MAMI_MA
     const route = match.replace(/;jsessionid=[^?&\s<>]*/g, '')
     routes.add(route)
   }
+<<<<<<< HEAD
   return Array.from(routes).slice(0, limit)
 }
 
 function extractMamiProductRoutes(html = '', limit = 200) {
+=======
+  return Array.from(routes).slice(0, 20)
+}
+
+function extractMamiProductRoutes(html = '') {
+>>>>>>> origin/main
   if (!html) return []
   const routes = new Set()
   const regex = /\/super\/producto\/[^"'\s<>]+/g
@@ -193,6 +259,7 @@ function extractMamiProductRoutes(html = '', limit = 200) {
     const route = match.replace(/;jsessionid=[^?&\s<>]*/g, '')
     routes.add(route)
   }
+<<<<<<< HEAD
   return Array.from(routes).slice(0, limit)
 }
 
@@ -248,6 +315,9 @@ async function readMamiDetailRoute(route = '', query = '') {
     profileCount: Object.keys(productProfile).length > 1,
     htmlFetched: true,
   }
+=======
+  return Array.from(routes).slice(0, 40)
+>>>>>>> origin/main
 }
 
 function extractMamiProductJsonLd(html = '') {
@@ -287,6 +357,7 @@ function extractMamiProductJsonLd(html = '') {
   return products
 }
 
+<<<<<<< HEAD
 function extractMamiDetailProductsFromHtml(html = '', fallbackSourceUrl = '') {
   return parseHtmlProductDetails(html, {
     source: 'mami',
@@ -307,6 +378,68 @@ function extractMamiDetailProductsFromHtml(html = '', fallbackSourceUrl = '') {
       available: item.available !== false,
     }),
   }).products
+=======
+function extractMamiDetailProductsFromHtml(html = '') {
+  const text = String(html || '')
+  const routeMatch = text.match(/https?:\/\/[^"'\s<>]+\/super\/producto\/[^"'\s<>]+/i)?.[0]
+  const productUrl = normalizeMamiSourceUrl(routeMatch || '')
+
+  const productJsonLd = extractMamiProductJsonLd(text)
+  const productProfile = extractMamiProductProfile(text)
+
+  const products = []
+  for (const item of productJsonLd) {
+    const normalized = normalizeMamiProduct({
+      ...item,
+      sourceProductId: productProfile.sourceProductId || item.sourceProductId || stableSourceProductId(item.sourceProductId || ''),
+      sourceSku: item.sourceSku || productProfile.sourceSku || '',
+      ean: item.ean || productProfile.ean || null,
+      name: productProfile.name || item.name || '',
+      brand: productProfile.brand || item.brand || '',
+      price: Number(productProfile.price || item.price || 0),
+      image: item.image || productProfile.image || '',
+      sourceCategory: sanitizeSourceCategory(item.sourceCategory || productProfile.sourceCategory || 'Mami'),
+      sourceCategories: sanitizeSourceCategories(item.sourceCategories || [item.sourceCategory || productProfile.sourceCategory || 'Mami']),
+      seller: 'Mami',
+      sourceUrl: normalizeMamiSourceUrl(productUrl || item.sourceUrl || productProfile.sourceUrl || ''),
+      available: Boolean(item.available || productProfile.available || true),
+    })
+
+    if (!isSerializableMamiProduct(normalized)) {
+      continue
+    }
+
+    if (!normalized.name || normalized.price <= 0 || !normalized.sourceProductId || !normalized.sourceCategory || !normalized.sourceCategories.length || !isValidCommonProduct(normalized)) {
+      continue
+    }
+
+    products.push(normalized)
+  }
+
+  if (!products.length && Object.keys(productProfile).length > 1) {
+    const fallback = normalizeMamiProduct({
+      ...productProfile,
+      sourceProductId: productProfile.sourceProductId || stableSourceProductId(productProfile.sourceProductId || ''),
+      sourceSku: productProfile.sourceSku || '',
+      ean: productProfile.ean || null,
+      name: productProfile.name || '',
+      brand: productProfile.brand || '',
+      price: Number(productProfile.price || 0),
+      image: productProfile.image || '',
+      sourceCategory: sanitizeSourceCategory(productProfile.sourceCategory || 'Mami'),
+      sourceCategories: sanitizeSourceCategories([productProfile.sourceCategory || 'Mami']),
+      seller: 'Mami',
+      sourceUrl: normalizeMamiSourceUrl(productUrl || productProfile.sourceUrl || ''),
+      available: true,
+    })
+
+    if (isSerializableMamiProduct(fallback) && isValidCommonProduct(fallback)) {
+      products.push(fallback)
+    }
+  }
+
+  return products
+>>>>>>> origin/main
 }
 
 function sanitizeSourceCategory(value = '') {
@@ -344,7 +477,11 @@ function isSerializableMamiProduct(product = {}) {
 
 function extractMamiProductProfile(html = '') {
   const text = String(html || '')
+<<<<<<< HEAD
   const profile = { source: 'mami', available: true }
+=======
+  const profile = { source: 'mami' }
+>>>>>>> origin/main
   const title = text.match(/<title>([^<]+)<\/title>/i)?.[1]
   const cleanTitle = title ? title.replace(/\s*\|\s*Super MaMi/i, '').trim() : ''
   if (cleanTitle) profile.name = cleanTitle
@@ -355,15 +492,23 @@ function extractMamiProductProfile(html = '') {
   const eventPrice = text.match(/"price":\s*([0-9.,]+)/)?.[1]
   if (eventPrice) profile.price = Number(String(eventPrice).replace(/[^0-9.]/g, ''))
 
+<<<<<<< HEAD
   const productId = text.match(/productId\s*:\s*"prod([0-9]+)"|productId\s*=\s*"prod([0-9]+)"|idProductoSelected[^\n]*value="prod([0-9]+)"/i)?.slice(1).find(Boolean)
   if (productId) profile.sourceProductId = `prod${productId}`
 
   const productUrl = text.match(/https?:\/\/[^"'\s<>]+\/super\/producto\/[^"'\s<>]+/i)?.[0]
+=======
+  const productId = text.match(/productId\s*:\s*\"prod([0-9]+)\"|productId\s*=\s*\"prod([0-9]+)\"|idProductoSelected[^\n]*value=\"prod([0-9]+)\"/i)?.slice(1).find(Boolean)
+  if (productId) profile.sourceProductId = `prod${productId}`
+
+  const productUrl = text.match(/https?:\/\/[^\"'\s<>]+\/super\/producto\/[^\"'\s<>]+/i)?.[0]
+>>>>>>> origin/main
   if (productUrl) profile.sourceUrl = normalizeMamiSourceUrl(productUrl)
 
   return profile
 }
 
+<<<<<<< HEAD
 async function fetchMamiCategoryReport(route = '', { query = '' } = {}) {
   const html = route ? await fetchMamiCategoryHtml(route) : await fetchMamiHomeHtml()
   const maxCategoryRoutes = Math.max(1, Number(process.env.MAMI_MAX_CATEGORY_ROUTES || 1000))
@@ -451,11 +596,20 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
   const routeWindow = query.trim()
     ? prioritizeMamiQueryRoutes(productRoutes, query)
     : productRoutes.slice(from, Math.min(productRoutes.length, to + 1))
+=======
+async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
+  const html = await fetchMamiHomeHtml()
+  const categoryHints = extractMamiCategoryHints(html)
+  const categoryRoutes = extractMamiCategoryRoutes(html)
+  const productRoutes = extractMamiProductRoutes(html)
+  const routeWindow = productRoutes.slice(from, Math.min(productRoutes.length, to + 1))
+>>>>>>> origin/main
   const products = []
   const discarded = []
   let detailJsonLdProductCount = 0
   let detailProfileCount = 0
 
+<<<<<<< HEAD
   for (let index = 0; index < routeWindow.length; index += detailBatchSize) {
     const results = await Promise.all(routeWindow.slice(index, index + detailBatchSize).map((route) => readMamiDetailRoute(route, query)))
     for (const result of results) {
@@ -463,6 +617,85 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
       discarded.push(...result.discarded)
       detailJsonLdProductCount += result.jsonLdCount
       if (result.profileCount) detailProfileCount += 1
+=======
+  for (const route of routeWindow) {
+    const detailHtml = await fetchMamiProductHtml(route)
+    if (!detailHtml) continue
+
+    const jsonLdProducts = extractMamiProductJsonLd(detailHtml)
+    detailJsonLdProductCount += jsonLdProducts.length
+
+    const productProfile = extractMamiProductProfile(detailHtml)
+    if (Object.keys(productProfile).length > 1) detailProfileCount += 1
+
+    const htmlDetailProducts = extractMamiDetailProductsFromHtml(detailHtml)
+
+    for (const product of htmlDetailProducts) {
+      const normalized = normalizeMamiProduct(product)
+      if (!isSerializableMamiProduct(normalized)) {
+        discarded.push({
+          sourceProductId: normalized.sourceProductId || product.sourceProductId || '',
+          name: normalized.name || product.name || '',
+          reason: 'invalid_product_detail_payload',
+        })
+        continue
+      }
+
+      if (!normalized.name || normalized.price <= 0 || !normalized.sourceProductId || !normalized.sourceCategory || !normalized.sourceCategories.length || !isValidCommonProduct(normalized)) {
+        discarded.push({
+          sourceProductId: normalized.sourceProductId || product.sourceProductId || '',
+          name: normalized.name || product.name || '',
+          reason: 'invalid_product_detail_payload',
+        })
+        continue
+      }
+
+      products.push(normalized)
+    }
+
+    for (const item of jsonLdProducts) {
+      const stableId = stableSourceProductId(productProfile.sourceProductId || item.sourceProductId || '')
+      const stableName = String(productProfile.name || item.name || '').trim()
+      const stablePrice = Number(productProfile.price || item.price || 0)
+      const stableCategory = sanitizeSourceCategory(item.sourceCategory || 'Mami')
+      const stableCategories = sanitizeSourceCategories(item.sourceCategory ? [item.sourceCategory] : [stableCategory])
+
+      const rawNormalized = {
+        ...item,
+        sourceProductId: stableId,
+        productName: stableName,
+        name: stableName,
+        brand: productProfile.brand || item.brand || '',
+        price: stablePrice,
+        sourceCategory: stableCategory,
+        sourceCategories: stableCategories,
+        seller: 'Mami',
+        available: true,
+        sourceUrl: normalizeMamiSourceUrl(productProfile.sourceUrl || item.sourceUrl || `https://www.supermami.com.ar${route}`),
+      }
+
+      const normalized = normalizeMamiProduct(rawNormalized)
+
+      if (!isSerializableMamiProduct(normalized)) {
+        discarded.push({
+          sourceProductId: normalized.sourceProductId || item.sourceProductId || '',
+          name: normalized.name || item.name || '',
+          reason: 'invalid_product_detail_payload',
+        })
+        continue
+      }
+
+      if (!normalized.name || normalized.price <= 0 || !normalized.sourceProductId || !normalized.sourceCategory || !normalized.sourceCategories.length || !isValidCommonProduct(normalized)) {
+        discarded.push({
+          sourceProductId: normalized.sourceProductId || item.sourceProductId || '',
+          name: normalized.name || item.name || '',
+          reason: 'invalid_product_detail_payload',
+        })
+        continue
+      }
+
+      products.push(normalized)
+>>>>>>> origin/main
     }
   }
 
@@ -539,7 +772,11 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
   }
 }
 
+<<<<<<< HEAD
 async function fetchMamiProductById() {
+=======
+async function fetchMamiProductById(sourceProductId) {
+>>>>>>> origin/main
   return null
 }
 
@@ -549,19 +786,30 @@ function classifyMamiTaxonomy(product = {}) {
 }
 
 function findMamiPreviewMatches(previewProducts, localProducts = []) {
+<<<<<<< HEAD
   const byId = new Map(localProducts.map((product) => [String(product.source_product_id || product.external_id || ''), product]).filter(([key]) => key))
   const byEan = new Map(localProducts.map((product) => [String(product.ean || ''), product]).filter(([key]) => key))
+=======
+  const byId = new Set(localProducts.map((product) => String(product.source_product_id || product.external_id || '')).filter(Boolean))
+  const byEan = new Set(localProducts.map((product) => String(product.ean || '')).filter(Boolean))
+>>>>>>> origin/main
   const localNameTokens = new Map()
   for (const product of localProducts || []) {
     const key = normalizeText(product.name || '').slice(0, 80)
     if (!key) continue
+<<<<<<< HEAD
     const brandHint = normalizeText(product.brand || product.marca || product.brands?.name || '').slice(0, 40)
     localNameTokens.set(`${key}|${brandHint}`, product)
+=======
+    const brandHint = normalizeText(product.brand || product.marca || '').slice(0, 40)
+    localNameTokens.set(`${key}|${brandHint}`, true)
+>>>>>>> origin/main
   }
 
   return previewProducts.map((product) => {
     const normalizedName = normalizeText(product.name)
     const normalizedBrand = normalizeText(product.brand)
+<<<<<<< HEAD
     const sameNameBrand = localNameTokens.get(`${normalizedName}|${normalizedBrand}`) || null
     const sameNameOnly = localNameTokens.get(`${normalizedName}|`) || null
     const existing = byId.get(String(product.sourceProductId || ''))
@@ -578,16 +826,30 @@ function findMamiPreviewMatches(previewProducts, localProducts = []) {
         brand: existing.brand || existing.brands?.name || '',
         offers: existing.offers || [],
       } : null,
+=======
+    const sameNameBrand = localNameTokens.has(`${normalizedName}|${normalizedBrand}`)
+    const sameNameOnly = localNameTokens.has(`${normalizedName}|`)
+
+    return {
+      ...product,
+      possibleDuplicate: byId.has(String(product.sourceProductId || ''))
+        || (product.ean && byEan.has(String(product.ean)))
+        || sameNameBrand
+        || sameNameOnly,
+>>>>>>> origin/main
       duplicateReasons: [
         byId.has(String(product.sourceProductId || '')) ? 'source_product_id' : null,
         product.ean && byEan.has(String(product.ean)) ? 'ean' : null,
         sameNameBrand ? 'name_brand' : null,
         sameNameOnly ? 'name_only' : null,
       ].filter(Boolean),
+<<<<<<< HEAD
       priceOptions: existing?.offers?.map((offer) => ({
         supermarket: offer.supermarket,
         price: Number(offer.cash_price ?? offer.cashPrice) || 0,
       })).filter((offer) => offer.price > 0) || [],
+=======
+>>>>>>> origin/main
     }
   })
 }
@@ -603,8 +865,11 @@ module.exports = {
     findMatches: findMamiPreviewMatches,
   }),
   extractMamiDetailProductsFromHtml,
+<<<<<<< HEAD
   extractMamiCategoryRoutes,
   extractMamiProductRoutes,
   fetchMamiCategoryReport,
+=======
+>>>>>>> origin/main
   classifyTaxonomy: classifyMamiTaxonomy,
 }

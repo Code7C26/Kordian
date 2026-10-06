@@ -9,9 +9,12 @@ const rules = [
   { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos', terms: ['queso', 'leche', 'yogur', 'yogurt', 'lacteo', 'manteca', 'crema'] },
   { category: 'Hogar y Otros', subcategory: 'Cocina y bazar', terms: ['extractor de jugos', 'extractor jugos'] },
   { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['cerveza', 'gaseosa', 'jugo', 'agua mineral', 'vino', 'licor', 'vodka', 'soda', 'bebida'] },
+<<<<<<< HEAD
   { category: 'Almacén y Alimentos', subcategory: 'Infusiones', terms: ['yerba', 'mate', 'te ', 'cafe', 'infusion'] },
   { category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces', terms: ['azucar', 'azucares', 'edulcorante'] },
   { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['energizante', 'energetica', 'energeticas'] },
+=======
+>>>>>>> origin/main
   { category: 'Limpieza e Higiene', subcategory: 'Papel y descartables', terms: ['papel higienico', 'papel de cocina', 'toalla de papel', 'servilleta', 'panuelos', 'rollo de cocina', 'bolsa de residuos', 'bolsa para residuos', 'vasos descartables', 'platos descartables', 'cubiertos descartables', 'descartable'] },
   { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Helados', terms: ['helado', 'helados'] },
   { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Carnes y pescados', terms: ['carne', 'pollo', 'pescado', 'milanesa', 'hamburguesa'] },
@@ -30,7 +33,10 @@ const rules = [
   { category: 'Limpieza e Higiene', subcategory: 'Cuidado capilar', terms: ['shampoo', 'acondicionador', 'mascara capilar', 'crema para peinar'] },
   { category: 'Limpieza e Higiene', subcategory: 'Higiene infantil', terms: ['pañal', 'panal', 'toallitas bebe', 'talco bebe', 'formula infantil'] },
   { category: 'Limpieza e Higiene', subcategory: 'Higiene personal', terms: ['limpieza facial', 'gel de limpieza facial', 'crema facial', 'perfume', 'desodorante corporal'] },
+<<<<<<< HEAD
   { category: 'Limpieza e Higiene', subcategory: 'Higiene personal', terms: ['jabon de tocador', 'desodorante hombre', 'desodorante'] },
+=======
+>>>>>>> origin/main
   { category: 'Limpieza e Higiene', subcategory: 'Lavado de ropa', terms: ['jabon para ropa', 'detergente para ropa', 'suavizante', 'quitamanchas'] },
   { category: 'Limpieza e Higiene', subcategory: 'Limpieza de cocina', terms: ['detergente', 'esponja', 'lavavajilla', 'limpieza cocina'] },
   { category: 'Limpieza e Higiene', subcategory: 'Limpieza del hogar', terms: ['limpiador', 'limpieza', 'ambientador', 'rejilla', 'esponja', 'sahumerio', 'sopapa', 'escoba', 'trapo'] },
@@ -40,10 +46,13 @@ const rules = [
   { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños', terms: ['licuadora', 'pava electrica', 'freidora', 'tostadora', 'cafetera', 'batidora'] },
   { category: 'Electrónica y Electrodomésticos', subcategory: 'Telefonía', terms: ['celular', 'telefono', 'smartphone'] },
   { category: 'Electrónica y Electrodomésticos', subcategory: 'Audio', terms: ['parlante', 'auricular', 'barra de sonido', 'audio'] },
+<<<<<<< HEAD
   { category: 'Electrónica y Electrodomésticos', subcategory: 'Gaming', terms: ['consola', 'consolas', 'videojuego'] },
   { category: 'Hogar y Otros', subcategory: 'Hogar textil', terms: ['sabana', 'sabanas', 'frazada', 'frazadas', 'cobertor', 'toallon', 'toalla', 'toallas'] },
   { category: 'Hogar y Otros', subcategory: 'Cocina y bazar', terms: ['cubierto', 'cubiertos', 'cuchara', 'tenedor', 'cuchillo'] },
   { category: 'Hogar y Otros', subcategory: 'Automotor', terms: ['neumatico', 'neumaticos', 'camioneta'] },
+=======
+>>>>>>> origin/main
   { category: 'Hogar y Otros', subcategory: 'Mascotas', terms: ['perro', 'gato', 'mascota', 'alimento balanceado', 'arena sanitaria'] },
   { category: 'Hogar y Otros', subcategory: 'Herramientas', terms: ['taladro', 'herramienta', 'destornillador', 'llave', 'martillo'] },
   { category: 'Hogar y Otros', subcategory: 'Juguetes', terms: ['juguete', 'muñeca', 'muneca', 'pelota', 'juego de mesa'] },
@@ -62,12 +71,17 @@ function suggestCatalogMapping(product) {
 
   // Disco often supplies the normalized subcategory even when its source
   // category is a path such as "/Almacén/". Use that value as a fallback.
+<<<<<<< HEAD
   const sourceSubcategory = normalize(product.source_subcategory || product.source_category).trim()
+=======
+  const sourceSubcategory = normalize(product.source_subcategory).trim()
+>>>>>>> origin/main
   const sourceMappings = {
     'lacteos': { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos' },
     'infusiones': { category: 'Almacén y Alimentos', subcategory: 'Infusiones' },
     'azucares y dulces': { category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces' },
     'computacion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Computación' },
+<<<<<<< HEAD
     'cuidado personal y salud': { category: 'Limpieza e Higiene', subcategory: 'Higiene personal' },
     'aspiradoras y lustradoras': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
     'accesorios computacion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Accesorios electrónicos' },
@@ -85,6 +99,8 @@ function suggestCatalogMapping(product) {
     'pequenos electrodomesticos': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
     'pavas electricas': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
     'otras salsas': { category: 'Almacén y Alimentos', subcategory: 'Conservas y alimentos preparados' },
+=======
+>>>>>>> origin/main
   }
   return sourceMappings[sourceSubcategory] || null
 }

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 const DEFAULT_API_BASES = [
   import.meta.env.VITE_API_URL,
   'http://localhost:3000',
@@ -17,6 +18,9 @@ const DEFAULT_API_BASES = [
   'http://127.0.0.1:3500',
   'http://127.0.0.1:4000',
 ].filter(Boolean).map((value) => value.replace(/\/$/, ''))
+=======
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://arprice-backend.onrender.com'
+>>>>>>> origin/main
 
 const API_BASE_STORAGE_KEY = 'arprice_api_base_url'
 

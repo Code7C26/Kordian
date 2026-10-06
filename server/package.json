@@ -7,25 +7,24 @@
     "backfill-analysis": "node scripts/backfill_analysis.js",
     "backfill-catalog-taxonomy": "node scripts/backfill_catalog_taxonomy.js",
     "audit-catalog": "node scripts/audit_catalog.js",
+<<<<<<< HEAD
     "audit-product-identities": "node scripts/audit_product_identities.js",
     "audit-cross-source-matches": "node scripts/audit_cross_source_matches.js",
     "import-mami-batches": "node scripts/import_mami_batches.js",
+=======
+>>>>>>> origin/main
     "sync-disco-token-prices": "node scripts/sync_disco_token_prices.js",
     "sync-disco": "node scripts/sync_disco.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.6",
     "csv-parser": "^3.2.1",
     "dotenv": "^17.2.3",
     "express": "^4.22.2",
-
-
     "multer": "^2.2.0",
-
-    "bcryptjs": "^2.4.3",
-
-
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "pg": "^8.23.0"
   }
 }

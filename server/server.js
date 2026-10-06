@@ -5,19 +5,25 @@ const express = require('express')
 const cors = require('cors')
 const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
+const { createClient } = require('@supabase/supabase-js')
 const app = express()
 
 app.use(cors())
 app.use(express.json())
 
+<<<<<<< HEAD
 app.get('/health', (req, res) => {
   res.json({ service: 'arprice-api', capabilities: { reviewMatchGrouping: true } })
 })
 
+=======
+const supabase = require('./supabase')
+>>>>>>> origin/main
 const supabaseAdmin = require('./supabaseAdmin')
 const { analyzeProduct } = require('./services/priceAnalysisService')
 const { fetchDiscoPreviewReport, findPreviewMatches, isValidDiscoProduct } = require('./services/discoImporter')
 const { fetchPreview: fetchMamiPreview, findMatches: findMamiMatches, isValidProduct: isValidMamiProduct, source: mamiSource, getInvalidReason: getMamiInvalidReason } = require('./services/mamiImporter')
+<<<<<<< HEAD
 const { compareSimulationReport, compareCrossSourceProducts, buildTaxonomyComparison } = require('./services/importerContract')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
@@ -28,6 +34,14 @@ const analysisWriter = supabaseAdmin
 const supabase = analysisWriter
 const publicDiscoSearchCache = new Map()
 const publicDiscoSearchInFlight = new Set()
+=======
+const { compareSimulationReport, buildTaxonomyComparison } = require('./services/importerContract')
+const { syncDiscoPrices } = require('./services/discoPriceSync')
+const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
+const { normalizeDiscoStoredPrice } = require('./priceNormalization')
+const analysisWriter = supabaseAdmin
+const publicDiscoSearchCache = new Map()
+>>>>>>> origin/main
 const publicDiscoSearchMaxResults = Math.min(500, Math.max(50, Number(process.env.DISCO_PUBLIC_SEARCH_MAX_RESULTS || 500)))
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || (
   process.env.NODE_ENV === 'production' ? null : 'arprice-local-dev-session-secret'
@@ -153,10 +167,17 @@ app.get('/taxonomy', async (req, res) => {
     for (let from = 0; ; from += pageSize) {
       const { data: page, error: productsError } = await analysisWriter
         .from('products')
+<<<<<<< HEAD
         .select('category_id, subcategory_id, offers(id, cash_price, supermarket)')
         .range(from, from + pageSize - 1)
       if (productsError) return res.status(500).json({ error: 'Error fetching taxonomy' })
       productTaxonomy.push(...(page || []).filter((product) => (product.offers || []).some((offer) => Number(offer.cash_price) > 0 && String(offer.supermarket || '').trim())))
+=======
+        .select('category_id, subcategory_id')
+        .range(from, from + pageSize - 1)
+      if (productsError) return res.status(500).json({ error: 'Error fetching taxonomy' })
+      productTaxonomy.push(...(page || []))
+>>>>>>> origin/main
       if (!page || page.length < pageSize) break
     }
 
@@ -207,6 +228,7 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
     const from = Math.max(0, Number(req.query.from || 0))
     const requestedTo = Number.isFinite(Number(req.query.to)) ? Number(req.query.to) : 99
     const to = Math.max(from, requestedTo)
+<<<<<<< HEAD
     const [previewReport, localProductsResult, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
       fetchMamiPreview({ query, from, to }),
       readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price)'),
@@ -219,12 +241,22 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
       console.error('Error loading Mami preview catalog', catalogError)
       return res.status(500).json({ error: 'No se pudo consultar el inventario local o el catálogo de categorías', detail: catalogError?.message || 'Error desconocido del catálogo' })
     }
+=======
+    const [previewReport, { data: localProducts, error: productsError }, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
+      fetchMamiPreview({ query, from, to }),
+      supabase.from('products').select('id, name, source_product_id, ean, brand, offers(id, supermarket, cash_price)'),
+      supabase.from('categories').select('id, name'),
+      supabase.from('subcategories').select('id, name, category_id'),
+    ])
+    if (productsError || categoriesError || subcategoriesError) return res.status(500).json({ error: 'No se pudo consultar el inventario local o el catálogo de categorías' })
+>>>>>>> origin/main
     const comparison = compareSimulationReport({
       source: mamiSource,
       isValidProduct: isValidMamiProduct,
       getInvalidReason: getMamiInvalidReason,
       findMatches: findMamiMatches,
     }, previewReport, localProducts || [])
+<<<<<<< HEAD
     if (!previewReport.sourceRead?.htmlFetched || (!previewReport.sourceRead.categoryRouteCount && !previewReport.sourceRead.productRouteCount)) {
       return res.status(503).json({
         error: 'Mami no entregó un catálogo navegable',
@@ -232,11 +264,14 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
         retryable: true,
       })
     }
+=======
+>>>>>>> origin/main
     const taxonomyComparison = (previewReport.products || []).map((product) => ({
       ...buildTaxonomyComparison(product, categories || [], subcategories || []),
       sourceProductId: product.sourceProductId,
       name: product.name,
     }))
+<<<<<<< HEAD
     const products = findMamiMatches(previewReport.products, localProducts || []).map((product) => {
       const mapping = suggestCatalogMapping({
         name: product.name,
@@ -251,12 +286,18 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
         mappingStatus: product.mappingStatus || (mapping ? 'propuesta_automatica' : 'pendiente'),
       }
     })
+=======
+>>>>>>> origin/main
     res.json({
       source: mamiSource,
       query,
       from,
       to,
+<<<<<<< HEAD
       products,
+=======
+      products: previewReport.products,
+>>>>>>> origin/main
       discarded: previewReport.discarded,
       dryRun: true,
       writeSafety: {
@@ -274,6 +315,7 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
   }
 })
 
+<<<<<<< HEAD
 app.get('/admin/import/compare/preview', requireAdmin, async (req, res) => {
   try {
     const query = String(req.query.query || '').slice(0, 100)
@@ -464,6 +506,24 @@ app.post('/admin/import/mami', requireAdmin, async (req, res) => {
     }
     console.error('Error importing Mami products', error)
     return res.status(500).json({ error: 'No se pudieron importar los productos de Mami', detail: error.message })
+=======
+app.post('/admin/import/mami', requireAdmin, async (req, res) => {
+  try {
+    return res.status(403).json({
+      source: mamiSource,
+      dryRun: true,
+      writeSafety: {
+        productWritesAllowed: false,
+        priceHistoryWritesAllowed: false,
+        mutationSurface: 'preview_only',
+        reason: 'Mami import is locked to simulation-only preview and must never perform product or price_history writes',
+      },
+      error: 'La importación de Mami está bloqueada en modo simulación. Usa /admin/import/mami/preview para comparar sin escribir.',
+    })
+  } catch (error) {
+    console.error('Error trying to import Mami', error)
+    return res.status(502).json({ error: error.message || 'No se pudo iniciar la importación de Mami' })
+>>>>>>> origin/main
   }
 })
 
@@ -475,7 +535,11 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       supabase.from('categories').select('id, name'),
       supabase.from('subcategories').select('id, name, category_id'),
       supabase.from('brands').select('id, name'),
+<<<<<<< HEAD
       supabase.from('products').select('id, name, source_product_id, ean, offers(id, supermarket, cash_price)'),
+=======
+      supabase.from('products').select('id, name, source_product_id, ean'),
+>>>>>>> origin/main
     ])
     const catalogError = categoriesError || subcategoriesError || brandsError || productsError
     if (catalogError) {
@@ -498,8 +562,11 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         source_subcategory: item.proposedSubcategory,
       })
       const proposedCategory = catalogMapping?.category || item.proposedCategory
+<<<<<<< HEAD
       const updated = []
       const unchanged = []
+=======
+>>>>>>> origin/main
       const proposedSubcategory = catalogMapping?.subcategory || item.proposedSubcategory
       const sourceProductId = String(item.sourceProductId ?? '').trim()
       const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
@@ -510,6 +577,7 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       const existingByEan = item.ean
         ? (existingProducts || []).find((candidate) => String(candidate.ean || '') === String(item.ean))
         : null
+<<<<<<< HEAD
       const existingByCrossSourceName = findCrossSourceProductMatch(item, existingProducts, 'disco')
       const existing = existingBySourceId || existingByEan || existingByCrossSourceName
       if (existing) {
@@ -543,6 +611,11 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       }
       if (!category || !subcategory || seenSourceProductIds.has(sourceProductId)) {
         skipped.push({ sourceProductId: item.sourceProductId, reason: !category || !subcategory ? 'Falta precio o mapeo de categoría' : 'Producto repetido en la selección' })
+=======
+      const duplicate = existingBySourceId || existingByEan || seenSourceProductIds.has(sourceProductId)
+      if (!category || !subcategory || duplicate) {
+        skipped.push({ sourceProductId: item.sourceProductId, reason: duplicate ? (existingByEan ? 'EAN duplicado' : 'Posible duplicado') : 'Falta precio o mapeo de categoría' })
+>>>>>>> origin/main
         continue
       }
       if (sourceProductId) {
@@ -855,6 +928,99 @@ function scheduleDiscoSearchResults(search) {
   })
 }
 
+async function importDiscoSearchResults(search) {
+  const normalizedSearch = String(search || '').trim().toLowerCase()
+  if (!normalizedSearch) return { imported: 0, updated: 0 }
+  const cachedAt = publicDiscoSearchCache.get(normalizedSearch)
+  if (cachedAt && Date.now() - cachedAt < 5 * 60 * 1000) return { imported: 0, updated: 0 }
+
+  const previewReport = await fetchDiscoPreviewReport({ query: normalizedSearch, from: 0, to: publicDiscoSearchMaxResults - 1 })
+  const preview = previewReport.products
+  if (!preview.length && !previewReport.discarded.length) return { imported: 0, updated: 0 }
+  publicDiscoSearchCache.set(normalizedSearch, Date.now())
+
+  const [{ data: categories }, { data: subcategories }, { data: brands }, { data: existingProducts }] = await Promise.all([
+    analysisWriter.from('categories').select('id, name'),
+    analysisWriter.from('subcategories').select('id, name, category_id'),
+    analysisWriter.from('brands').select('id, name'),
+    analysisWriter.from('products').select('id, source_product_id, ean, offers(id, supermarket)'),
+  ])
+  const productsBySource = new Map((existingProducts || []).map((product) => [String(product.source_product_id || ''), product]))
+  const productsByEan = new Map((existingProducts || []).filter((product) => product.ean).map((product) => [String(product.ean), product]))
+  const brandCache = new Map((brands || []).map((brand) => [normalizeBrandName(brand.name), brand]))
+  let imported = 0
+  let updated = 0
+
+  for (const item of preview) {
+    const existing = productsBySource.get(String(item.sourceProductId)) || (item.ean && productsByEan.get(String(item.ean)))
+    const existingOffer = existing?.offers?.find((offer) => offer.supermarket === 'Disco')
+    if (existing && existingOffer) {
+      if (Number(existingOffer.cash_price) !== Number(item.price)) {
+        const { error } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
+        if (!error) {
+          await recordPriceHistory({ productId: existing.id, offerId: existingOffer.id, cashPrice: item.price, source: 'disco_public_search' })
+          updated++
+        }
+      }
+      continue
+    }
+    if (existing && !existingOffer) {
+      const { data: offer, error } = await analysisWriter.from('offers').insert({ product_id: existing.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
+      if (!error) {
+        await recordPriceHistory({ productId: existing.id, offerId: offer.id, cashPrice: item.price, source: 'disco_public_search' })
+        updated++
+      }
+      continue
+    }
+    if (!item.proposedCategory || !item.proposedSubcategory) continue
+    const category = (categories || []).find((candidate) => candidate.name === item.proposedCategory)
+    const subcategory = (subcategories || []).find((candidate) => candidate.name === item.proposedSubcategory && String(candidate.category_id) === String(category?.id))
+    if (!category || !subcategory) continue
+
+    const brandName = normalizeBrandName(item.brand)
+    let brand = brandName ? brandCache.get(brandName) : null
+    if (!brand && brandName) {
+      const { data: createdBrand, error: brandError } = await analysisWriter.from('brands').insert({ name: String(item.brand).trim() }).select('id, name').single()
+      if (brandError) continue
+      brand = createdBrand
+      brandCache.set(brandName, brand)
+    }
+    const { data: product, error: productError } = await analysisWriter.from('products').insert({
+      name: item.name,
+      brand_id: brand?.id || null,
+      category_id: category.id,
+      subcategory_id: subcategory.id,
+      image: item.image || null,
+      source: 'disco',
+      source_product_id: String(item.sourceProductId),
+      source_sku: item.sourceSku || null,
+      ean: item.ean || null,
+      source_url: item.sourceUrl || null,
+      source_category: item.sourceCategory || null,
+      source_subcategory: item.proposedSubcategory || null,
+    }).select('id').single()
+    if (productError) continue
+    const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: product.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
+    if (!offerError) {
+      await recordPriceHistory({ productId: product.id, offerId: offer.id, cashPrice: item.price, source: 'disco_public_search' })
+      imported++
+    }
+  }
+  const discardedByReason = previewReport.discarded.reduce((counts, product) => {
+    counts[product.reason] = (counts[product.reason] || 0) + 1
+    return counts
+  }, {})
+  const { error: logError } = await analysisWriter.from('price_update_log').insert({
+    admin_username: 'public_search',
+    filters: { source: 'disco_public_search', query: normalizedSearch, discarded: discardedByReason },
+    percentage: 0,
+    products_updated: imported + updated,
+    changes: [{ imported, updated, discarded: previewReport.discarded.length }],
+  })
+  if (logError) console.error('Error recording public Disco search', logError.message)
+  return { imported, updated, discarded: previewReport.discarded.length }
+}
+
 // GET /products - fetch from Supabase with simple filters + pagination
 app.get('/products', async (req, res) => {
   try {
@@ -868,6 +1034,7 @@ app.get('/products', async (req, res) => {
     const brand = req.query.brand || ''
     const supermarket = req.query.supermarket || ''
 
+<<<<<<< HEAD
     if (search && safePage === 1) res.once('finish', () => scheduleDiscoSearchResults(search))
 
     // Keep every offer for display while filtering products through a matching offer.
@@ -877,6 +1044,19 @@ app.get('/products', async (req, res) => {
       supermarket ? 'id, matching_offers:offers!inner(id)' : '*',
       { count: 'exact', head: true },
     )
+=======
+    if (search) {
+      try {
+        await importDiscoSearchResults(search)
+      } catch (error) {
+        console.error('Disco search import failed', error.message)
+      }
+    }
+
+    // Include related catalog data so admin and storefront can display it.
+    let query = analysisWriter.from('products').select('*, offers(*), categories(id, name), subcategories(id, name), brands(id, name)')
+    let countQuery = analysisWriter.from('products').select('*', { count: 'exact', head: true })
+>>>>>>> origin/main
 
     if (search) {
       const searchPattern = `%${search}%`
@@ -933,6 +1113,7 @@ app.get('/products', async (req, res) => {
       return res.status(500).json({ error: 'Error fetching products' })
     }
 
+<<<<<<< HEAD
     const decisions = await listReviewDecisions()
     const peerIds = getReviewGroupingPeerIds(data || [], decisions)
     let peerProducts = []
@@ -947,6 +1128,8 @@ app.get('/products', async (req, res) => {
       }
       peerProducts = peers || []
     }
+=======
+>>>>>>> origin/main
     const normalizedData = (data || []).map((product) => ({
       ...product,
       offers: (product.offers || []).map((offer) => ({
@@ -954,6 +1137,7 @@ app.get('/products', async (req, res) => {
         cash_price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
       })),
     }))
+<<<<<<< HEAD
     const normalizedPeers = peerProducts.map((product) => ({
       ...product,
       offers: (product.offers || []).map((offer) => ({
@@ -966,6 +1150,12 @@ app.get('/products', async (req, res) => {
     res.json({
       data: groupedData,
       total: Number(count || 0) - Math.max(0, normalizedData.length - groupedData.length),
+=======
+
+    res.json({
+      data: normalizedData,
+      total: Number(count || 0),
+>>>>>>> origin/main
       page: safePage,
       limit: safeLimit,
     })
@@ -1867,6 +2057,145 @@ app.post('/login', async (req, res) => {
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+function createCustomerAuthClient() {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  })
+}
+
+async function getCustomerProfile(user) {
+  const { data, error } = await supabaseAdmin
+    .from('customer_profiles')
+    .select('username, email, role')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  if (error) throw error
+  return data || {
+    username: user.user_metadata?.username || '',
+    email: user.email || '',
+    role: 'customer',
+  }
+}
+
+function sendCustomerAuthUnavailable(res, error) {
+  console.error('Customer auth profile error', error)
+  return res.status(503).json({ error: 'La autenticación de clientes no está lista. Aplica la migración de perfiles en Supabase.' })
+}
+
+app.post('/auth/customer-register', async (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim().toLowerCase()
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    const password = String(req.body?.password || '')
+    if (!/^[a-z0-9]{1,32}$/.test(username)) {
+      return res.status(400).json({ error: 'El usuario debe tener solo letras y números (máximo 32).' })
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' })
+    }
+    if (!/^[a-zA-Z0-9]{4,}$/.test(password)) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres alfanuméricos.' })
+    }
+
+    let existingProfile
+    try {
+      const result = await supabaseAdmin
+        .from('customer_profiles')
+        .select('user_id')
+        .eq('username', username)
+        .maybeSingle()
+      if (result.error) return sendCustomerAuthUnavailable(res, result.error)
+      existingProfile = result.data
+    } catch (error) {
+      return sendCustomerAuthUnavailable(res, error)
+    }
+    if (existingProfile) return res.status(409).json({ error: 'Este usuario ya se encuentra registrado.' })
+
+    const authClient = createCustomerAuthClient()
+    const { data, error } = await authClient.auth.signUp({
+      email,
+      password,
+      options: { data: { username } },
+    })
+    if (error) {
+      const normalizedMessage = String(error.message || '').toLowerCase()
+      if (normalizedMessage.includes('already registered') || normalizedMessage.includes('already been registered')) {
+        return res.status(409).json({ error: 'Este correo ya se encuentra registrado.' })
+      }
+      if (normalizedMessage.includes('database error saving new user')) {
+        return res.status(503).json({ error: 'No se pudo crear el perfil. Verifica la migración de perfiles en Supabase.' })
+      }
+      return res.status(400).json({ error: error.message || 'No se pudo crear la cuenta.' })
+    }
+
+    res.status(201).json({
+      session: data.session,
+      user: data.user,
+      confirmationRequired: !data.session,
+    })
+  } catch (error) {
+    console.error('Customer registration failed', error)
+    res.status(500).json({ error: 'No se pudo completar el registro.' })
+  }
+})
+
+app.post('/auth/customer-login', async (req, res) => {
+  try {
+    const identifier = String(req.body?.identifier || '').trim()
+    const password = String(req.body?.password || '')
+    if (!identifier || !password) return res.status(400).json({ error: 'Ingresa tus credenciales.' })
+
+    let email = identifier
+    if (!identifier.includes('@')) {
+      if (!/^[a-zA-Z0-9]{1,32}$/.test(identifier)) {
+        return res.status(401).json({ error: 'Credenciales inválidas.' })
+      }
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from('customer_profiles')
+        .select('email')
+        .eq('username', identifier.toLowerCase())
+        .maybeSingle()
+      if (profileError) {
+        return sendCustomerAuthUnavailable(res, profileError)
+      }
+      if (!profile?.email) return res.status(401).json({ error: 'Credenciales inválidas.' })
+      email = profile.email
+    }
+
+    const authClient = createCustomerAuthClient()
+    const { data, error } = await authClient.auth.signInWithPassword({ email, password })
+    if (error || !data.session) return res.status(401).json({ error: 'Credenciales inválidas.' })
+    res.json({ session: data.session, profile: await getCustomerProfile(data.user) })
+  } catch (error) {
+    console.error('Customer login failed', error)
+    return sendCustomerAuthUnavailable(res, error)
+  }
+})
+
+app.post('/auth/customer-refresh', async (req, res) => {
+  try {
+    const refreshToken = String(req.body?.refreshToken || '')
+    if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' })
+    const { data, error } = await createCustomerAuthClient().auth.refreshSession({ refresh_token: refreshToken })
+    if (error || !data.session) return res.status(401).json({ error: 'La sesión expiró. Inicia sesión nuevamente.' })
+    res.json({ session: data.session, profile: await getCustomerProfile(data.user) })
+  } catch (error) {
+    return sendCustomerAuthUnavailable(res, error)
+  }
+})
+
+app.get('/auth/customer-session', async (req, res) => {
+  try {
+    const accessToken = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    if (!accessToken) return res.status(401).json({ error: 'Authentication required' })
+    const { data, error } = await createCustomerAuthClient().auth.getUser(accessToken)
+    if (error || !data.user) return res.status(401).json({ error: 'Invalid session' })
+    res.json({ user: data.user, profile: await getCustomerProfile(data.user) })
+  } catch (error) {
+    return sendCustomerAuthUnavailable(res, error)
   }
 })
 

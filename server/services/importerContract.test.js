@@ -1,5 +1,9 @@
 const assert = require('node:assert/strict')
+<<<<<<< HEAD
 const { createCommonProduct, getCommonInvalidReason, validateImporterContract, isValidCommonProduct, compareSimulationReport, compareCrossSourceProducts, buildTaxonomyComparison } = require('./importerContract')
+=======
+const { createCommonProduct, getCommonInvalidReason, validateImporterContract, isValidCommonProduct, compareSimulationReport, buildTaxonomyComparison } = require('./importerContract')
+>>>>>>> origin/main
 const { createImporterContract } = require('./importerContract')
 
 const mamiContract = require('./mamiImporter')
@@ -102,6 +106,7 @@ async function run() {
   assert.equal(referenceReport.priceComparison[0].sourcePrice, 3350)
   assert.equal(referenceReport.priceComparison[0].deltaPercent > 0, true)
 
+<<<<<<< HEAD
   const crossSourceReport = compareCrossSourceProducts([
     createCommonProduct({
       sourceProductId: 'mami-yerba-1',
@@ -174,6 +179,8 @@ async function run() {
   assert.equal(crossSourceReport.writeSafety.priceHistoryWritesAllowed, false)
   assert.equal(crossSourceReport.writeSafety.mutationSurface, 'comparison_only')
 
+=======
+>>>>>>> origin/main
   const htmlFeed = `<script type="application/ld+json">{"@type":"Product","name":"Yogur Bebible","brand":{"name":"Mami"},"offers":{"price":120,"availability":"https://schema.org/InStock"},"url":"http://www.supermami.com.ar/super/producto/yogur-bebible/_/A-1234-1234-s","image":"https://statics.dinoonline.com.ar/imagenes/large_460x460/1234_l.jpg","sku":"7500000000001","gtin13":"7500000000001","category":"Lácteos","itemCategory":"Lácteos"}</script><title>Yogur Bebible | Super MaMi</title><script>productId = "prod1234"</script>`
   const parsed = typeof mamiContract.extractMamiDetailProductsFromHtml === 'function'
     ? mamiContract.extractMamiDetailProductsFromHtml(htmlFeed)

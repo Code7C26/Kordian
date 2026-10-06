@@ -175,6 +175,25 @@ export function parseDiscoProductDetailHtml(html = '') {
   })
 }
 
+export function getDiscoProductInvalidReason(product = {}) {
+  const name = String(product.name || '').trim()
+  const price = numeric(product.price)
+  if (!product.sourceProductId) return 'Sin identificador'
+  if (!name) return 'Sin nombre'
+  if (invalidProductNamePattern.test(name)) return 'Promoción, envío u oferta no válida'
+  if (price <= 0) return 'Sin precio válido'
+  if (product.available === false) return 'Sin stock disponible'
+  if (product.onlineOnly) return 'Exclusivo online'
+  const hasImage = typeof product.image === 'string' && product.image.trim().length > 0
+  const hasMeasure = productMeasurePattern.test([name, product.description, product.presentation, product.unit].filter(Boolean).join(' '))
+  if (!hasImage && !hasMeasure) return 'Sin imagen ni cantidad identificable'
+  return null
+}
+
+export function isValidDiscoProduct(product = {}) {
+  return !getDiscoProductInvalidReason(product)
+}
+
 async function fetchDiscoPage({ query = '', from = 0, to = 49 } = {}) {
   const safeFrom = Math.max(0, Number(from) || 0)
   const safeTo = Math.max(safeFrom, Number(to) || safeFrom)

@@ -97,7 +97,10 @@ export default function App() {
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
+<<<<<<< HEAD
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
+=======
+>>>>>>> origin/main
   const catalogReferenceCache = useRef(null)
   const analysisCache = useRef(null)
   const [productsPage, setProductsPage] = useState(1)
@@ -221,9 +224,15 @@ export default function App() {
         const referencesPromise = catalogReferenceCache.current
           ? Promise.resolve(catalogReferenceCache.current)
           : Promise.all([
+<<<<<<< HEAD
             apiFetch('/categories', { signal: controller.signal }),
             apiFetch('/taxonomy', { signal: controller.signal }),
             apiFetch('/supermarkets', { signal: controller.signal }),
+=======
+            fetch(apiUrl('/categories'), { signal: controller.signal }),
+            fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
+            fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
+>>>>>>> origin/main
           ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
             const references = {
               categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
@@ -234,7 +243,11 @@ export default function App() {
             return references
           })
         const [firstPageRes, references] = await Promise.all([
+<<<<<<< HEAD
           apiFetch(`/products?${buildProductsQuery(baseQuery).toString()}`, { signal: controller.signal }),
+=======
+          fetch(apiUrl(`/products?${buildProductsQuery(baseQuery).toString()}`), { signal: controller.signal }),
+>>>>>>> origin/main
           referencesPromise,
         ])
 
@@ -250,8 +263,43 @@ export default function App() {
           ? firstPageData.length
           : Number(firstPagePayload.total || firstPageData.length || 0)
         const totalPagesToFetch = Math.max(1, Math.ceil(firstPageTotal / requestPageSize))
+<<<<<<< HEAD
         const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
         const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+=======
+        const pageNumbers = Array.from({ length: totalPagesToFetch }, (_, index) => index + 1)
+
+        const remainingPageResponses = await Promise.all(
+          pageNumbers.slice(1).map(async (pageNumber) => {
+            const pageQuery = buildProductsQuery({
+              ...baseQuery,
+              page: pageNumber,
+              limit: requestPageSize,
+            })
+
+            const response = await fetch(apiUrl(`/products?${pageQuery.toString()}`), { signal: controller.signal })
+            if (!response.ok) {
+              throw new Error('Backend returned non-ok response')
+            }
+
+            return response.json()
+          })
+        )
+
+        const pagePayloads = [firstPagePayload, ...remainingPageResponses]
+        const allProductsFromApi = pagePayloads.flatMap((payload) => {
+          const pageData = Array.isArray(payload) ? payload : payload?.data || []
+          return Array.isArray(pageData) ? pageData : []
+        })
+        const validProds = allProductsFromApi.filter((product) => isValidCatalogProduct(product))
+
+        const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
+        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+        if (!analysisCache.current && !filters.searchQuery.trim()) {
+          const analysisRes = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
+          analysisCache.current = analysisRes.ok ? await analysisRes.json() : []
+        }
+>>>>>>> origin/main
         const analyses = analysisCache.current || []
         const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
 
@@ -373,7 +421,11 @@ export default function App() {
       controller.abort()
       clearTimeout(searchTimer)
     }
+<<<<<<< HEAD
   }, [productsPageSize, filters.searchQuery, filters.category, filters.store, catalogRefreshKey])
+=======
+  }, [productsPageSize, filters.searchQuery, filters.category, filters.store])
+>>>>>>> origin/main
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>

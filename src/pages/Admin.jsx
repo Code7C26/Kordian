@@ -5,6 +5,7 @@ import ProductForm from '../components/ProductForm.jsx'
 import CategoryBrandForm from '../components/CategoryBrandForm.jsx'
 import CsvUploader from '../components/CsvUploader.jsx'
 import Toast from '../components/Toast.jsx'
+<<<<<<< HEAD
 import { ChevronLeft, ChevronRight, Eye, FolderTree, GitMerge, History, Package, Pencil, RefreshCw, RotateCcw, Trash2, Users, Zap } from 'lucide-react'
 import { adminFetch, apiFetch, readApiResponse } from '../config/api.js'
 import { formatCurrency } from '../utils/formatters.js'
@@ -20,6 +21,13 @@ const ADMIN_PAGES = [
   { id: 'agrupacion', label: 'Agrupación', icon: GitMerge },
   { id: 'usuario', label: 'Usuario', icon: Users },
 ]
+=======
+import { Pencil, Trash2 } from 'lucide-react'
+import { adminFetch, apiUrl } from '../config/api.js'
+import { formatCurrency } from '../utils/formatters.js'
+import { getVisiblePageNumbers } from '../utils/pagination.js'
+import { ProductImage } from '../components/ProductImage.jsx'
+>>>>>>> origin/main
 
 export default function Admin() {
   const [activePage, setActivePage] = useState('arbol')
@@ -62,6 +70,7 @@ export default function Admin() {
   const [discoError, setDiscoError] = useState('')
   const [discoSyncStatus, setDiscoSyncStatus] = useState(null)
   const [discoImportStatus, setDiscoImportStatus] = useState(null)
+<<<<<<< HEAD
   const [mamiQuery, setMamiQuery] = useState('yerba')
   const [mamiPreview, setMamiPreview] = useState([])
   const [mamiDiscarded, setMamiDiscarded] = useState([])
@@ -69,6 +78,8 @@ export default function Admin() {
   const [mamiError, setMamiError] = useState('')
   const [mamiImportSkipped, setMamiImportSkipped] = useState([])
   const [selectedMamiProducts, setSelectedMamiProducts] = useState([])
+=======
+>>>>>>> origin/main
 
   const [editingProduct, setEditingProduct] = useState(null)
   const [editingOfferId, setEditingOfferId] = useState(null)
@@ -129,9 +140,14 @@ export default function Admin() {
       const params = new URLSearchParams({ page: String(page), limit: String(productPageSize) })
       if (productSearch.trim()) params.set('search', productSearch.trim())
       if (productCategoryFilter) params.set('category', productCategoryFilter)
+<<<<<<< HEAD
       if (productSubcategoryFilter) params.set('subcategory', productSubcategoryFilter)
       if (productBrandFilter) params.set('brand', productBrandFilter)
       const res = await apiFetch(`/products?${params.toString()}`)
+=======
+      if (productBrandFilter) params.set('brand', productBrandFilter)
+      const res = await fetch(apiUrl(`/products?${params.toString()}`))
+>>>>>>> origin/main
       const payload = await res.json()
       const data = Array.isArray(payload) ? payload : payload.data || []
       setProducts(data)
@@ -474,6 +490,7 @@ export default function Admin() {
     loadPriceUpdates()
     loadDiscoSyncStatus()
     loadDiscoImportStatus()
+<<<<<<< HEAD
     loadCrossSourceReview()
     loadReviewDecisions()
   }, [productPage, productPageSize, productSearch, productCategoryFilter, productSubcategoryFilter, productBrandFilter])
@@ -481,6 +498,13 @@ export default function Admin() {
   useEffect(() => {
     if (productPage !== 1) setProductPage(1)
   }, [productSearch, productCategoryFilter, productSubcategoryFilter, productBrandFilter])
+=======
+  }, [productPage, productPageSize, productSearch, productCategoryFilter, productBrandFilter])
+
+  useEffect(() => {
+    if (productPage !== 1) setProductPage(1)
+  }, [productSearch, productCategoryFilter, productBrandFilter])
+>>>>>>> origin/main
 
   useEffect(() => {
     window.addEventListener('price-updates-changed', loadPriceUpdates)
@@ -891,11 +915,15 @@ export default function Admin() {
             const brandName = brands.find((brand) => String(brand.id) === String(update.filters?.brandId))?.name
             const appliedFilters = [categoryName ? `Categoría: ${categoryName}` : null, brandName ? `Marca: ${brandName}` : null, update.filters?.supermarket ? `Supermercado: ${update.filters.supermarket}` : null].filter(Boolean)
             const changes = Array.isArray(update.changes) ? update.changes : []
+<<<<<<< HEAD
             const changeType = changes[0]?.type
+=======
+>>>>>>> origin/main
             const affectedProductCount = new Set(changes.map((change) => String(change.productId)).filter(Boolean)).size
             const percentage = changes.length && Number(changes[0].previousCashPrice) > 0
               ? ((Number(changes[0].updatedCashPrice) - Number(changes[0].previousCashPrice)) / Number(changes[0].previousCashPrice)) * 100
               : Number(update.percentage)
+<<<<<<< HEAD
             const isProductEdit = changeType === 'product_edit' || changeType === 'classification_edit'
             const isMamiImport = update.filters?.source === 'mami_import'
             const changeLabel = changeType === 'classification_edit' ? 'Clasificación de producto' : changeType === 'product_edit' ? `Producto: ${changes[0]?.productName || update.filters?.productId || 'editado'}` : null
@@ -906,6 +934,9 @@ export default function Admin() {
             const updateLabel = isProductEdit ? changeLabel : isMamiImport ? `Importación Mami${update.filters?.query ? `: ${update.filters.query}` : ''}` : automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')
             const updateValue = isProductEdit ? linkedPriceLabel : isMamiImport ? 'Importación' : `${percentage > 0 ? '+' : ''}${percentage.toFixed(1)}%`
             return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{updateLabel}</td><td className={`py-3 pr-4 font-bold ${isProductEdit ? 'text-sky-600' : isMamiImport ? 'text-emerald-600' : percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{updateValue}</td><td className="py-3 pr-4">{affectedProductCount || update.products_updated || 0}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
+=======
+            return <tr key={update.id} className="text-stone-700 dark:text-stone-200"><td className="py-3 pr-4 whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">{new Date(update.updated_at).toLocaleString('es-AR')}</td><td className="py-3 pr-4 font-semibold">{automatic ? 'Sincronización de precios Disco' : (appliedFilters.length ? appliedFilters.join(' · ') : 'Sin filtros')}</td><td className={`py-3 pr-4 font-bold ${percentage >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{percentage > 0 ? '+' : ''}{percentage.toFixed(1)}%</td><td className="py-3 pr-4">{affectedProductCount || update.products_updated || 0}</td><td className="py-3 pr-4 text-xs">{update.admin_username}</td><td className="py-3"><button type="button" onClick={() => deletePriceUpdate(update.id)} className="text-sm font-semibold text-rose-600 hover:underline">Eliminar</button></td></tr>
+>>>>>>> origin/main
           })}
         </tbody>
       </table>

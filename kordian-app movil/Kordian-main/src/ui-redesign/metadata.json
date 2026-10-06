@@ -1,0 +1,6 @@
+{
+  "name": "ARPrice",
+  "description": "Comparador de precios inteligente en tiempo real para encontrar el precio justo y detectar precios inflados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
