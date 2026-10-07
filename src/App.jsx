@@ -18,7 +18,29 @@ import {
   Heart,
 } from 'lucide-react'
 
+<<<<<<< HEAD
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+=======
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Header } from './components/Header.jsx';
+import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
+import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
+import { DealsSummaryBanner } from './components/DealsSummaryBanner.jsx';
+import { ReportPriceModal } from './components/ReportPriceModal.jsx';
+import { ProductCard } from './components/ProductCard.jsx';
+import { ComparisonModal } from './components/ComparisonModal.jsx';
+import { SmartBasketModal } from './components/SmartBasketModal.jsx';
+import PriceExplanationModal from './components/PriceExplanationModal.jsx';
+import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js';
+import { apiFetch } from './config/api.js';
+import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
+import { appendUniqueProducts, buildProductsQuery } from './utils/catalogQuery.js';
+import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
+// Data will be loaded from backend API
+import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+>>>>>>> 8c44b14f0ef402c7dd129023baf41b6aecca7244
 
 import Admin from './pages/Admin'
 import Login from './pages/Login'
@@ -46,6 +68,7 @@ function App() {
 
   const [products, setProducts] = useState([])
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
+<<<<<<< HEAD
 
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
 
@@ -63,6 +86,18 @@ function App() {
   const [showSortMenu, setShowSortMenu] = useState(false)
 
   const [favorites, setFavorites] = useState(() => {
+=======
+<<<<<<< HEAD
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
+=======
+>>>>>>> origin/main
+  const catalogReferenceCache = useRef(null)
+  const analysisCache = useRef(null)
+  const [productsPage, setProductsPage] = useState(1)
+  const productsPageSize = 20
+  const initialSearchParams = new URLSearchParams(location.search)
+  const [searchHistory, setSearchHistory] = useState(() => {
+>>>>>>> 8c44b14f0ef402c7dd129023baf41b6aecca7244
     try {
       const saved = localStorage.getItem('arprice_favorites')
       return saved ? JSON.parse(saved) : []
@@ -80,7 +115,69 @@ function App() {
   useEffect(() => {
     let cancelled = false
 
+<<<<<<< HEAD
     async function loadReferences() {
+=======
+  const [favorites, setFavorites] = useState(() => {
+    try {
+      const saved = localStorage.getItem('arprice_favorites');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [basket, setBasket] = useState(() => {
+    try {
+      const saved = localStorage.getItem('arprice_basket');
+      return saved
+        ? JSON.parse(saved)
+        : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    document.body.classList.toggle('dark', darkMode);
+    localStorage.setItem('arprice_theme', darkMode ? 'dark' : 'light');
+  }, [darkMode]);
+
+  useEffect(() => {
+    localStorage.setItem('arprice_favorites', JSON.stringify(favorites));
+  }, [favorites]);
+
+  useEffect(() => {
+    localStorage.setItem('arprice_basket', JSON.stringify(basket));
+  }, [basket]);
+
+  useEffect(() => {
+    if (productsPage !== 1) {
+      setProductsPage(1);
+    }
+  }, [filters.searchQuery, filters.category, filters.store]);
+
+  useEffect(() => {
+    const handleReviewDecisionUpdated = () => {
+      catalogReferenceCache.current = null
+      setCatalogRefreshKey((previous) => previous + 1)
+      setProductsPage(1)
+    }
+
+    window.addEventListener('arprice:review-decision-updated', handleReviewDecisionUpdated)
+    return () => window.removeEventListener('arprice:review-decision-updated', handleReviewDecisionUpdated)
+  }, [])
+
+  // Load categories and products from backend
+  useEffect(() => {
+    let mounted = true
+    const controller = new AbortController()
+    let searchTimer
+    setIsLoadingProducts(true)
+    const loadData = async () => {
+      let hasLoadedCatalog = false
+>>>>>>> 8c44b14f0ef402c7dd129023baf41b6aecca7244
       try {
         const [categoriesResponse, taxonomyResponse, supermarketsResponse] =
           await Promise.all([
@@ -140,6 +237,7 @@ function App() {
         const query = buildCatalogQuery({
           searchQuery: filters.searchQuery,
           category: filters.category,
+<<<<<<< HEAD
           store: filters.store,
           page: 1,
           limit: productsPageSize,
@@ -148,6 +246,40 @@ function App() {
         const response = await apiFetch(`/products?${query}`, {
           method: 'GET',
         })
+=======
+          store: 'todos',
+        }
+
+        const referencesPromise = catalogReferenceCache.current
+          ? Promise.resolve(catalogReferenceCache.current)
+          : Promise.all([
+<<<<<<< HEAD
+            apiFetch('/categories', { signal: controller.signal }),
+            apiFetch('/taxonomy', { signal: controller.signal }),
+            apiFetch('/supermarkets', { signal: controller.signal }),
+=======
+            fetch(apiUrl('/categories'), { signal: controller.signal }),
+            fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
+            fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
+>>>>>>> origin/main
+          ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
+            const references = {
+              categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
+              taxonomy: taxonomyResponse.ok ? await taxonomyResponse.json() : [],
+              supermarkets: supermarketsResponse.ok ? await supermarketsResponse.json() : [],
+            }
+            catalogReferenceCache.current = references
+            return references
+          })
+        const [firstPageRes, references] = await Promise.all([
+<<<<<<< HEAD
+          apiFetch(`/products?${buildProductsQuery(baseQuery).toString()}`, { signal: controller.signal }),
+=======
+          fetch(apiUrl(`/products?${buildProductsQuery(baseQuery).toString()}`), { signal: controller.signal }),
+>>>>>>> origin/main
+          referencesPromise,
+        ])
+>>>>>>> 8c44b14f0ef402c7dd129023baf41b6aecca7244
 
         if (cancelled) return
 
@@ -155,6 +287,7 @@ function App() {
           ? response
           : response?.products || response?.data || []
 
+<<<<<<< HEAD
         const totalPages =
           response?.totalPages ||
           response?.pagination?.totalPages ||
@@ -166,6 +299,19 @@ function App() {
           )
 
         let allProducts = [...firstPageProducts]
+=======
+        const firstPagePayload = await firstPageRes.json()
+        const firstPageData = Array.isArray(firstPagePayload) ? firstPagePayload : firstPagePayload.data || []
+        const firstPageTotal = Array.isArray(firstPagePayload)
+          ? firstPageData.length
+          : Number(firstPagePayload.total || firstPageData.length || 0)
+        const totalPagesToFetch = Math.max(1, Math.ceil(firstPageTotal / requestPageSize))
+<<<<<<< HEAD
+        const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
+        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+=======
+        const pageNumbers = Array.from({ length: totalPagesToFetch }, (_, index) => index + 1)
+>>>>>>> 8c44b14f0ef402c7dd129023baf41b6aecca7244
 
         /*
          * Si la API devuelve varias páginas, las cargamos.
@@ -199,14 +345,80 @@ function App() {
             if (Array.isArray(pageProducts)) {
               allProducts = [...allProducts, ...pageProducts]
             }
+<<<<<<< HEAD
           } catch (pageError) {
             console.error(
               `Error cargando página ${pageNumber}:`,
               pageError
             )
+=======
+
+            return response.json()
+          })
+        )
+
+        const pagePayloads = [firstPagePayload, ...remainingPageResponses]
+        const allProductsFromApi = pagePayloads.flatMap((payload) => {
+          const pageData = Array.isArray(payload) ? payload : payload?.data || []
+          return Array.isArray(pageData) ? pageData : []
+        })
+        const validProds = allProductsFromApi.filter((product) => isValidCatalogProduct(product))
+
+        const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
+        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+        if (!analysisCache.current && !filters.searchQuery.trim()) {
+          const analysisRes = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
+          analysisCache.current = analysisRes.ok ? await analysisRes.json() : []
+        }
+>>>>>>> origin/main
+        const analyses = analysisCache.current || []
+        const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
+
+        const enrichProducts = (productsToEnrich) => productsToEnrich
+          .filter((product) => isValidCatalogProduct(product))
+          .map((p) => {
+          const offers = p.offers || []
+          const otherStores = offers.map((o) => ({
+            id: o.id,
+            // handle either snake_case (cash_price) or camelCase (cashPrice) coming from different imports
+            price: Number(o.cash_price ?? o.cashPrice) || 0,
+            supermarket: o.supermarket || o.supermarket_name || o.storeName || '',
+            image: supermarketImages.get(o.supermarket || o.supermarket_name || o.storeName) || ''
+          }))
+          const primary = otherStores.reduce((best, s) => {
+            if (!best) return s
+            return s.price && s.price < best.price ? s : best
+          }, null)
+          const avgMarketPrice = otherStores.length ? Math.round(otherStores.reduce((acc, s) => acc + (s.price || 0), 0) / otherStores.length) : 0
+          const currentPrice = primary ? primary.price : 0
+          const percentageDiff = avgMarketPrice ? parseFloat((((currentPrice - avgMarketPrice) / avgMarketPrice) * 100).toFixed(1)) : 0
+          const status = primary
+            ? currentPrice <= avgMarketPrice
+              ? 'EN_PRECIO'
+              : 'INFLADO'
+            : 'EN_PRECIO'
+
+          const analysis = analysisByProduct.get(String(p.id))
+          const analysisStatus = analysis?.classification === 'PRECIO_NORMAL' ? 'EN_PRECIO' : analysis?.classification
+
+          return {
+            ...p,
+            brand: p.brand || p.brands?.name || '',
+            subcategory: p.subcategory || p.subcategories?.name || '',
+            currentPrice,
+            primaryStore: primary ? { name: primary.supermarket, id: primary.id } : { name: '', id: null },
+            avgMarketPrice,
+            percentageDiff,
+            status: analysisStatus || status,
+            analysis: analysis || null,
+            priceHistory: analysis?.priceHistory || p.priceHistory || [],
+            otherStores,
+            unit: p.unit || '',
+>>>>>>> 8c44b14f0ef402c7dd129023baf41b6aecca7244
           }
         }
 
+<<<<<<< HEAD
         /*
          * Validamos los productos antes de mostrarlos.
          */
@@ -230,6 +442,71 @@ function App() {
               : []
           )
         }
+=======
+        const populatedTaxonomy = (taxonomyData || [])
+          .map((category) => ({
+            ...category,
+            subcategories: (category.subcategories || []).filter((subcategory) => Number(subcategory.productCount || 0) > 0),
+          }))
+          .filter((category) => Number(category.productCount || 0) > 0)
+        const populatedCategoryIds = new Set(populatedTaxonomy.map((category) => String(category.id)))
+        setCategories((cats || []).filter((category) => populatedCategoryIds.has(String(category.id))))
+        setTaxonomy(populatedTaxonomy)
+        setProducts(enrichProducts(firstPageData))
+        setIsLoadingProducts(false)
+        hasLoadedCatalog = true
+
+        const storesSet = new Set()
+        const addStoreOptions = (productRows) => {
+          productRows.forEach((product) => {
+            (product.offers || []).forEach((offer) => {
+              if (offer.supermarket) storesSet.add(offer.supermarket)
+            })
+          })
+          const storesArr = Array.from(storesSet).map((name) => ({ id: name, name, image: supermarketImages.get(name) || '' }))
+          setStoresList(storesArr)
+        }
+        addStoreOptions(firstPageData)
+
+        for (let pageNumber = 2; pageNumber <= totalPagesToFetch; pageNumber += 1) {
+          const pageQuery = buildProductsQuery({ ...baseQuery, page: pageNumber, limit: requestPageSize })
+          const response = await apiFetch(`/products?${pageQuery.toString()}`, { signal: controller.signal })
+          if (!response.ok) throw new Error('Backend returned non-ok response')
+          const pagePayload = await response.json()
+          const pageData = Array.isArray(pagePayload) ? pagePayload : pagePayload?.data || []
+          if (!mounted) return
+          setProducts((current) => appendUniqueProducts(current, enrichProducts(pageData)))
+          addStoreOptions(pageData)
+        }
+      } catch (err) {
+        console.error('Error loading data', err)
+        if (!mounted) return
+        if (hasLoadedCatalog) return
+
+        const enriched = MOCK_PRODUCTS.map((p) => ({
+          ...p,
+          currentPrice: Number(p.currentPrice || 0),
+          avgMarketPrice: Number(p.avgMarketPrice || 0),
+          percentageDiff: Number(p.percentageDiff || 0),
+          status: p.status || 'EN_PRECIO',
+          primaryStore: p.primaryStore || { name: '', id: null },
+          otherStores: Array.isArray(p.otherStores) ? p.otherStores : [],
+        }))
+
+        setCategories(MOCK_CATEGORIES)
+        setProducts(enriched)
+
+        const storesSet = new Set()
+        enriched.forEach((p) => {
+          (p.otherStores || []).forEach((o) => {
+            if (o.storeName) storesSet.add(o.storeName)
+          })
+          if (p.primaryStore?.name) storesSet.add(p.primaryStore.name)
+        })
+
+        const storesArr = Array.from(storesSet).map((name) => ({ id: name, name }))
+        setStoresList(storesArr)
+>>>>>>> 8c44b14f0ef402c7dd129023baf41b6aecca7244
       } finally {
         if (!cancelled) {
           setIsLoadingProducts(false)
@@ -242,6 +519,7 @@ function App() {
     return () => {
       cancelled = true
     }
+<<<<<<< HEAD
   }, [
     productsPageSize,
     filters.searchQuery,
@@ -249,6 +527,13 @@ function App() {
     filters.store,
     catalogRefreshKey,
   ])
+=======
+<<<<<<< HEAD
+  }, [productsPageSize, filters.searchQuery, filters.category, filters.store, catalogRefreshKey])
+=======
+  }, [productsPageSize, filters.searchQuery, filters.category, filters.store])
+>>>>>>> origin/main
+>>>>>>> 8c44b14f0ef402c7dd129023baf41b6aecca7244
 
 
   /*

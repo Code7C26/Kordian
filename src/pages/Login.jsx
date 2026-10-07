@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiUrl } from '../config/api.js'
+import { apiFetch } from '../config/api.js'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -19,7 +19,7 @@ export default function Login() {
 
     ;(async () => {
       try {
-        const res = await fetch(apiUrl('/login'), {
+        const res = await apiFetch('/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password }),

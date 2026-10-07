@@ -1,5 +1,9 @@
 const assert = require('node:assert/strict')
+<<<<<<< HEAD
+const { createCommonProduct, getCommonInvalidReason, validateImporterContract, isValidCommonProduct, compareSimulationReport, compareCrossSourceProducts, buildTaxonomyComparison } = require('./importerContract')
+=======
 const { createCommonProduct, getCommonInvalidReason, validateImporterContract, isValidCommonProduct, compareSimulationReport, buildTaxonomyComparison } = require('./importerContract')
+>>>>>>> origin/main
 const { createImporterContract } = require('./importerContract')
 
 const mamiContract = require('./mamiImporter')
@@ -102,6 +106,81 @@ async function run() {
   assert.equal(referenceReport.priceComparison[0].sourcePrice, 3350)
   assert.equal(referenceReport.priceComparison[0].deltaPercent > 0, true)
 
+<<<<<<< HEAD
+  const crossSourceReport = compareCrossSourceProducts([
+    createCommonProduct({
+      sourceProductId: 'mami-yerba-1',
+      ean: '7790000001001',
+      name: 'Yerba Mate Taragui 1kg',
+      brand: 'Taragui',
+      image: 'https://example.com/mami-yerba.png',
+      price: 2400,
+      available: true,
+      sourceCategory: 'Yerba',
+    }, 'mami'),
+    createCommonProduct({
+      sourceProductId: 'mami-jugo-1',
+      name: 'Jugo Naranja 1L',
+      brand: 'Mami',
+      image: 'https://example.com/mami-jugo.png',
+      price: 1200,
+      available: true,
+      sourceCategory: 'Bebidas',
+    }, 'mami'),
+    createCommonProduct({
+      sourceProductId: 'mami-pasta-1',
+      name: 'Pasta seca tirabuzon 500g',
+      brand: 'Mami',
+      image: 'https://example.com/mami-pasta.png',
+      price: 900,
+      available: true,
+      sourceCategory: 'Pastas',
+    }, 'mami'),
+  ], [
+    createCommonProduct({
+      sourceProductId: 'disco-yerba-1',
+      ean: '7790000001001',
+      name: 'Yerba Mate Taragui 1kg',
+      brand: 'Taragui',
+      image: 'https://example.com/disco-yerba.png',
+      price: 2500,
+      available: true,
+      sourceCategory: 'Infusiones',
+    }, 'disco'),
+    createCommonProduct({
+      sourceProductId: 'disco-jugo-1',
+      name: 'Jugo Naranja 1L',
+      brand: 'Mami',
+      image: 'https://example.com/disco-jugo.png',
+      price: 1000,
+      available: true,
+      sourceCategory: 'Bebidas',
+    }, 'disco'),
+    createCommonProduct({
+      sourceProductId: 'disco-pasta-1',
+      name: 'Pasta seca tirabuzon 1kg',
+      brand: 'Mami',
+      image: 'https://example.com/disco-pasta.png',
+      price: 1600,
+      available: true,
+      sourceCategory: 'Pastas',
+    }, 'disco'),
+  ])
+  assert.equal(crossSourceReport.paired.length, 2)
+  assert.equal(crossSourceReport.priceComparison.length, 2)
+  assert.equal(crossSourceReport.priceComparison[0].match, 'ean_or_sku')
+  assert.equal(crossSourceReport.priceComparison[0].confidence, 'alta')
+  assert.equal(crossSourceReport.priceComparison[0].deltaPercent, -4)
+  assert.equal(crossSourceReport.priceComparison[1].match, 'name_and_brand')
+  assert.equal(crossSourceReport.unmatchedMami.length, 1)
+  assert.equal(crossSourceReport.unmatchedDisco.length, 1)
+  assert.equal(crossSourceReport.dryRun, true)
+  assert.equal(crossSourceReport.writeSafety.productWritesAllowed, false)
+  assert.equal(crossSourceReport.writeSafety.priceHistoryWritesAllowed, false)
+  assert.equal(crossSourceReport.writeSafety.mutationSurface, 'comparison_only')
+
+=======
+>>>>>>> origin/main
   const htmlFeed = `<script type="application/ld+json">{"@type":"Product","name":"Yogur Bebible","brand":{"name":"Mami"},"offers":{"price":120,"availability":"https://schema.org/InStock"},"url":"http://www.supermami.com.ar/super/producto/yogur-bebible/_/A-1234-1234-s","image":"https://statics.dinoonline.com.ar/imagenes/large_460x460/1234_l.jpg","sku":"7500000000001","gtin13":"7500000000001","category":"Lácteos","itemCategory":"Lácteos"}</script><title>Yogur Bebible | Super MaMi</title><script>productId = "prod1234"</script>`
   const parsed = typeof mamiContract.extractMamiDetailProductsFromHtml === 'function'
     ? mamiContract.extractMamiDetailProductsFromHtml(htmlFeed)

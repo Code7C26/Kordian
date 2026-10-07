@@ -7,6 +7,12 @@
     "backfill-analysis": "node scripts/backfill_analysis.js",
     "backfill-catalog-taxonomy": "node scripts/backfill_catalog_taxonomy.js",
     "audit-catalog": "node scripts/audit_catalog.js",
+<<<<<<< HEAD
+    "audit-product-identities": "node scripts/audit_product_identities.js",
+    "audit-cross-source-matches": "node scripts/audit_cross_source_matches.js",
+    "import-mami-batches": "node scripts/import_mami_batches.js",
+=======
+>>>>>>> origin/main
     "sync-disco-token-prices": "node scripts/sync_disco_token_prices.js",
     "sync-disco": "node scripts/sync_disco.js"
   },

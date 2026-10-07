@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildProductsQuery } from './catalogQuery.js';
+import { appendUniqueProducts, buildProductsQuery } from './catalogQuery.js';
 
 assert.equal(
   buildProductsQuery({
@@ -24,3 +24,14 @@ assert.equal(
 );
 
 console.log('catalogQuery test passed');
+
+assert.deepEqual(
+  appendUniqueProducts(
+    [{ id: 18098, name: 'Yerba Nobleza Gaucha', offers: ['Mami', 'Disco'] }],
+    [
+      { id: 18098, name: 'Yerba Nobleza Gaucha', offers: ['Mami', 'Disco'] },
+      { id: 20000, name: 'Otro producto' },
+    ],
+  ).map((product) => product.id),
+  [18098, 20000],
+);

@@ -1,4 +1,6 @@
 const DISCO_API_URL = 'https://www.disco.com.ar/api/catalog_system/pub/products/search'
+import { createCommonProduct, isValidCommonProduct } from './importerContract.js'
+import { extractGenericProductProfile, parseHtmlProductDetails } from './htmlProductParser.js'
 
 const numeric = (value) => {
   const number = Number(value)
@@ -106,7 +108,7 @@ export function normalizeDiscoProduct(item) {
   const categories = Array.isArray(item.categories) ? item.categories : []
   const mapping = suggestMapping(categories, item)
   const offer = getOffer(item)
-  return {
+  return createCommonProduct({
     source: 'disco',
     sourceProductId: String(item.productId || ''),
     sourceSku: String(firstItem.itemId || ''),
@@ -126,7 +128,51 @@ export function normalizeDiscoProduct(item) {
     mappingStatus: mapping ? 'propuesta_automatica' : 'pendiente',
     onlineOnly: isOnlineOnly(item),
     seller: offer.seller,
-  }
+  }, 'disco')
+}
+
+export function getDiscoProductInvalidReason(product = {}) {
+  const name = String(product.name || '').trim()
+  const price = numeric(product.price)
+  if (!product.sourceProductId) return 'Sin identificador'
+  if (!name) return 'Sin nombre'
+  if (invalidProductNamePattern.test(name)) return 'Promoción, envío u oferta no válida'
+  if (price <= 0) return 'Sin precio válido'
+  if (product.available === false) return 'Sin stock disponible'
+  if (product.onlineOnly) return 'Exclusivo online'
+  const hasImage = typeof product.image === 'string' && product.image.trim().length > 0
+  const hasMeasure = productMeasurePattern.test([name, product.description, product.presentation, product.unit].filter(Boolean).join(' '))
+  if (!hasImage && !hasMeasure) return 'Sin imagen ni cantidad identificable'
+  return null
+}
+
+export function isValidDiscoProduct(product = {}) {
+  return isValidCommonProduct(product)
+}
+
+function normalizeDiscoHtmlProduct(item = {}) {
+  const categories = Array.isArray(item.sourceCategories) ? item.sourceCategories : []
+  const mapping = suggestMapping(categories, { productName: item.name, brand: item.brand })
+  return createCommonProduct({
+    ...item,
+    source: 'disco',
+    sourceCategory: item.sourceCategory || categories.at(-1) || null,
+    sourceCategories: categories,
+    proposedCategory: item.proposedCategory || mapping?.category || null,
+    proposedSubcategory: item.proposedSubcategory || mapping?.subcategory || null,
+    mappingStatus: item.mappingStatus || (mapping ? 'propuesta_automatica' : 'pendiente'),
+    seller: item.seller || 'Disco',
+  }, 'disco')
+}
+
+export function parseDiscoProductDetailHtml(html = '') {
+  return parseHtmlProductDetails(html, {
+    source: 'disco',
+    normalizeProduct: normalizeDiscoHtmlProduct,
+    isValidProduct: isValidCommonProduct,
+    extractProfile: (value, options) => extractGenericProductProfile(value, options),
+    fallbackCategory: 'Disco',
+  })
 }
 
 export function getDiscoProductInvalidReason(product = {}) {

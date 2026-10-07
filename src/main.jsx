@@ -12,6 +12,9 @@ import Login from './pages/Login'
 import FavoritesPage from './pages/FavoritesPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import { SelectedCityProvider } from './contexts/SelectedCityContext.jsx'
+import { CustomerAuthProvider } from './contexts/CustomerAuthContext.jsx'
+import CustomerAuthPage from './pages/CustomerAuthPage.jsx'
+import CustomerAccountPage from './pages/CustomerAccountPage.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

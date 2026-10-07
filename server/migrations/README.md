@@ -1,5 +1,14 @@
 # Migraciones de AR-PRICE
 
+## Autenticacion de clientes
+
+1. Configurar `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` solo en el entorno del servidor. El navegador no requiere claves Supabase.
+2. Ejecutar `20261006_customer_auth.sql` desde el SQL Editor de Supabase.
+3. En Supabase Auth, permitir contraseñas de 4 caracteres y desactivar la confirmacion de email para habilitar el inicio automatico tras el registro. Si se mantiene la confirmacion, el cliente debera activarse desde el correo antes de iniciar sesion.
+4. Desplegar las rutas `POST /auth/customer-register`, `POST /auth/customer-login`, `POST /auth/customer-refresh` y `GET /auth/customer-session` del backend.
+
+El rol de `customer_profiles` se inicializa como `customer`; solo una operacion administrativa debe promover una cuenta a `business`.
+
 ## Cargar categorías y subcategorías
 
 1. Abrir el SQL Editor del proyecto Supabase.
