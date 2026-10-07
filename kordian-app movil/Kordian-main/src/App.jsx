@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
+import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
 import { DealsSummaryBanner } from './components/DealsSummaryBanner.jsx';
 import { ReportPriceModal } from './components/ReportPriceModal.jsx';
@@ -16,7 +17,7 @@ import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 // Data will be loaded from backend API
-import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 
 const SORT_OPTIONS = [
   { value: 'discount-desc', label: 'Mayor Descuento primero', icon: Percent },
@@ -84,7 +85,15 @@ function normalizeSearchText(value) {
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState('categories');
+  const initialViewMode = location.pathname === '/favoritos'
+    ? 'favorites'
+    : location.pathname === '/buscar'
+      ? 'products'
+      : 'categories';
+  const [viewMode, setViewMode] = useState(initialViewMode);
+  const [hasSelectedCategory, setHasSelectedCategory] = useState(() => {
+    return localStorage.getItem('arprice_selected_category') !== null;
+  });
   const [darkMode, setDarkMode] = useState(() => {
     return (
       localStorage.getItem('arprice_theme') === 'dark' ||
@@ -93,7 +102,7 @@ export default function App() {
   });
 
   const { selectedCity, setSelectedCity } = useSelectedCity();
-  const [categories, setCategories] = useState([])
+  const [categories, setCategories] = useState(MOCK_CATEGORIES)
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
@@ -129,7 +138,13 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    setViewMode(location.pathname === '/buscar' ? 'products' : 'categories');
+    setViewMode(
+      location.pathname === '/buscar'
+        ? 'products'
+        : location.pathname === '/favoritos'
+          ? 'favorites'
+          : 'categories'
+    );
     if (location.pathname === '/buscar') {
       setFilters((previous) => ({
         ...previous,
@@ -528,6 +543,11 @@ export default function App() {
     return filteredProducts.slice(start, start + productsPageSize);
   }, [filteredProducts, productsPage, productsPageSize]);
 
+  const favoriteProducts = useMemo(
+    () => products.filter((product) => favorites.includes(product.id)),
+    [favorites, products]
+  );
+
   const resetFilters = () => {
     setFilters({
       category: 'todos',
@@ -544,6 +564,8 @@ export default function App() {
   };
 
   const handleSelectCategory = (catId) => {
+    localStorage.setItem('arprice_selected_category', catId);
+    setHasSelectedCategory(true);
     setFilters((prev) => ({ ...prev, category: catId, subcategory: 'todos' }));
     setFavoritesOnlyView(false);
     setViewMode('products');
@@ -583,6 +605,16 @@ export default function App() {
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
   const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
   const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
+  const isCategoryOnboarding = location.pathname === '/seleccionar-categorias' || (!hasSelectedCategory && location.pathname === '/');
+
+  if (isCategoryOnboarding) {
+    return (
+      <CategorySelectionPage
+        categories={categories}
+        onSelectCategory={handleSelectCategory}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
@@ -595,15 +627,68 @@ export default function App() {
         onOpenBasket={() => setBasketOpen(true)}
         favoritesCount={favorites.length}
         onOpenFavorites={() => {
-          setFavoritesOnlyView((prev) => !prev);
-          setViewMode('products');
-          navigate('/buscar');
+          setFavoritesOnlyView(true);
+          setViewMode('favorites');
+          navigate('/favoritos', { replace: true });
         }}
         onResetView={resetFilters}
+        categories={categories}
+        selectedCategory={filters.category}
+        onSelectCategory={handleSelectCategory}
         isAdminPage={false}
       />
 
-      {viewMode === 'categories' ? (
+      {viewMode === 'favorites' ? (
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
+          <div className="bg-white dark:bg-stone-800 rounded-3xl border border-rose-200/80 dark:border-rose-900/80 p-5 shadow-xs sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 dark:bg-rose-950/80 dark:text-rose-300 flex items-center justify-center">
+                  <Heart className="w-6 h-6 fill-current" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-400">Tu selección</p>
+                  <h1 className="mt-1 text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">Favoritos</h1>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setViewMode('categories');
+                  navigate('/');
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Volver a Categorías
+              </button>
+            </div>
+          </div>
+
+          {favoriteProducts.length === 0 ? (
+            <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-stone-200/80 dark:border-stone-700/80 space-y-4">
+              <div className="w-16 h-16 bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-300 rounded-2xl flex items-center justify-center mx-auto">
+                <Heart className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-bold text-stone-900 dark:text-white">no hay favoritos agregados</h2>
+              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Agrega productos a tu lista de favoritos para verlos aquí.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+              {favoriteProducts.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onCompare={(p) => setSelectedProductForComparison(p)}
+                  onToggleFavorite={toggleFavorite}
+                  isFavorite={favorites.includes(product.id)}
+                  onAddToBasket={addToBasket}
+                  isInBasket={basket.some((item) => item.product.id === product.id)}
+                />
+              ))}
+            </div>
+          )}
+        </main>
+      ) : viewMode === 'categories' ? (
         <>
           <HeroCategoryGrid
             categories={categories}
@@ -843,7 +928,9 @@ export default function App() {
               <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
                 <Search className="w-8 h-8" />
               </div>
-              <h3 className="text-xl font-bold text-stone-900 dark:text-white">No encontramos productos con los filtros seleccionados</h3>
+              <h3 className="text-xl font-bold text-stone-900 dark:text-white">
+                {favoritesOnlyView ? 'no hay favoritos agregados' : 'No encontramos productos con los filtros seleccionados'}
+              </h3>
               <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.</p>
               <button
                 onClick={() => {
@@ -936,7 +1023,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400 font-medium">
-            <p>© {new Date().getFullYear()} ARPrice Argentina. Comparativa libre e independiente.</p>
+            <p>© {new Date().getFullYear()} Ar-Price Argentina</p>
             <p>Ubicación activa: <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
           </div>
         </div>

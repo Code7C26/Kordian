@@ -67,17 +67,12 @@ export function HeroCategoryGrid({
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-sky-400/10 via-blue-400/5 to-purple-400/10 blur-3xl pointer-events-none rounded-full" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="text-center max-w-3xl mx-auto space-y-4">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-100/80 dark:bg-sky-950/80 border border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-300 text-xs font-semibold shadow-xs">
-            <Sparkles className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-            <span>Monitoreo transparente de supermercados y tiendas en Argentina</span>
-          </div>
-
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-stone-900 dark:text-white tracking-tight leading-tight">
             Encuentra el <span className="bg-gradient-to-r from-sky-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">precio justo</span> en un solo lugar
           </h1>
 
           <p className="text-sm sm:text-base text-stone-600 dark:text-stone-300 leading-relaxed font-normal max-w-2xl mx-auto">
-            Compara precios en tiempo real entre Becerra, Disco, Mami, Carrefour y más.
+            Compara precios en tiempo real entre negocios de distinto rubro.
             Detectamos ofertas reales e identificamos sobreprecios al instante.
           </p>
 
@@ -181,13 +176,6 @@ export function HeroCategoryGrid({
                   }`}>
                     {getIcon(cat.icon)}
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    isSelected
-                      ? 'bg-white/20 text-white'
-                      : 'bg-stone-100 dark:bg-stone-700 text-stone-500 dark:text-stone-300'
-                  }`}>
-                    +{cat.count}
-                  </span>
                 </div>
                 <div>
                   <h3 className={`font-bold text-sm leading-tight ${

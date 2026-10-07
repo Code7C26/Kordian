@@ -9,6 +9,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import App from './App'
 import Admin from './pages/Admin'
 import Login from './pages/Login'
+import FavoritesPage from './pages/FavoritesPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import { SelectedCityProvider } from './contexts/SelectedCityContext.jsx'
 
@@ -20,7 +21,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
         {/* HOME */}
         <Route path="/" element={<App />} />
+        <Route path="/seleccionar-categorias" element={<App />} />
         <Route path="/buscar" element={<App />} />
+        <Route path="/favoritos" element={<FavoritesPage />} />
 
         {/* LOGIN */}
         <Route path="/login" element={<Login />} />
