@@ -201,6 +201,154 @@ function compareSimulationReport(contract = {}, preview = { products: [], discar
   }
 }
 
+<<<<<<< HEAD
+function normalizeCrossSourceText(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(?:x|de|del|la|el|y|con|sin)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractCrossSourceMeasure(product = {}) {
+  const text = [product.name, product.description, product.presentation, product.unit].filter(Boolean).join(' ')
+  const match = text.match(/\b(\d+(?:[.,]\d+)?)\s*(kg|kgs|kilo(?:s)?|g|gr|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|uds?|u)\b/i)
+  if (!match) return null
+  const amount = Number(match[1].replace(',', '.'))
+  if (!Number.isFinite(amount) || amount <= 0) return null
+  const unit = match[2].toLowerCase()
+  if (/^(?:u|un|uds?|unidad)/.test(unit)) return { baseUnit: 'unit', normalizedAmount: amount }
+  if (/^(?:kg|kgs|kilo)/.test(unit)) return { baseUnit: 'kg', normalizedAmount: amount }
+  if (/^(?:g|gr|gramo)/.test(unit)) return { baseUnit: 'kg', normalizedAmount: amount / 1000 }
+  if (unit === 'mg') return { baseUnit: 'kg', normalizedAmount: amount / 1000000 }
+  if (/^(?:l|lt|lts|litro)/.test(unit)) return { baseUnit: 'l', normalizedAmount: amount }
+  return { baseUnit: 'l', normalizedAmount: amount / (unit === 'cl' ? 100 : 1000) }
+}
+
+function getCrossSourceIdentifier(product = {}) {
+  const values = [product.ean, product.gtin, product.gtin13, product.sourceSku]
+  return values
+    .map((value) => String(value || '').replace(/\D/g, ''))
+    .find((value) => value.length >= 8 && value.length <= 14) || ''
+}
+
+function compareCrossSourceProducts(mamiProducts = [], discoProducts = []) {
+  const mami = Array.isArray(mamiProducts) ? mamiProducts : []
+  const disco = Array.isArray(discoProducts) ? discoProducts : []
+  const usedDisco = new Set()
+  const paired = []
+  const unmatchedMami = []
+
+  const scoreCandidate = (left, right) => {
+    const leftIdentifier = getCrossSourceIdentifier(left)
+    const rightIdentifier = getCrossSourceIdentifier(right)
+    if (leftIdentifier && rightIdentifier && leftIdentifier === rightIdentifier) {
+      return { score: 1, method: 'ean_or_sku', confidence: 'alta', comparisonQuality: 'exact_identifier' }
+    }
+
+    const leftName = normalizeCrossSourceText(left.name)
+    const rightName = normalizeCrossSourceText(right.name)
+    const leftBrand = normalizeCrossSourceText(left.brand)
+    const rightBrand = normalizeCrossSourceText(right.brand)
+    const leftTokens = new Set(leftName.split(' ').filter(Boolean))
+    const rightTokens = new Set(rightName.split(' ').filter(Boolean))
+    const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length
+    const union = new Set([...leftTokens, ...rightTokens]).size
+    const tokenSimilarity = union ? intersection / union : 0
+    const leftMeasure = extractCrossSourceMeasure(left)
+    const rightMeasure = extractCrossSourceMeasure(right)
+    const sameMeasure = Boolean(leftMeasure && rightMeasure
+      && leftMeasure.baseUnit === rightMeasure.baseUnit
+      && Math.abs(leftMeasure.normalizedAmount - rightMeasure.normalizedAmount) < 0.000001)
+    const sameBrand = Boolean(leftBrand && rightBrand && leftBrand === rightBrand)
+
+    if (leftName && leftName === rightName && sameBrand) {
+      return { score: 0.96, method: 'name_and_brand', confidence: 'alta', comparisonQuality: 'name_brand_exact' }
+    }
+    if (leftName && leftName === rightName && (!leftBrand || !rightBrand)) {
+      return { score: 0.9, method: 'name_exact', confidence: 'media', comparisonQuality: 'name_exact_brand_missing' }
+    }
+    if (tokenSimilarity >= 0.78 && sameMeasure && (!leftBrand || !rightBrand || sameBrand)) {
+      return { score: sameBrand ? 0.86 : 0.78, method: sameBrand ? 'name_measure_brand' : 'name_and_measure', confidence: sameBrand ? 'alta' : 'media', comparisonQuality: sameBrand ? 'name_measure_brand' : 'name_measure' }
+    }
+    return null
+  }
+
+  for (const mamiProduct of mami) {
+    let best = null
+    for (let index = 0; index < disco.length; index += 1) {
+      if (usedDisco.has(index)) continue
+      const score = scoreCandidate(mamiProduct, disco[index])
+      if (score && (!best || score.score > best.score.score)) best = { index, score }
+    }
+
+    if (!best) {
+      unmatchedMami.push({ sourceProductId: mamiProduct.sourceProductId || null, name: mamiProduct.name || null })
+      continue
+    }
+
+    usedDisco.add(best.index)
+    const discoProduct = disco[best.index]
+    const mamiPrice = safeNumber(mamiProduct.price)
+    const discoPrice = safeNumber(discoProduct.price)
+    const deltaPercent = mamiPrice && discoPrice
+      ? ((mamiPrice - discoPrice) / Math.max(discoPrice, 1)) * 100
+      : null
+
+    paired.push({
+      mami: mamiProduct,
+      disco: discoProduct,
+      match: best.score.method,
+      confidence: best.score.confidence,
+      comparisonQuality: best.score.comparisonQuality,
+      score: best.score.score,
+      priceComparison: {
+        mamiPrice,
+        discoPrice,
+        deltaPercent,
+        cheaperSource: mamiPrice === null || discoPrice === null ? null : mamiPrice < discoPrice ? 'mami' : discoPrice < mamiPrice ? 'disco' : 'equal',
+      },
+    })
+  }
+
+  return {
+    paired,
+    priceComparison: paired.map((pair) => ({
+      mamiSourceProductId: pair.mami.sourceProductId || null,
+      discoSourceProductId: pair.disco.sourceProductId || null,
+      name: pair.mami.name || pair.disco.name || null,
+      ...pair.priceComparison,
+      match: pair.match,
+      confidence: pair.confidence,
+      comparisonQuality: pair.comparisonQuality,
+    })),
+    confidence: paired.length ? paired.reduce((counts, pair) => {
+      counts[pair.confidence] = (counts[pair.confidence] || 0) + 1
+      return counts
+    }, {}) : {},
+    comparisonQuality: paired.length ? paired.reduce((counts, pair) => {
+      counts[pair.comparisonQuality] = (counts[pair.comparisonQuality] || 0) + 1
+      return counts
+    }, {}) : {},
+    unmatchedMami,
+    unmatchedDisco: disco.filter((_, index) => !usedDisco.has(index)).map((product) => ({
+      sourceProductId: product.sourceProductId || null,
+      name: product.name || null,
+    })),
+    dryRun: true,
+    writeSafety: {
+      productWritesAllowed: false,
+      priceHistoryWritesAllowed: false,
+      mutationSurface: 'comparison_only',
+    },
+  }
+}
+
+=======
+>>>>>>> origin/main
 function normalizeTaxonomyText(value = '') {
   return String(value || '')
     .trim()
@@ -270,5 +418,9 @@ module.exports = {
   createImporterContract,
   validateImporterContract,
   compareSimulationReport,
+<<<<<<< HEAD
+  compareCrossSourceProducts,
+=======
+>>>>>>> origin/main
   buildTaxonomyComparison,
 }

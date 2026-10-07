@@ -1,5 +1,6 @@
 node_modules/
 server/node_modules/
+server/uploads/mami_import_checkpoint.json
 
 .env
 server/.env
