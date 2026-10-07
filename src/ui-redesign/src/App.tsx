@@ -499,7 +499,7 @@ export default function App() {
               </div>
 
               <h3 className="text-xl font-bold text-stone-900 dark:text-white">
-                No encontramos productos con los filtros seleccionados
+                {favoritesOnlyView ? 'no hay favoritos agregados' : 'No encontramos productos con los filtros seleccionados'}
               </h3>
 
               <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">
@@ -572,7 +572,7 @@ export default function App() {
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400 font-medium">
-            <p>© {new Date().getFullYear()} ARPrice Argentina. Comparativa libre e independiente.</p>
+            <p>© {new Date().getFullYear()} ARPrice Argentina</p>
             <p>Ubicación activa: <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
           </div>
 

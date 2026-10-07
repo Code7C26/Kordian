@@ -1,394 +1,239 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Search,
+  SlidersHorizontal,
+  ChevronRight,
+  RotateCcw,
+  ArrowLeft,
+  TrendingDown,
+  Tag,
+  ThumbsUp,
+  AlertTriangle,
+  Loader2,
+  ChevronDown,
+  ArrowDownAZ,
+  ArrowDownWideNarrow,
+  ArrowUpWideNarrow,
+  Percent,
+  Heart,
+} from 'lucide-react'
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Header } from './components/Header.jsx';
-import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
-import { DealsSummaryBanner } from './components/DealsSummaryBanner.jsx';
-import { ReportPriceModal } from './components/ReportPriceModal.jsx';
-import { ProductCard } from './components/ProductCard.jsx';
-import { ComparisonModal } from './components/ComparisonModal.jsx';
-import { SmartBasketModal } from './components/SmartBasketModal.jsx';
-import PriceExplanationModal from './components/PriceExplanationModal.jsx';
-import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js';
-import { apiFetch } from './config/api.js';
-import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
-import { appendUniqueProducts, buildProductsQuery } from './utils/catalogQuery.js';
-import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
-// Data will be loaded from backend API
-import { Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+import { useSelectedCity } from './contexts/SelectedCityContext.jsx'
+import { Header } from './components/Header.jsx'
+import { CategorySelectionPage } from './components/CategorySelectionPage.jsx'
+import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx'
+import { DealsSummaryBanner } from './components/DealsSummaryBanner.jsx'
+import { ReportPriceModal } from './components/ReportPriceModal.jsx'
+import { ProductCard } from './components/ProductCard.jsx'
+import { ComparisonModal } from './components/ComparisonModal.jsx'
+import { SmartBasketModal } from './components/SmartBasketModal.jsx'
+import PriceExplanationModal from './components/PriceExplanationModal.jsx'
 
-const SORT_OPTIONS = [
-  { value: 'discount-desc', label: 'Mayor Descuento primero', icon: Percent },
-  { value: 'price-asc', label: 'Menor Precio primero', icon: ArrowDownWideNarrow },
-  { value: 'price-desc', label: 'Mayor Precio primero', icon: ArrowUpWideNarrow },
-  { value: 'name-asc', label: 'Orden Alfabético (A-Z)', icon: ArrowDownAZ },
-];
+import Admin from './pages/Admin'
+import Login from './pages/Login'
+import ProtectedRoute from './components/ProtectedRoute'
 
-function SortMenu({ value, onChange }) {
-  const [open, setOpen] = useState(false);
-  const selectedOption = SORT_OPTIONS.find((option) => option.value === value) || SORT_OPTIONS[0];
-  const SelectedIcon = selectedOption.icon;
+import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js'
+import { apiFetch } from './config/api.js'
+import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js'
+import { appendUniqueProducts, buildProductsQuery } from './utils/catalogQuery.js'
+import { isValidCatalogProduct } from './utils/validCatalogProducts.js'
 
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((isOpen) => !isOpen)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-left text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-stone-700 dark:bg-stone-900 dark:text-white"
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <SelectedIcon className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
-          <span className="truncate">{selectedOption.label}</span>
-        </span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-xl dark:border-stone-700 dark:bg-stone-800" role="listbox" aria-label="Ordenar lista por">
-          {SORT_OPTIONS.map((option) => {
-            const OptionIcon = option.icon;
-            const isSelected = option.value === value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
-                }}
-                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors ${isSelected ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300' : 'text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-stone-700'}`}
-              >
-                <OptionIcon className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
-                <span>{option.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
+const PAGE_SIZE = 20
 
-function normalizeSearchText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-}
+function MainCatalog() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { selectedCity } = useSelectedCity()
 
-export default function App() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState('categories');
-  const [darkMode, setDarkMode] = useState(() => {
-    return (
-      localStorage.getItem('arprice_theme') === 'dark' ||
-      (!('arprice_theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)
-    );
-  });
-
-  const { selectedCity, setSelectedCity } = useSelectedCity();
-  const [categories, setCategories] = useState([])
-  const [taxonomy, setTaxonomy] = useState([])
-  const [products, setProducts] = useState([])
-  const [isLoadingProducts, setIsLoadingProducts] = useState(true)
-<<<<<<< HEAD
-  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
-=======
->>>>>>> origin/main
+  // Referencias y caches
   const catalogReferenceCache = useRef(null)
   const analysisCache = useRef(null)
+  const sortMenuRef = useRef(null)
+
+  // Estados principales
+  const [categories, setCategories] = useState([])
+  const [taxonomy, setTaxonomy] = useState([])
+  const [supermarkets, setSupermarkets] = useState([])
+  const [storesList, setStoresList] = useState([])
+
+  const [products, setProducts] = useState([])
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true)
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
+
+  // Modales
+  const [selectedProduct, setSelectedProduct] = useState(null)
+  const [showFilters, setShowFilters] = useState(false)
+  const [showSortMenu, setShowSortMenu] = useState(false)
+  const [showSmartBasket, setShowSmartBasket] = useState(false)
+  const [showReportModal, setShowReportModal] = useState(false)
+  const [showPriceExplanation, setShowPriceExplanation] = useState(false)
+
+  // Filtros y paginación
+  const [filters, setFilters] = useState({
+    searchQuery: '',
+    category: '',
+    store: 'todos',
+  })
+  const [sortBy, setSortBy] = useState('default')
   const [productsPage, setProductsPage] = useState(1)
-  const productsPageSize = 20
-  const initialSearchParams = new URLSearchParams(location.search)
+  const [productsPageSize, setProductsPageSize] = useState(PAGE_SIZE)
+  const [totalPages, setTotalPages] = useState(1)
+
+  // Favoritos e Historial de Búsqueda
   const [searchHistory, setSearchHistory] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('arprice_search_history') || '[]')
-      return Array.isArray(saved) ? saved.filter(Boolean).slice(0, 6) : []
+      const saved = localStorage.getItem('arprice_search_history')
+      return saved ? JSON.parse(saved) : []
     } catch {
       return []
     }
   })
-  const [storesList, setStoresList] = useState([])
-  const [filters, setFilters] = useState({
-    category: 'todos',
-    searchQuery: initialSearchParams.get('q') || '',
-    store: 'todos',
-    subcategory: 'todos',
-    priceStatus: 'todos',
-    sortBy: 'discount-desc',
-    maxPrice: 1000000,
-  });
-  const [reportModalOpen, setReportModalOpen] = useState(false);
-
-  const [selectedProductForComparison, setSelectedProductForComparison] = useState(null);
-  const [selectedProductForExplanation, setSelectedProductForExplanation] = useState(null);
-  const [basketOpen, setBasketOpen] = useState(false);
-  const [favoritesOnlyView, setFavoritesOnlyView] = useState(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    setViewMode(location.pathname === '/buscar' ? 'products' : 'categories');
-    if (location.pathname === '/buscar') {
-      setFilters((previous) => ({
-        ...previous,
-        searchQuery: params.get('q') ?? '',
-        category: params.get('category') ?? 'todos',
-        subcategory: 'todos',
-      }));
-    } else {
-      setFilters((previous) => ({
-        ...previous,
-        searchQuery: '',
-        category: 'todos',
-        subcategory: 'todos',
-      }));
-    }
-  }, [location.pathname, location.search]);
 
   const [favorites, setFavorites] = useState(() => {
     try {
-      const saved = localStorage.getItem('arprice_favorites');
-      return saved ? JSON.parse(saved) : ['prod-1', 'prod-4'];
+      const saved = localStorage.getItem('arprice_favorites')
+      return saved ? JSON.parse(saved) : []
     } catch {
-      return ['prod-1', 'prod-4'];
+      return []
     }
-  });
+  })
 
-  const [basket, setBasket] = useState(() => {
-    try {
-      const saved = localStorage.getItem('arprice_basket');
-      return saved
-        ? JSON.parse(saved)
-        : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', darkMode);
-    document.body.classList.toggle('dark', darkMode);
-    localStorage.setItem('arprice_theme', darkMode ? 'dark' : 'light');
-  }, [darkMode]);
-
-  useEffect(() => {
-    localStorage.setItem('arprice_favorites', JSON.stringify(favorites));
-  }, [favorites]);
-
-  useEffect(() => {
-    localStorage.setItem('arprice_basket', JSON.stringify(basket));
-  }, [basket]);
-
-  useEffect(() => {
-    if (productsPage !== 1) {
-      setProductsPage(1);
-    }
-  }, [filters.searchQuery, filters.category, filters.store]);
-
-  useEffect(() => {
-    const handleReviewDecisionUpdated = () => {
-      catalogReferenceCache.current = null
-      setCatalogRefreshKey((previous) => previous + 1)
-      setProductsPage(1)
-    }
-
-    window.addEventListener('arprice:review-decision-updated', handleReviewDecisionUpdated)
-    return () => window.removeEventListener('arprice:review-decision-updated', handleReviewDecisionUpdated)
-  }, [])
-
-  // Load categories and products from backend
+  // Carga de Referencias y Productos con Análisis de Precios
   useEffect(() => {
     let mounted = true
     const controller = new AbortController()
-    let searchTimer
-    setIsLoadingProducts(true)
-    const loadData = async () => {
-      let hasLoadedCatalog = false
+
+    async function loadData() {
+      setIsLoadingProducts(true)
       try {
-        const requestPageSize = Math.max(productsPageSize, 200)
         const baseQuery = {
-          // Pagination is applied locally after all matching products are loaded.
-          page: 1,
-          limit: requestPageSize,
           searchQuery: filters.searchQuery,
           category: filters.category,
-          store: 'todos',
+          store: filters.store,
+          city: selectedCity,
+          page: productsPage,
+          limit: productsPageSize,
         }
 
         const referencesPromise = catalogReferenceCache.current
           ? Promise.resolve(catalogReferenceCache.current)
           : Promise.all([
-<<<<<<< HEAD
-            apiFetch('/categories', { signal: controller.signal }),
-            apiFetch('/taxonomy', { signal: controller.signal }),
-            apiFetch('/supermarkets', { signal: controller.signal }),
-=======
-            fetch(apiUrl('/categories'), { signal: controller.signal }),
-            fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
-            fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
->>>>>>> origin/main
-          ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
-            const references = {
-              categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
-              taxonomy: taxonomyResponse.ok ? await taxonomyResponse.json() : [],
-              supermarkets: supermarketsResponse.ok ? await supermarketsResponse.json() : [],
-            }
-            catalogReferenceCache.current = references
-            return references
-          })
-        const [firstPageRes, references] = await Promise.all([
-<<<<<<< HEAD
-          apiFetch(`/products?${buildProductsQuery(baseQuery).toString()}`, { signal: controller.signal }),
-=======
-          fetch(apiUrl(`/products?${buildProductsQuery(baseQuery).toString()}`), { signal: controller.signal }),
->>>>>>> origin/main
+              apiFetch('/categories', { signal: controller.signal }),
+              apiFetch('/taxonomy', { signal: controller.signal }),
+              apiFetch('/supermarkets', { signal: controller.signal }),
+            ]).then(([categoriesRes, taxonomyRes, supermarketsRes]) => {
+              const refs = {
+                categories: Array.isArray(categoriesRes) ? categoriesRes : categoriesRes?.categories || [],
+                taxonomy: Array.isArray(taxonomyRes) ? taxonomyRes : taxonomyRes?.taxonomy || [],
+                supermarkets: Array.isArray(supermarketsRes) ? supermarketsRes : supermarketsRes?.supermarkets || [],
+              }
+              catalogReferenceCache.current = refs
+              return refs
+            })
+
+        const [productsRes, references] = await Promise.all([
+          apiFetch(`/products?${buildProductsQuery(baseQuery)}`, { signal: controller.signal }),
           referencesPromise,
         ])
 
         if (!mounted) return
 
-        if (!firstPageRes.ok) {
-          throw new Error('Backend returned non-ok response')
-        }
-
-        const firstPagePayload = await firstPageRes.json()
-        const firstPageData = Array.isArray(firstPagePayload) ? firstPagePayload : firstPagePayload.data || []
-        const firstPageTotal = Array.isArray(firstPagePayload)
-          ? firstPageData.length
-          : Number(firstPagePayload.total || firstPageData.length || 0)
-        const totalPagesToFetch = Math.max(1, Math.ceil(firstPageTotal / requestPageSize))
-<<<<<<< HEAD
         const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
-        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
-=======
-        const pageNumbers = Array.from({ length: totalPagesToFetch }, (_, index) => index + 1)
+        const supermarketImages = new Map((supermarkets || []).map((s) => [s.name, s.image]))
 
-        const remainingPageResponses = await Promise.all(
-          pageNumbers.slice(1).map(async (pageNumber) => {
-            const pageQuery = buildProductsQuery({
-              ...baseQuery,
-              page: pageNumber,
-              limit: requestPageSize,
-            })
-
-            const response = await fetch(apiUrl(`/products?${pageQuery.toString()}`), { signal: controller.signal })
-            if (!response.ok) {
-              throw new Error('Backend returned non-ok response')
-            }
-
-            return response.json()
-          })
-        )
-
-        const pagePayloads = [firstPagePayload, ...remainingPageResponses]
-        const allProductsFromApi = pagePayloads.flatMap((payload) => {
-          const pageData = Array.isArray(payload) ? payload : payload?.data || []
-          return Array.isArray(pageData) ? pageData : []
-        })
-        const validProds = allProductsFromApi.filter((product) => isValidCatalogProduct(product))
-
-        const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
-        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+        // Cache de análisis
         if (!analysisCache.current && !filters.searchQuery.trim()) {
-          const analysisRes = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
-          analysisCache.current = analysisRes.ok ? await analysisRes.json() : []
-        }
->>>>>>> origin/main
-        const analyses = analysisCache.current || []
-        const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
-
-        const enrichProducts = (productsToEnrich) => productsToEnrich
-          .filter((product) => isValidCatalogProduct(product))
-          .map((p) => {
-          const offers = p.offers || []
-          const otherStores = offers.map((o) => ({
-            id: o.id,
-            // handle either snake_case (cash_price) or camelCase (cashPrice) coming from different imports
-            price: Number(o.cash_price ?? o.cashPrice) || 0,
-            supermarket: o.supermarket || o.supermarket_name || o.storeName || '',
-            image: supermarketImages.get(o.supermarket || o.supermarket_name || o.storeName) || ''
-          }))
-          const primary = otherStores.reduce((best, s) => {
-            if (!best) return s
-            return s.price && s.price < best.price ? s : best
-          }, null)
-          const avgMarketPrice = otherStores.length ? Math.round(otherStores.reduce((acc, s) => acc + (s.price || 0), 0) / otherStores.length) : 0
-          const currentPrice = primary ? primary.price : 0
-          const percentageDiff = avgMarketPrice ? parseFloat((((currentPrice - avgMarketPrice) / avgMarketPrice) * 100).toFixed(1)) : 0
-          const status = primary
-            ? currentPrice <= avgMarketPrice
-              ? 'EN_PRECIO'
-              : 'INFLADO'
-            : 'EN_PRECIO'
-
-          const analysis = analysisByProduct.get(String(p.id))
-          const analysisStatus = analysis?.classification === 'PRECIO_NORMAL' ? 'EN_PRECIO' : analysis?.classification
-
-          return {
-            ...p,
-            brand: p.brand || p.brands?.name || '',
-            subcategory: p.subcategory || p.subcategories?.name || '',
-            currentPrice,
-            primaryStore: primary ? { name: primary.supermarket, id: primary.id } : { name: '', id: null },
-            avgMarketPrice,
-            percentageDiff,
-            status: analysisStatus || status,
-            analysis: analysis || null,
-            priceHistory: analysis?.priceHistory || p.priceHistory || [],
-            otherStores,
-            unit: p.unit || '',
+          try {
+            const analysisRes = await apiFetch('/analysis/products', { signal: controller.signal })
+            analysisCache.current = Array.isArray(analysisRes) ? analysisRes : []
+          } catch {
+            analysisCache.current = []
           }
-        })
+        }
 
-        const populatedTaxonomy = (taxonomyData || [])
-          .map((category) => ({
-            ...category,
-            subcategories: (category.subcategories || []).filter((subcategory) => Number(subcategory.productCount || 0) > 0),
-          }))
-          .filter((category) => Number(category.productCount || 0) > 0)
-        const populatedCategoryIds = new Set(populatedTaxonomy.map((category) => String(category.id)))
-        setCategories((cats || []).filter((category) => populatedCategoryIds.has(String(category.id))))
-        setTaxonomy(populatedTaxonomy)
-        setProducts(enrichProducts(firstPageData))
-        setIsLoadingProducts(false)
-        hasLoadedCatalog = true
+        const analyses = analysisCache.current || []
+        const analysisByProduct = new Map(analyses.map((item) => [String(item.product?.id), item]))
 
-        const storesSet = new Set()
-        const addStoreOptions = (productRows) => {
-          productRows.forEach((product) => {
-            (product.offers || []).forEach((offer) => {
-              if (offer.supermarket) storesSet.add(offer.supermarket)
+        const rawProducts = Array.isArray(productsRes) ? productsRes : productsRes?.data || productsRes?.products || []
+        const calcTotalPages = productsRes?.totalPages || getTotalPages(productsRes?.total || rawProducts.length, productsPageSize)
+
+        setTotalPages(calcTotalPages)
+
+        const enrichProducts = (list) =>
+          list
+            .filter(isValidCatalogProduct)
+            .map((p) => {
+              const offers = p.offers || []
+              const otherStores = offers.map((o) => ({
+                id: o.id,
+                price: Number(o.cash_price ?? o.cashPrice ?? o.price) || 0,
+                supermarket: o.supermarket || o.supermarket_name || o.storeName || '',
+                image: supermarketImages.get(o.supermarket || o.supermarket_name || o.storeName) || '',
+              }))
+
+              const primary = otherStores.reduce((best, s) => {
+                if (!best) return s
+                return s.price && s.price < best.price ? s : best
+              }, null)
+
+              const avgMarketPrice = otherStores.length
+                ? Math.round(otherStores.reduce((acc, s) => acc + (s.price || 0), 0) / otherStores.length)
+                : 0
+              const currentPrice = primary ? primary.price : Number(p.price || p.currentPrice) || 0
+              const percentageDiff = avgMarketPrice
+                ? parseFloat((((currentPrice - avgMarketPrice) / avgMarketPrice) * 100).toFixed(1))
+                : 0
+
+              const analysis = analysisByProduct.get(String(p.id))
+              const status = analysis?.classification
+                ? analysis.classification === 'PRECIO_NORMAL'
+                  ? 'EN_PRECIO'
+                  : analysis.classification
+                : primary
+                ? currentPrice <= avgMarketPrice
+                  ? 'EN_PRECIO'
+                  : 'INFLADO'
+                : 'EN_PRECIO'
+
+              return {
+                ...p,
+                brand: p.brand || p.brands?.name || '',
+                subcategory: p.subcategory || p.subcategories?.name || '',
+                currentPrice,
+                primaryStore: primary ? { name: primary.supermarket, id: primary.id } : { name: '', id: null },
+                avgMarketPrice,
+                percentageDiff,
+                status,
+                analysis: analysis || null,
+                priceHistory: analysis?.priceHistory || p.priceHistory || [],
+                otherStores,
+                unit: p.unit || '',
+              }
             })
+
+        setCategories(cats.length ? cats : MOCK_CATEGORIES)
+        setTaxonomy(taxonomyData)
+        setSupermarkets(supermarkets)
+        setProducts(enrichProducts(rawProducts))
+
+        // Extraer lista única de supermercados
+        const storesSet = new Set()
+        rawProducts.forEach((p) => {
+          (p.offers || []).forEach((o) => {
+            if (o.supermarket) storesSet.add(o.supermarket)
           })
-          const storesArr = Array.from(storesSet).map((name) => ({ id: name, name, image: supermarketImages.get(name) || '' }))
-          setStoresList(storesArr)
-        }
-        addStoreOptions(firstPageData)
-
-        for (let pageNumber = 2; pageNumber <= totalPagesToFetch; pageNumber += 1) {
-          const pageQuery = buildProductsQuery({ ...baseQuery, page: pageNumber, limit: requestPageSize })
-          const response = await apiFetch(`/products?${pageQuery.toString()}`, { signal: controller.signal })
-          if (!response.ok) throw new Error('Backend returned non-ok response')
-          const pagePayload = await response.json()
-          const pageData = Array.isArray(pagePayload) ? pagePayload : pagePayload?.data || []
-          if (!mounted) return
-          setProducts((current) => appendUniqueProducts(current, enrichProducts(pageData)))
-          addStoreOptions(pageData)
-        }
-      } catch (err) {
-        console.error('Error loading data', err)
+        })
+        setStoresList(Array.from(storesSet).map((name) => ({ id: name, name, image: supermarketImages.get(name) || '' })))
+      } catch (error) {
         if (!mounted) return
-        if (hasLoadedCatalog) return
+        console.error('Error cargando catálogo:', error)
 
-        const enriched = MOCK_PRODUCTS.map((p) => ({
+        // Respaldo Mock
+        const mockEnriched = MOCK_PRODUCTS.filter(isValidCatalogProduct).map((p) => ({
           ...p,
-          currentPrice: Number(p.currentPrice || 0),
+          currentPrice: Number(p.currentPrice || p.price || 0),
           avgMarketPrice: Number(p.avgMarketPrice || 0),
           percentageDiff: Number(p.percentageDiff || 0),
           status: p.status || 'EN_PRECIO',
@@ -397,637 +242,276 @@ export default function App() {
         }))
 
         setCategories(MOCK_CATEGORIES)
-        setProducts(enriched)
-
-        const storesSet = new Set()
-        enriched.forEach((p) => {
-          (p.otherStores || []).forEach((o) => {
-            if (o.storeName) storesSet.add(o.storeName)
-          })
-          if (p.primaryStore?.name) storesSet.add(p.primaryStore.name)
-        })
-
-        const storesArr = Array.from(storesSet).map((name) => ({ id: name, name }))
-        setStoresList(storesArr)
+        setProducts(mockEnriched)
       } finally {
         if (mounted) setIsLoadingProducts(false)
       }
     }
 
-    searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? 250 : 0)
+    loadData()
 
     return () => {
       mounted = false
       controller.abort()
-      clearTimeout(searchTimer)
     }
-<<<<<<< HEAD
-  }, [productsPageSize, filters.searchQuery, filters.category, filters.store, catalogRefreshKey])
-=======
-  }, [productsPageSize, filters.searchQuery, filters.category, filters.store])
->>>>>>> origin/main
+  }, [filters, productsPage, productsPageSize, selectedCity, catalogRefreshKey])
+
+  // Persistencia de Favoritos
+  useEffect(() => {
+    try {
+      localStorage.setItem('arprice_favorites', JSON.stringify(favorites))
+    } catch (e) {
+      console.error('Error guardando favoritos', e)
+    }
+  }, [favorites])
+
+  // Cerrar menú orden al hacer click afuera
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(event.target)) {
+        setShowSortMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Filtrado y Ordenamiento local de productos
+  const filteredProducts = useMemo(() => {
+    let result = [...products]
+
+    if (filters.searchQuery.trim()) {
+      const query = filters.searchQuery.toLowerCase().trim()
+      result = result.filter(
+        (p) =>
+          p.name?.toLowerCase().includes(query) ||
+          p.brand?.toLowerCase().includes(query) ||
+          p.category?.toLowerCase().includes(query)
+      )
+    }
+
+    if (filters.category) {
+      const cat = filters.category.toLowerCase()
+      result = result.filter(
+        (p) => p.category?.toLowerCase() === cat || p.category_name?.toLowerCase() === cat
+      )
+    }
+
+    if (filters.store && filters.store !== 'todos') {
+      const store = filters.store.toLowerCase()
+      result = result.filter((p) =>
+        p.otherStores?.some((o) => o.supermarket?.toLowerCase() === store)
+      )
+    }
+
+    // Ordenamiento
+    if (sortBy === 'name-asc') {
+      result.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es'))
+    } else if (sortBy === 'price-asc') {
+      result.sort((a, b) => (a.currentPrice || 0) - (b.currentPrice || 0))
+    } else if (sortBy === 'price-desc') {
+      result.sort((a, b) => (b.currentPrice || 0) - (a.currentPrice || 0))
+    } else if (sortBy === 'discount') {
+      result.sort((a, b) => (b.percentageDiff || 0) - (a.percentageDiff || 0))
+    }
+
+    return result
+  }, [products, filters, sortBy])
+
+  // Manejadores
+  const handleSearchSubmit = (e) => {
+    e.preventDefault()
+    const form = new FormData(e.currentTarget)
+    const query = String(form.get('search') || '').trim()
+
+    setFilters((prev) => ({ ...prev, searchQuery: query }))
+    setProductsPage(1)
+
+    if (query && !searchHistory.includes(query)) {
+      const updated = [query, ...searchHistory].slice(0, 5)
+      setSearchHistory(updated)
+      localStorage.setItem('arprice_search_history', JSON.stringify(updated))
+    }
+  }
 
   const toggleFavorite = (product) => {
+    const id = product.id ?? product.product_id ?? product.name
     setFavorites((prev) =>
-      prev.includes(product.id) ? prev.filter((id) => id !== product.id) : [...prev, product.id]
-    );
-  };
-
-  const addToBasket = (product, selectedOffer = null) => {
-    // Normalize selectedOffer shapes coming from different places
-    const offer = selectedOffer
-      ? {
-          price: Number((selectedOffer.price ?? selectedOffer.cash_price ?? selectedOffer.cashPrice ?? product.currentPrice) || 0),
-          storeId: selectedOffer.id ?? selectedOffer.storeId ?? (selectedOffer.supermarket || selectedOffer.storeName) ?? 'default',
-          storeName: selectedOffer.supermarket ?? selectedOffer.storeName ?? product.primaryStore?.name ?? 'Precio actual',
-        }
-      : {
-          price: Number(product.currentPrice || 0),
-          storeId: product.primaryStore?.id || 'default',
-          storeName: product.primaryStore?.name || 'Precio actual',
-        };
-
-    const itemId = `${product.id}-${offer.storeId}-${offer.price}`;
-
-    setBasket((prev) => {
-      const existing = prev.find((item) => item.id === itemId);
-      if (existing) {
-        return prev.map((item) =>
-          item.id === itemId ? { ...item, quantity: item.quantity + 1 } : item
-        );
-      }
-      return [...prev, { id: itemId, product, quantity: 1, selectedOffer: offer }];
-    });
-  };
-
-  const updateBasketQuantity = (itemId, delta) => {
-    setBasket((prev) =>
-      prev
-        .map((item) => {
-          if (item.id === itemId) {
-            const newQty = item.quantity + delta;
-            return newQty > 0 ? { ...item, quantity: newQty } : null;
-          }
-          return item;
-        })
-        .filter(Boolean)
-    );
-  };
-
-  const removeFromBasket = (itemId) => {
-    setBasket((prev) => prev.filter((item) => item.id !== itemId));
-  };
-
-  const clearBasket = () => {
-    setBasket([]);
-  };
-
-  const filteredProducts = useMemo(() => {
-    const searchQuery = normalizeSearchText(filters.searchQuery)
-
-    return products.filter((product) => {
-      if (!isValidCatalogProduct(product)) return false;
-      if (favoritesOnlyView && !favorites.includes(product.id)) {
-        return false;
-      }
-
-      if (filters.category !== 'todos' && product.category_id !== filters.category && product.category !== filters.category) {
-        return false;
-      }
-
-      if (filters.subcategory !== 'todos' && product.subcategory_id !== filters.subcategory) {
-        return false;
-      }
-
-      if (searchQuery !== '') {
-        const matchesName = normalizeSearchText(product.name).includes(searchQuery);
-        const matchesBrand = normalizeSearchText(product.brand).includes(searchQuery);
-        const matchesSubcat = normalizeSearchText(product.subcategory).includes(searchQuery);
-        const matchesStore = (product.offers || []).some((o) => normalizeSearchText(o.supermarket).includes(searchQuery));
-        if (!matchesName && !matchesBrand && !matchesSubcat && !matchesStore) {
-          return false;
-        }
-      }
-
-      if (filters.store !== 'todos') {
-        const hasStore = (product.offers || []).some((o) => (o.supermarket || '') === filters.store);
-        if (!hasStore) return false;
-      }
-
-      const rawStatus = (product.status || '').toString().toUpperCase();
-      const derivedStatus = rawStatus || (product.currentPrice <= product.avgMarketPrice ? 'EN_PRECIO' : 'INFLADO');
-      if (filters.priceStatus === 'OFERTA' && derivedStatus !== 'OFERTA') return false;
-      if (filters.priceStatus === 'EN_PRECIO' && derivedStatus !== 'EN_PRECIO' && derivedStatus !== 'PRECIO_NORMAL') return false;
-      if (filters.priceStatus === 'INFLADO' && derivedStatus !== 'INFLADO' && derivedStatus !== 'AUMENTO_ATIPICO' && derivedStatus !== 'SOBREPRECIO') return false;
-
-      const currentPrice = (product.offers || []).reduce((min, o) => {
-        const p = Number(o.cash_price) || 0
-        if (min === null) return p
-        return p && p < min ? p : min
-      }, null)
-
-      if (currentPrice && currentPrice > filters.maxPrice) {
-        return false;
-      }
-
-      return true;
-    }).sort((a, b) => {
-      if (searchQuery) {
-        const normalizedName = normalizeSearchText(a.name)
-        const normalizedBrand = normalizeSearchText(a.brand)
-        const normalizedSubcategory = normalizeSearchText(a.subcategory)
-        const relevance = (name, fieldWeight) => {
-          if (name === searchQuery) return fieldWeight
-          if (name.startsWith(searchQuery)) return fieldWeight + 1
-          if (name.split(/\s+/).some((word) => word.startsWith(searchQuery))) return fieldWeight + 2
-          if (name.includes(searchQuery)) return fieldWeight + 3
-          return 100
-        }
-        const relevanceA = Math.min(relevance(normalizedName, 0), relevance(normalizedBrand, 20), relevance(normalizedSubcategory, 30))
-        const relevanceB = Math.min(relevance(normalizeSearchText(b.name), 0), relevance(normalizeSearchText(b.brand), 20), relevance(normalizeSearchText(b.subcategory), 30))
-        if (relevanceA !== relevanceB) return relevanceA - relevanceB
-      }
-
-      const brandA = normalizeSearchText(a.brand || a.name || '')
-      const brandB = normalizeSearchText(b.brand || b.name || '')
-
-      if (brandA !== brandB) {
-        return brandA.localeCompare(brandB)
-      }
-
-      const primarySort = (() => {
-        switch (filters.sortBy) {
-          case 'price-asc':
-            return (a.currentPrice || 0) - (b.currentPrice || 0);
-          case 'price-desc':
-            return (b.currentPrice || 0) - (a.currentPrice || 0);
-          case 'discount-desc':
-            return (b.percentageDiff || 0) - (a.percentageDiff || 0);
-          case 'rating-desc':
-            return (b.rating || 0) - (a.rating || 0);
-          case 'name-asc':
-            return (a.name || '').localeCompare(b.name || '');
-          default:
-            return 0;
-        }
-      })();
-
-      if (primarySort !== 0) {
-        return primarySort;
-      }
-
-      return (a.name || '').localeCompare(b.name || '');
-    });
-  }, [filters, favoritesOnlyView, favorites, products]);
-
-  const paginatedProducts = useMemo(() => {
-    const start = (productsPage - 1) * productsPageSize;
-    return filteredProducts.slice(start, start + productsPageSize);
-  }, [filteredProducts, productsPage, productsPageSize]);
-
-  const resetFilters = () => {
-    setFilters({
-      category: 'todos',
-      searchQuery: '',
-      store: 'todos',
-      subcategory: 'todos',
-      priceStatus: 'todos',
-      sortBy: 'discount-desc',
-      maxPrice: 1000000,
-    });
-    setFavoritesOnlyView(false);
-    setViewMode('categories');
-    navigate('/');
-  };
-
-  const handleSelectCategory = (catId) => {
-    setFilters((prev) => ({ ...prev, category: catId, subcategory: 'todos' }));
-    setFavoritesOnlyView(false);
-    setViewMode('products');
-    navigate(`/buscar${catId !== 'todos' ? `?category=${encodeURIComponent(catId)}` : ''}`);
-  };
-
-  const navigateToSearch = () => {
-    const query = filters.searchQuery.trim();
-    if (query) {
-      setSearchHistory((previous) => [query, ...previous.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6))
-    }
-    navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
-  };
-
-  const handleQuickSearch = (term) => {
-    const query = String(term || '').trim();
-    if (query) {
-      setSearchHistory((previous) => [query, ...previous.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6))
-    }
-    setViewMode('products');
-    navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
-  };
-
-  useEffect(() => {
-    localStorage.setItem('arprice_search_history', JSON.stringify(searchHistory))
-  }, [searchHistory])
-
-  const totalPages = useMemo(() => getTotalPages(filteredProducts.length, productsPageSize), [filteredProducts.length, productsPageSize]);
-  const visiblePages = useMemo(() => getVisiblePageNumbers(productsPage, totalPages, 1), [productsPage, totalPages]);
-
-  useEffect(() => {
-    if (productsPage > totalPages) {
-      setProductsPage(totalPages);
-    }
-  }, [productsPage, totalPages]);
-
-  const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
-  const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
-  const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
+      prev.includes(id) ? prev.filter((favId) => favId !== id) : [...prev, id]
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
+    <div className="min-h-screen bg-gray-50 text-gray-900">
       <Header
-        darkMode={darkMode}
-        setDarkMode={setDarkMode}
-        selectedCity={selectedCity}
-        setSelectedCity={setSelectedCity}
-        basketCount={basket.reduce((acc, i) => acc + i.quantity, 0)}
-        onOpenBasket={() => setBasketOpen(true)}
+        onOpenSmartBasket={() => setShowSmartBasket(true)}
+        onOpenReportModal={() => setShowReportModal(true)}
         favoritesCount={favorites.length}
-        onOpenFavorites={() => {
-          setFavoritesOnlyView((prev) => !prev);
-          setViewMode('products');
-          navigate('/buscar');
-        }}
-        onResetView={resetFilters}
-        isAdminPage={false}
       />
 
-      {viewMode === 'categories' ? (
-        <>
-          <HeroCategoryGrid
-            categories={categories}
-            selectedCategory={filters.category}
-            onSelectCategory={handleSelectCategory}
-            searchQuery={filters.searchQuery}
-            setSearchQuery={(value) => setFilters((prev) => ({ ...prev, searchQuery: value }))}
-            onSearchSubmit={navigateToSearch}
-            onQuickSearch={handleQuickSearch}
-            searchHistory={searchHistory}
-            onSelectSearch={handleQuickSearch}
-            onRemoveSearch={(query) => setSearchHistory((previous) => previous.filter((item) => item !== query))}
-            onClearSearch={() => setSearchHistory([])}
-          />
+      <main className="mx-auto max-w-7xl px-4 py-6 space-y-6">
+        <DealsSummaryBanner />
+        <HeroCategoryGrid
+          categories={categories}
+          selectedCategory={filters.category}
+          onSelectCategory={(catName) => {
+            setFilters((prev) => ({ ...prev, category: catName }))
+            setProductsPage(1)
+          }}
+        />
 
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-[0.24em] text-sky-600 font-bold">Novedades y ofertas</p>
-                <h2 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">Ofertas destacadas y alertas de precios inflados</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReportModalOpen(true)}
-                className="px-4 py-2 rounded-xl bg-sky-600 text-white font-semibold text-sm hover:bg-sky-500 transition-colors"
-              >
-                Reportar un precio
-              </button>
-            </div>
-
-            <DealsSummaryBanner
-              products={products}
-              onSelectProduct={(product) => {
-                setSelectedProductForComparison(product);
-                setViewMode('products');
-                navigate('/buscar');
-              }}
+        {/* BARRA DE FILTROS Y BÚSQUEDA */}
+        <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+          <form onSubmit={handleSearchSubmit} className="relative w-full md:w-96">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              name="search"
+              defaultValue={filters.searchQuery}
+              placeholder="Buscar productos, marcas..."
+              className="w-full pl-10 pr-4 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
             />
-          </div>
-        </>
-      ) : (
-        <main id="products-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-          <div className="bg-white dark:bg-stone-800 p-4 rounded-3xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          </form>
+
+          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm hover:bg-gray-50"
+            >
+              <SlidersHorizontal size={16} />
+              <span>Filtros</span>
+            </button>
+
+            {/* Selector de Orden */}
+            <div className="relative" ref={sortMenuRef}>
               <button
-                onClick={() => {
-                  setViewMode('categories');
-                  navigate('/');
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/80 text-sky-700 dark:text-sky-300 font-bold text-xs sm:text-sm border border-sky-200/80 dark:border-sky-800 transition-all cursor-pointer w-fit"
+                onClick={() => setShowSortMenu(!showSortMenu)}
+                className="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm hover:bg-gray-50"
               >
-                <ArrowLeft className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                <span>Volver a Categorías</span>
+                <ArrowDownWideNarrow size={16} />
+                <span>Ordenar</span>
+                <ChevronDown size={14} />
               </button>
-              <div className="flex items-center gap-2 text-xs font-semibold text-stone-500 dark:text-stone-400">
-                <span className="text-stone-400">Categoría activa:</span>
-                <span className="px-3 py-1.5 rounded-full bg-sky-600 text-white font-extrabold text-xs">
-                  {favoritesOnlyView ? '❤️ Favoritos' : currentCategoryName}
-                </span>
-              </div>
-            </div>
-          </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-stone-800 p-4 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs">
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-stone-500 dark:text-stone-400">
-              <button onClick={resetFilters} className="hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer">
-                Inicio
-              </button>
-              <ChevronRight className="w-4 h-4 text-stone-400" />
-              <span className="text-stone-900 dark:text-white font-bold">{favoritesOnlyView ? '❤️ Mis Favoritos' : currentCategoryName}</span>
-              {filters.searchQuery && (
-                <>
-                  <ChevronRight className="w-4 h-4 text-stone-400" />
-                  <span className="text-sky-600 dark:text-sky-400 italic">"{filters.searchQuery}"</span>
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="font-semibold text-stone-600 dark:text-stone-300">
-                Mostrando <strong className="text-sky-600 dark:text-sky-400 font-extrabold">{paginatedProducts.length}</strong> productos · Página {productsPage} de {totalPages}
-              </span>
-              {(filters.category !== 'todos' || filters.subcategory !== 'todos' || filters.searchQuery || filters.store !== 'todos' || favoritesOnlyView) && (
-                <button
-                  onClick={() => {
-                    setFilters({
-                      category: filters.category,
-                      searchQuery: '',
-                      store: 'todos',
-                      subcategory: 'todos',
-                      priceStatus: 'todos',
-                      sortBy: 'discount-desc',
-                      maxPrice: 1000000,
-                    });
-                    setFavoritesOnlyView(false);
-                  }}
-                  className="flex items-center gap-1 text-rose-500 hover:underline font-bold cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Limpiar Filtros</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          <section className="rounded-3xl border border-sky-300 bg-sky-50/70 p-4 shadow-sm dark:border-sky-700 dark:bg-sky-950/30 sm:p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-sky-600 dark:text-sky-400">Explorar por rubro</p>
-                <h2 className="mt-1 text-lg font-black text-stone-900 dark:text-white">Categorías principales</h2>
-              </div>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory">
-              <button
-                type="button"
-                onClick={() => handleSelectCategory('todos')}
-                className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${filters.category === 'todos' && !favoritesOnlyView ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}
-              >
-                <span className="block text-sm font-black leading-tight">Todos</span>
-              </button>
-              {categories.map((category) => {
-                const isSelected = filters.category === category.id && !favoritesOnlyView
-                return (
-                  <button key={category.id} type="button" onClick={() => handleSelectCategory(category.id)} className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${isSelected ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}>
-                    <span className={`block text-sm font-black leading-tight ${isSelected ? 'text-white' : 'text-stone-900 dark:text-white'}`}>{category.name}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </section>
-
-          <div className="bg-white dark:bg-stone-800 p-4 sm:p-5 rounded-3xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-stone-700/60">
-              <h3 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                <span>Panel de Búsqueda y Filtros</span>
-              </h3>
-              <div className="text-xs font-semibold text-stone-400">Ubicación: {selectedCity}</div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Buscar Producto o Marca</label>
-
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={filters.searchQuery}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
-                    placeholder="Ej: Leche, Playadito, TV..."
-                    className="w-full pl-9 pr-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
-                  />
-                  <Search className="w-4 h-4 text-stone-400 absolute left-3 top-3" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Filtrar por Comercio</label>
-                <select
-                  value={filters.store}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, store: e.target.value }))}
-                  className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
-                >
-                  <option value="todos">Todos los comercios</option>
-                  {storesList.map((store) => (
-                    <option key={store.id} value={store.id}>
-                      {store.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Subcategoría</label>
-                <select
-                  value={filters.subcategory}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, subcategory: e.target.value }))}
-                  disabled={filters.category === 'todos'}
-                  className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-bold disabled:opacity-60"
-                >
-                  <option value="todos">Todas las subcategorías</option>
-                  {availableSubcategories.map((subcategory) => (
-                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name} ({subcategory.productCount || 0})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Ordenar Lista Por</label>
-                <SortMenu
-                  value={filters.sortBy}
-                  onChange={(sortBy) => setFilters((prev) => ({ ...prev, sortBy }))}
-                />
-
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-stone-100 dark:border-stone-700/50">
-              <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider">Filtros rápidos:</span>
-              <button
-                type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'OFERTA' }))}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'OFERTA' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900'}`}
-              >
-                <Tag className="h-3.5 w-3.5" aria-hidden="true" />
-                En oferta
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'EN_PRECIO' }))}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'EN_PRECIO' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-900'}`}
-              >
-                <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
-                En precio
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'INFLADO' }))}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'INFLADO' ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900'}`}
-              >
-                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                Inflado
-              </button>
-            </div>
-
-          </div>
-
-          {isLoadingProducts ? (
-            <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-sky-200 dark:border-sky-800 space-y-4" role="status" aria-live="polite">
-              <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
-                <Loader2 className="w-8 h-8 animate-spin" aria-hidden="true" />
-              </div>
-              <h3 className="text-xl font-bold text-stone-900 dark:text-white">Cargando productos</h3>
-              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Estamos actualizando los productos de esta categoría.</p>
-            </div>
-          ) : filteredProducts.length === 0 ? (
-            <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-stone-200/80 dark:border-stone-700/80 space-y-4">
-              <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
-                <Search className="w-8 h-8" />
-              </div>
-              <h3 className="text-xl font-bold text-stone-900 dark:text-white">No encontramos productos con los filtros seleccionados</h3>
-              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.</p>
-              <button
-                onClick={() => {
-                  setFilters({
-                    category: 'todos',
-                    searchQuery: '',
-                    store: 'todos',
-                    subcategory: 'todos',
-                    sortBy: 'discount-desc',
-                    maxPrice: 1000000,
-                  });
-                  setFavoritesOnlyView(false);
-                }}
-                className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
-              >
-                Restablecer Filtros
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-                {paginatedProducts.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    onCompare={(p) => setSelectedProductForComparison(p)}
-                    onExplain={(p) => setSelectedProductForExplanation(p)}
-                    onToggleFavorite={toggleFavorite}
-                    isFavorite={favorites.includes(product.id)}
-                    onAddToBasket={addToBasket}
-                    isInBasket={basket.some((i) => i.product.id === product.id)}
-                  />
-                ))}
-              </div>
-
-              {totalPages > 1 && (
-                <div className="flex flex-wrap items-center justify-center gap-2 pt-4">
+              {showSortMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border p-1 z-20 text-sm">
                   <button
-                    type="button"
-                    onClick={() => setProductsPage((page) => Math.max(1, page - 1))}
-                    disabled={productsPage === 1}
-                    className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
+                    onClick={() => { setSortBy('default'); setShowSortMenu(false) }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded"
                   >
-                    Anterior
+                    Relevancia
                   </button>
-                  {visiblePages.map((page) => (
-                    <button
-                      key={page}
-                      type="button"
-                      onClick={() => setProductsPage(page)}
-                      className={`min-w-10 rounded-lg border px-3 py-2 text-xs font-bold ${productsPage === page ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 bg-white text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200'}`}
-                    >
-                      {page}
-                    </button>
-                  ))}
                   <button
-                    type="button"
-                    onClick={() => setProductsPage((page) => Math.min(totalPages, page + 1))}
-                    disabled={productsPage === totalPages}
-                    className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
+                    onClick={() => { setSortBy('price-asc'); setShowSortMenu(false) }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded"
                   >
-                    Siguiente
+                    Menor precio
+                  </button>
+                  <button
+                    onClick={() => { setSortBy('price-desc'); setShowSortMenu(false) }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded"
+                  >
+                    Mayor precio
                   </button>
                 </div>
               )}
-            </>
-          )}
-        </main>
-      )}
-
-      <footer className="mt-16 bg-white dark:bg-stone-900 border-t border-stone-200/80 dark:border-stone-800 py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-stone-100 dark:border-stone-800 pb-8">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white">
-                  <TrendingDown className="w-4 h-4" />
-                </div>
-                <span className="text-xl font-black text-stone-900 dark:text-white">ARPrice</span>
-              </div>
-              <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">Plataforma colaborativa e independiente para la comparación de precios en tiempo real.</p>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <button onClick={() => setReportModalOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
-                Reportar precio
-              </button>
-              <button onClick={() => setBasketOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
-                Ver Mi Canasta Ahorro
-              </button>
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400 font-medium">
-            <p>© {new Date().getFullYear()} ARPrice Argentina. Comparativa libre e independiente.</p>
-            <p>Ubicación activa: <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
           </div>
         </div>
-      </footer>
 
-      {selectedProductForComparison && (
+        {/* GRILLA DE PRODUCTOS */}
+        {isLoadingProducts ? (
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+          </div>
+        ) : filteredProducts.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-xl border">
+            <AlertTriangle className="mx-auto text-amber-500 mb-2" size={32} />
+            <p className="text-gray-600">No se encontraron productos con los filtros aplicados.</p>
+            <button
+              onClick={() => setFilters({ searchQuery: '', category: '', store: 'todos' })}
+              className="mt-4 text-sm font-semibold text-green-600 hover:underline"
+            >
+              Limpiar filtros
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {filteredProducts.map((product) => (
+              <ProductCard
+                key={product.id || product.name}
+                product={product}
+                isFavorite={favorites.includes(product.id ?? product.product_id ?? product.name)}
+                onToggleFavorite={() => toggleFavorite(product)}
+                onClick={() => setSelectedProduct(product)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* PAGINACIÓN */}
+        {totalPages > 1 && (
+          <div className="flex justify-center items-center gap-2 pt-6">
+            {getVisiblePageNumbers(productsPage, totalPages).map((p, idx) =>
+              p === '...' ? (
+                <span key={idx} className="px-2 text-gray-400">...</span>
+              ) : (
+                <button
+                  key={p}
+                  onClick={() => setProductsPage(p)}
+                  className={`px-3 py-1 text-sm rounded-md border ${
+                    productsPage === p ? 'bg-green-600 text-white border-green-600' : 'bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              )
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* MODALES */}
+      {selectedProduct && (
         <ComparisonModal
-          product={selectedProductForComparison}
-          onClose={() => setSelectedProductForComparison(null)}
-          onAddToBasket={addToBasket}
-          isInBasket={basket.some((i) => i.product.id === selectedProductForComparison.id)}
-          onExplain={(p) => setSelectedProductForExplanation(p)}
+          product={selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+          onOpenExplanation={() => setShowPriceExplanation(true)}
         />
       )}
 
-      <PriceExplanationModal
-        product={selectedProductForExplanation}
-        onClose={() => setSelectedProductForExplanation(null)}
-      />
-
-      {basketOpen && (
-        <SmartBasketModal
-          basket={basket}
-          onClose={() => setBasketOpen(false)}
-          onUpdateQuantity={updateBasketQuantity}
-          onRemoveItem={removeFromBasket}
-          onClearBasket={clearBasket}
-        />
+      {showSmartBasket && (
+        <SmartBasketModal onClose={() => setShowSmartBasket(false)} />
       )}
 
-      {reportModalOpen && (
-        <ReportPriceModal onClose={() => setReportModalOpen(false)} selectedCity={selectedCity} />
+      {showReportModal && (
+        <ReportPriceModal onClose={() => setShowReportModal(false)} />
+      )}
+
+      {showPriceExplanation && selectedProduct && (
+        <PriceExplanationModal
+          product={selectedProduct}
+          onClose={() => setShowPriceExplanation(false)}
+        />
       )}
     </div>
+  )
+}
 
-  );
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<MainCatalog />} />
+      <Route path="/categories" element={<CategorySelectionPage />} />
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/admin/*"
+        element={
+          <ProtectedRoute>
+            <Admin />
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  )
 }

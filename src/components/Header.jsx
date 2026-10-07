@@ -6,17 +6,9 @@ import {
   Moon, 
   ShoppingBag, 
   Heart, 
-  LogIn,
-  LogOut,
-  UserPlus,
-  UserRound,
+  ListFilter,
 } from 'lucide-react';
-<<<<<<< HEAD
 import { adminFetch, apiFetch } from '../config/api.js';
-=======
-import { adminFetch, apiUrl } from '../config/api.js';
-import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
->>>>>>> origin/main
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
 
@@ -29,12 +21,16 @@ export function Header({
   favoritesCount,
   onOpenFavorites,
   onResetView,
+  categories = [],
+  selectedCategory,
+  onSelectCategory,
   isAdminPage = false,
 }) {
   const location = useLocation()
   const { user, profile, signOut } = useCustomerAuth()
   const isAdminHeader = isAdminPage || location.pathname === '/admin'
   const [showAdminPanel, setShowAdminPanel] = useState(false)
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false)
   const [panelCategories, setPanelCategories] = useState([])
   const [panelBrands, setPanelBrands] = useState([])
   const [panelSupermarkets, setPanelSupermarkets] = useState([])
@@ -115,16 +111,21 @@ export function Header({
           {!isAdminHeader && (
             <>
               <button
+                onClick={() => setShowCategoryMenu((open) => !open)}
+                className="relative flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-bold text-white hover:bg-white/25 dark:bg-stone-800/60 dark:text-stone-200 transition-colors cursor-pointer"
+                title="Seleccionar categoría para comparar precios"
+                aria-expanded={showCategoryMenu}
+              >
+                <ListFilter className="w-4 h-4" />
+                <span className="hidden sm:inline">Categorías</span>
+              </button>
+
+              <button
                 onClick={onOpenFavorites}
                 className="relative p-2 rounded-lg text-white dark:text-stone-300 hover:text-rose-200 dark:hover:text-rose-400 hover:bg-white/20 dark:hover:bg-stone-800 transition-colors cursor-pointer"
                 title="Ver Favoritos"
               >
                 <Heart className="w-5 h-5" />
-                {favoritesCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
-                    {favoritesCount}
-                  </span>
-                )}
               </button>
 
               <button
@@ -201,6 +202,45 @@ export function Header({
         </div>
 
       </div>
+
+      {!isAdminHeader && showCategoryMenu && (
+        <div className="fixed right-4 top-24 z-50 w-[min(22rem,calc(100vw-2rem))] max-h-[65vh] overflow-auto rounded-2xl border border-sky-200 bg-white p-3 text-stone-900 shadow-2xl dark:border-stone-700 dark:bg-stone-800 dark:text-white">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">Comparar precios</p>
+              <h2 className="text-base font-black">Selecciona una categoría</h2>
+            </div>
+            <button onClick={() => setShowCategoryMenu(false)} className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700" aria-label="Cerrar menú de categorías">Cerrar</button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowCategoryMenu(false)
+                onSelectCategory('todos')
+              }}
+              className={`rounded-xl border p-3 text-left transition-colors ${selectedCategory === 'todos' ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
+            >
+              <span className="block text-sm font-black">Todos los productos</span>
+              <span className={`mt-1 block text-xs ${selectedCategory === 'todos' ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>Comparar todo el catálogo</span>
+            </button>
+            {categories.map((category) => (
+              <button
+                type="button"
+                key={category.id}
+                onClick={() => {
+                  setShowCategoryMenu(false)
+                  onSelectCategory(category.id)
+                }}
+                className={`rounded-xl border p-3 text-left transition-colors ${selectedCategory === category.id ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
+              >
+                <span className="block text-sm font-black">{category.name}</span>
+                <span className={`mt-1 block text-xs ${selectedCategory === category.id ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>{category.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Floating admin quick panel */}
       {isAdminHeader && showAdminPanel && (
