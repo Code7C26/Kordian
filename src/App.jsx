@@ -26,11 +26,11 @@ import ProtectedRoute from './components/ProtectedRoute'
 
 import { SelectedCityProvider } from './contexts/SelectedCityContext.jsx'
 
-import { MOCK_PRODUCTS, MOCK_CATEGORIES } from './data/mockData'
+import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js'
 import { apiFetch } from './config/api'
 import { getTotalPages } from './utils/pagination'
-import { buildCatalogQuery } from './utils/catalogQuery'
-import { validCatalogProduct } from './utils/validCatalogProduct'
+import { buildProductsQuery as buildCatalogQuery } from './utils/catalogQuery'
+import { isValidCatalogProduct as validCatalogProduct } from './utils/validCatalogProducts'
 
 
 const PAGE_SIZE = 20

@@ -1,4 +1,3 @@
-```jsx
 import { useEffect, useState } from 'react'
 import { Header } from '../components/Header.jsx'
 import ProductForm from '../components/ProductForm.jsx'
@@ -4297,4 +4296,3 @@ export default function Admin() {
     </div>
   )
 }
-```
