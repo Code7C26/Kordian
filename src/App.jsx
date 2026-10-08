@@ -91,9 +91,6 @@ export default function App() {
       ? 'products'
       : 'categories';
   const [viewMode, setViewMode] = useState(initialViewMode);
-  const [hasSelectedCategory, setHasSelectedCategory] = useState(() => {
-    return localStorage.getItem('arprice_selected_category') !== null;
-  });
   const [darkMode, setDarkMode] = useState(() => {
     return (
       localStorage.getItem('arprice_theme') === 'dark' ||
@@ -564,8 +561,6 @@ export default function App() {
   };
 
   const handleSelectCategory = (catId) => {
-    localStorage.setItem('arprice_selected_category', catId);
-    setHasSelectedCategory(true);
     setFilters((prev) => ({ ...prev, category: catId, subcategory: 'todos' }));
     setFavoritesOnlyView(false);
     setViewMode('products');
@@ -605,7 +600,7 @@ export default function App() {
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
   const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
   const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
-  const isCategoryOnboarding = location.pathname === '/seleccionar-categorias' || (!hasSelectedCategory && location.pathname === '/');
+  const isCategoryOnboarding = location.pathname === '/' || location.pathname === '/seleccionar-categorias';
 
   if (isCategoryOnboarding) {
     return (
