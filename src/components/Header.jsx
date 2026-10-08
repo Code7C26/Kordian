@@ -7,8 +7,13 @@ import {
   ShoppingBag, 
   Heart, 
   ListFilter,
+  LogIn,
+  LogOut,
+  UserPlus,
+  UserRound,
 } from 'lucide-react';
 import { adminFetch, apiFetch } from '../config/api.js';
+import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
 
