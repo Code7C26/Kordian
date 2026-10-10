@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
 const {
+  PRICE_STATUS_RULES_VERSION,
   buildCurrentPriceStatusRows,
   buildPriceFingerprint,
   saveCurrentPriceStatuses,
@@ -47,7 +48,7 @@ test('statuses are upserted only when the price fingerprint or rules version cha
   const stored = {
     product_id: '10',
     price_fingerprint: buildPriceFingerprint(analysis.product, analysis.references, analysis),
-    rules_version: '2026-10-10-v1',
+    rules_version: PRICE_STATUS_RULES_VERSION,
   }
   let upserts = 0
   const database = {

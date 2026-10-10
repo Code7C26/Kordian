@@ -44,7 +44,7 @@ function buildPricePeriods(history) {
   })
 }
 
-async function analyzeProduct(product, products = [], history = [], categoryName = '') {
+async function createAnalysisContext(products = []) {
   const [taxonomy, comparables, analysis, status] = await modulesPromise
   const classifications = new Map(products.map((candidate) => [
     String(candidate.id),
@@ -54,8 +54,20 @@ async function analyzeProduct(product, products = [], history = [], categoryName
       subcategory: candidate.subcategory || candidate.subcategories?.name,
     }),
   ]))
+  return {
+    comparables,
+    analysis,
+    status,
+    classifications,
+    productIndex: comparables.createComparableProductIndex(products, classifications),
+  }
+}
+
+async function analyzeProduct(product, products = [], history = [], categoryName = '', context = null) {
+  const analysisContext = context || await createAnalysisContext(products)
+  const { comparables, analysis, status, classifications, productIndex } = analysisContext
   const classification = classifications.get(String(product.id))
-  const references = comparables.findComparableReferences(product, products, classifications)
+  const references = comparables.findComparableReferences(product, products, classifications, productIndex)
   const offers = (product.offers || []).map((offer) => ({
     ...offer,
     price: numeric(offer.cash_price),
@@ -116,4 +128,4 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   }
 }
 
-module.exports = { analyzeProduct }
+module.exports = { analyzeProduct, createAnalysisContext }

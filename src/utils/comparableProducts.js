@@ -16,6 +16,33 @@ const sameCatalogGroup = (firstProduct, secondProduct, firstClassification, seco
     && firstClassification?.subcategoryId === secondClassification?.subcategoryId
 }
 
+const classificationGroupKey = (classification) => JSON.stringify([
+  classification?.categoryId,
+  classification?.subcategoryId,
+])
+
+export function createComparableProductIndex(products = [], classificationById = new Map()) {
+  const bySubcategory = new Map()
+  const byClassification = new Map()
+
+  for (const product of products) {
+    const subcategory = getCatalogValue(product, 'subcategory')
+    if (subcategory) {
+      const key = normalize(subcategory)
+      const matches = bySubcategory.get(key) || []
+      matches.push(product)
+      bySubcategory.set(key, matches)
+    }
+
+    const key = classificationGroupKey(classificationById.get(String(product.id)))
+    const matches = byClassification.get(key) || []
+    matches.push(product)
+    byClassification.set(key, matches)
+  }
+
+  return { bySubcategory, byClassification }
+}
+
 export function extractMeasure(product) {
   const text = [product.name, product.description, product.presentation, product.unit].join(' ')
   const match = text.match(/\b(\d+(?:[.,]\d+)?)\s*(kg|g|mg|l|ml|cc|un(?:idad(?:es)?)?|u)\b/i)
@@ -36,7 +63,7 @@ export function normalizePrice(product, price) {
   return { price, unitPrice: price / measure.normalizedAmount, measure }
 }
 
-export function findComparableReferences(product, products = [], classificationById = new Map()) {
+export function findComparableReferences(product, products = [], classificationById = new Map(), productIndex = null) {
   const classification = classificationById.get(String(product.id))
   const productSubcategory = getCatalogValue(product, 'subcategory')
   if ((!classification?.categoryId || !classification?.subcategoryId) && !productSubcategory) {
@@ -44,7 +71,18 @@ export function findComparableReferences(product, products = [], classificationB
   }
 
   const productMeasure = extractMeasure(product)
-  const candidates = products
+  let candidateProducts = products
+  if (productIndex) {
+    const candidatesById = new Map()
+    const groupCandidates = productIndex.byClassification.get(classificationGroupKey(classification)) || []
+    for (const candidate of groupCandidates) candidatesById.set(String(candidate.id), candidate)
+    if (productSubcategory) {
+      const subcategoryCandidates = productIndex.bySubcategory.get(normalize(productSubcategory)) || []
+      for (const candidate of subcategoryCandidates) candidatesById.set(String(candidate.id), candidate)
+    }
+    candidateProducts = [...candidatesById.values()]
+  }
+  const candidates = candidateProducts
     .filter((candidate) => String(candidate.id) !== String(product.id))
     .map((candidate) => {
       const candidateClassification = classificationById.get(String(candidate.id))

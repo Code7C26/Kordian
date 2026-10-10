@@ -1,6 +1,6 @@
 const crypto = require('node:crypto')
 
-const PRICE_STATUS_RULES_VERSION = '2026-10-10-v1'
+const PRICE_STATUS_RULES_VERSION = '2026-10-10-v2'
 const PRICE_STATUS_BATCH_SIZE = 100
 
 function buildPriceFingerprint(product, references = {}, analysis = {}) {
@@ -67,6 +67,15 @@ function buildCurrentPriceStatusRows(analyses, analyzedAt = new Date().toISOStri
       rules_version: PRICE_STATUS_RULES_VERSION,
       price_fingerprint: buildPriceFingerprint(analysis.product, analysis.references, analysis),
       comparable_product_ids: comparableProductIds,
+      analysis_details: {
+        indicators: analysis.indicators || {},
+        references: analysis.references || { references: [] },
+        priceHistory: analysis.priceHistory || [],
+        pricePeriods: analysis.pricePeriods || [],
+        populatedPeriods: analysis.populatedPeriods || 0,
+        evolutionAvailable: Boolean(analysis.evolutionAvailable),
+        taxonomy: analysis.taxonomy || null,
+      },
       analyzed_at: timestamp,
       updated_at: timestamp,
     }]
