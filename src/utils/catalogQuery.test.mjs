@@ -8,6 +8,7 @@ assert.equal(
     searchQuery: 'leche',
     category: 'todos',
     store: 'todos',
+    sortBy: 'default',
   }).toString(),
   'page=1&limit=20&search=leche'
 );
@@ -19,11 +20,17 @@ assert.equal(
     searchQuery: '  ',
     category: 'cat-1',
     store: 'disco',
+    sortBy: 'price-asc',
   }).toString(),
-  'page=1&limit=20&category=cat-1&supermarket=disco'
+  'page=1&limit=20&category=cat-1&supermarket=disco&sort=price-asc'
 );
 
 console.log('catalogQuery test passed');
+
+assert.equal(
+  buildProductsQuery({ sortBy: 'discount' }).toString(),
+  'page=1&limit=20&sort=discount-desc'
+);
 
 assert.deepEqual(
   appendUniqueProducts(

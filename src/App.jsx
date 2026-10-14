@@ -19,12 +19,10 @@ import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 // Data will be loaded from backend API
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 
-const SORT_OPTIONS = [
-  { value: 'discount-desc', label: 'Mayor Descuento primero', icon: Percent },
-  { value: 'price-asc', label: 'Menor Precio primero', icon: ArrowDownWideNarrow },
-  { value: 'price-desc', label: 'Mayor Precio primero', icon: ArrowUpWideNarrow },
-  { value: 'name-asc', label: 'Orden Alfabético (A-Z)', icon: ArrowDownAZ },
-];
+  const [products, setProducts] = useState([])
+  const [isMockCatalog, setIsMockCatalog] = useState(false)
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true)
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
 
 function SortMenu({ value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -215,6 +213,10 @@ export default function App() {
           searchQuery: filters.searchQuery,
           category: filters.category,
           store: filters.store,
+          city: selectedCity,
+          page: productsPage,
+          limit: productsPageSize,
+          sortBy,
         }
 
         const referencesPromise = catalogReferenceCache.current
@@ -285,28 +287,11 @@ export default function App() {
         const analyses = analysisCache.current || []
         const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
 
-        // enrich products with derived fields for the UI (defensive)
-        const enriched = validProds.map((p) => {
-          const offers = p.offers || []
-          const otherStores = offers.map((o) => ({
-            id: o.id,
-            // handle either snake_case (cash_price) or camelCase (cashPrice) coming from different imports
-            price: Number(o.cash_price ?? o.cashPrice) || 0,
-            supermarket: o.supermarket || o.supermarket_name || o.storeName || '',
-            image: supermarketImages.get(o.supermarket || o.supermarket_name || o.storeName) || ''
-          }))
-          const primary = otherStores.reduce((best, s) => {
-            if (!best) return s
-            return s.price && s.price < best.price ? s : best
-          }, null)
-          const avgMarketPrice = otherStores.length ? Math.round(otherStores.reduce((acc, s) => acc + (s.price || 0), 0) / otherStores.length) : 0
-          const currentPrice = primary ? primary.price : 0
-          const percentageDiff = avgMarketPrice ? parseFloat((((currentPrice - avgMarketPrice) / avgMarketPrice) * 100).toFixed(1)) : 0
-          const status = primary
-            ? currentPrice <= avgMarketPrice
-              ? 'EN_PRECIO'
-              : 'INFLADO'
-            : 'EN_PRECIO'
+        setCategories(cats.length ? cats : MOCK_CATEGORIES)
+        setTaxonomy(taxonomyData)
+        setSupermarkets(supermarkets)
+        setIsMockCatalog(false)
+        setProducts(enrichProducts(rawProducts))
 
           const analysis = analysisByProduct.get(String(p.id))
           const analysisStatus = analysis?.classification === 'PRECIO_NORMAL' ? 'EN_PRECIO' : analysis?.classification
@@ -355,6 +340,7 @@ export default function App() {
           otherStores: Array.isArray(p.otherStores) ? p.otherStores : [],
         }))
 
+        setIsMockCatalog(true)
         setCategories(MOCK_CATEGORIES)
         setProducts(enriched)
 
@@ -380,7 +366,7 @@ export default function App() {
       controller.abort()
       clearTimeout(searchTimer)
     }
-  }, [productsPageSize, filters.searchQuery, filters.category, filters.store])
+  }, [filters, productsPage, productsPageSize, selectedCity, sortBy, catalogRefreshKey])
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>
@@ -438,151 +424,35 @@ export default function App() {
   };
 
   const filteredProducts = useMemo(() => {
-    const searchQuery = normalizeSearchText(filters.searchQuery)
+    if (!isMockCatalog) return products
 
-    return products.filter((product) => {
-      if (!isValidCatalogProduct(product)) return false;
-      if (favoritesOnlyView && !favorites.includes(product.id)) {
-        return false;
-      }
-
-      if (filters.category !== 'todos' && product.category_id !== filters.category && product.category !== filters.category) {
-        return false;
-      }
-
-      if (filters.subcategory !== 'todos' && product.subcategory_id !== filters.subcategory) {
-        return false;
-      }
-
-      if (searchQuery !== '') {
-        const matchesName = normalizeSearchText(product.name).includes(searchQuery);
-        const matchesBrand = normalizeSearchText(product.brand).includes(searchQuery);
-        const matchesSubcat = normalizeSearchText(product.subcategory).includes(searchQuery);
-        const matchesStore = (product.offers || []).some((o) => normalizeSearchText(o.supermarket).includes(searchQuery));
-        if (!matchesName && !matchesBrand && !matchesSubcat && !matchesStore) {
-          return false;
-        }
-      }
-
-      if (filters.store !== 'todos') {
-        const hasStore = (product.offers || []).some((o) => (o.supermarket || '') === filters.store);
-        if (!hasStore) return false;
-      }
-
-      const rawStatus = (product.status || '').toString().toUpperCase();
-      const derivedStatus = rawStatus || (product.currentPrice <= product.avgMarketPrice ? 'EN_PRECIO' : 'INFLADO');
-      if (filters.priceStatus === 'OFERTA' && derivedStatus !== 'OFERTA') return false;
-      if (filters.priceStatus === 'EN_PRECIO' && derivedStatus !== 'EN_PRECIO' && derivedStatus !== 'PRECIO_NORMAL') return false;
-      if (filters.priceStatus === 'INFLADO' && derivedStatus !== 'INFLADO' && derivedStatus !== 'AUMENTO_ATIPICO' && derivedStatus !== 'SOBREPRECIO') return false;
-
-      const currentPrice = (product.offers || []).reduce((min, o) => {
-        const p = Number(o.cash_price) || 0
-        if (min === null) return p
-        return p && p < min ? p : min
-      }, null)
-
-      if (currentPrice && currentPrice > filters.maxPrice) {
-        return false;
-      }
-
-      return true;
-    }).sort((a, b) => {
-      if (searchQuery) {
-        const normalizedName = normalizeSearchText(a.name)
-        const normalizedBrand = normalizeSearchText(a.brand)
-        const normalizedSubcategory = normalizeSearchText(a.subcategory)
-        const relevance = (name, fieldWeight) => {
-          if (name === searchQuery) return fieldWeight
-          if (name.startsWith(searchQuery)) return fieldWeight + 1
-          if (name.split(/\s+/).some((word) => word.startsWith(searchQuery))) return fieldWeight + 2
-          if (name.includes(searchQuery)) return fieldWeight + 3
-          return 100
-        }
-        const relevanceA = Math.min(relevance(normalizedName, 0), relevance(normalizedBrand, 20), relevance(normalizedSubcategory, 30))
-        const relevanceB = Math.min(relevance(normalizeSearchText(b.name), 0), relevance(normalizeSearchText(b.brand), 20), relevance(normalizeSearchText(b.subcategory), 30))
-        if (relevanceA !== relevanceB) return relevanceA - relevanceB
-      }
-
-      const brandA = normalizeSearchText(a.brand || a.name || '')
-      const brandB = normalizeSearchText(b.brand || b.name || '')
-
-      if (brandA !== brandB) {
-        return brandA.localeCompare(brandB)
-      }
-
-      const primarySort = (() => {
-        switch (filters.sortBy) {
-          case 'price-asc':
-            return (a.currentPrice || 0) - (b.currentPrice || 0);
-          case 'price-desc':
-            return (b.currentPrice || 0) - (a.currentPrice || 0);
-          case 'discount-desc':
-            return (b.percentageDiff || 0) - (a.percentageDiff || 0);
-          case 'rating-desc':
-            return (b.rating || 0) - (a.rating || 0);
-          case 'name-asc':
-            return (a.name || '').localeCompare(b.name || '');
-          default:
-            return 0;
-        }
-      })();
-
-      if (primarySort !== 0) {
-        return primarySort;
-      }
-
-      return (a.name || '').localeCompare(b.name || '');
-    });
-  }, [filters, favoritesOnlyView, favorites, products]);
-
-  const paginatedProducts = useMemo(() => {
-    const start = (productsPage - 1) * productsPageSize;
-    return filteredProducts.slice(start, start + productsPageSize);
-  }, [filteredProducts, productsPage, productsPageSize]);
-
-  const favoriteProducts = useMemo(
-    () => products.filter((product) => favorites.includes(product.id)),
-    [favorites, products]
-  );
-
-  const resetFilters = () => {
-    setFilters({
-      category: 'todos',
-      searchQuery: '',
-      store: 'todos',
-      subcategory: 'todos',
-      priceStatus: 'todos',
-      sortBy: 'discount-desc',
-      maxPrice: 1000000,
-    });
-    setFavoritesOnlyView(false);
-    setViewMode('categories');
-    navigate('/');
-  };
-
-  const handleSelectCategory = (catId) => {
-    setFilters((prev) => ({ ...prev, category: catId, subcategory: 'todos' }));
-    setFavoritesOnlyView(false);
-    setViewMode('products');
-    navigate(`/buscar${catId !== 'todos' ? `?category=${encodeURIComponent(catId)}` : ''}`);
-  };
-
-  const navigateToSearch = () => {
-    const query = filters.searchQuery.trim();
+    let result = [...products]
+    const query = filters.searchQuery.toLowerCase().trim()
     if (query) {
-      setSearchHistory((previous) => [query, ...previous.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6))
+      result = result.filter((product) =>
+        [product.name, product.brand, product.category]
+          .some((value) => String(value || '').toLowerCase().includes(query))
+      )
     }
-    navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
-  };
+    if (filters.category) {
+      const category = filters.category.toLowerCase()
+      result = result.filter((product) =>
+        product.category?.toLowerCase() === category || product.category_name?.toLowerCase() === category
+      )
+    }
+    if (filters.store && filters.store !== 'todos') {
+      const store = filters.store.toLowerCase()
+      result = result.filter((product) =>
+        product.otherStores?.some((offer) => offer.supermarket?.toLowerCase() === store)
+      )
+    }
 
-  const handleQuickSearch = (term) => {
-    const query = String(term || '').trim();
-    if (query) {
-      setSearchHistory((previous) => [query, ...previous.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6))
-    }
-    setViewMode('products');
-    navigate(`/buscar${query ? `?q=${encodeURIComponent(query)}` : ''}`);
-  };
+    if (sortBy === 'name-asc') result.sort((left, right) => (left.name || '').localeCompare(right.name || '', 'es'))
+    else if (sortBy === 'price-asc') result.sort((left, right) => (left.currentPrice || 0) - (right.currentPrice || 0))
+    else if (sortBy === 'price-desc') result.sort((left, right) => (right.currentPrice || 0) - (left.currentPrice || 0))
+    else if (sortBy === 'discount') result.sort((left, right) => (right.percentageDiff || 0) - (left.percentageDiff || 0))
+    return result
+  }, [products, filters, sortBy, isMockCatalog])
 
   useEffect(() => {
     localStorage.setItem('arprice_search_history', JSON.stringify(searchHistory))
