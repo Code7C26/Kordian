@@ -8,40 +8,30 @@ const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const app = express()
 
-app.use(cors())
+app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
 
-<<<<<<< HEAD
 app.get('/health', (req, res) => {
   res.json({ service: 'arprice-api', capabilities: { reviewMatchGrouping: true } })
 })
 
-=======
-const supabase = require('./supabase')
->>>>>>> origin/main
 const supabaseAdmin = require('./supabaseAdmin')
 const { analyzeProduct } = require('./services/priceAnalysisService')
 const { fetchDiscoPreviewReport, findPreviewMatches, isValidDiscoProduct } = require('./services/discoImporter')
 const { fetchPreview: fetchMamiPreview, findMatches: findMamiMatches, isValidProduct: isValidMamiProduct, source: mamiSource, getInvalidReason: getMamiInvalidReason } = require('./services/mamiImporter')
-<<<<<<< HEAD
 const { compareSimulationReport, compareCrossSourceProducts, buildTaxonomyComparison } = require('./services/importerContract')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
 const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
 const { normalizeDiscoStoredPrice } = require('./priceNormalization')
 const { normalizePairKey, upsertReviewDecision, listReviewDecisions, clearReviewDecisions, summarizeReviewDecisions, getReviewGroupingPeerIds, applyReviewMatchGrouping } = require('./services/reviewDecisionStore')
+const { createCatalogPageCache } = require('./services/catalogPageCache')
 const analysisWriter = supabaseAdmin
 const supabase = analysisWriter
+const catalogPageCache = createCatalogPageCache()
+const priceStatusRulesVersion = '2026-10-12-v5'
 const publicDiscoSearchCache = new Map()
 const publicDiscoSearchInFlight = new Set()
-=======
-const { compareSimulationReport, buildTaxonomyComparison } = require('./services/importerContract')
-const { syncDiscoPrices } = require('./services/discoPriceSync')
-const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
-const { normalizeDiscoStoredPrice } = require('./priceNormalization')
-const analysisWriter = supabaseAdmin
-const publicDiscoSearchCache = new Map()
->>>>>>> origin/main
 const publicDiscoSearchMaxResults = Math.min(500, Math.max(50, Number(process.env.DISCO_PUBLIC_SEARCH_MAX_RESULTS || 500)))
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || (
   process.env.NODE_ENV === 'production' ? null : 'arprice-local-dev-session-secret'
@@ -158,34 +148,22 @@ app.get('/taxonomy', async (req, res) => {
       analysisWriter.from('categories').select('id, name').order('name'),
       analysisWriter.from('subcategories').select('id, category_id, name').order('name'),
     ])
-    if (categoriesError || subcategoriesError) return res.status(500).json({ error: 'Error fetching taxonomy' })
+    if (categoriesError || subcategoriesError) {
+      console.error('Supabase taxonomy error:', categoriesError || subcategoriesError)
+      return res.status(500).json({ error: 'Error fetching taxonomy' })
+    }
 
-    // PostgREST limits a response to 1,000 rows by default. Counts must include
-    // the complete catalog, otherwise newly imported products disappear from categories.
-    const productTaxonomy = []
-    const pageSize = 1000
-    for (let from = 0; ; from += pageSize) {
-      const { data: page, error: productsError } = await analysisWriter
-        .from('products')
-<<<<<<< HEAD
-        .select('category_id, subcategory_id, offers(id, cash_price, supermarket)')
-        .range(from, from + pageSize - 1)
-      if (productsError) return res.status(500).json({ error: 'Error fetching taxonomy' })
-      productTaxonomy.push(...(page || []).filter((product) => (product.offers || []).some((offer) => Number(offer.cash_price) > 0 && String(offer.supermarket || '').trim())))
-=======
-        .select('category_id, subcategory_id')
-        .range(from, from + pageSize - 1)
-      if (productsError) return res.status(500).json({ error: 'Error fetching taxonomy' })
-      productTaxonomy.push(...(page || []))
->>>>>>> origin/main
-      if (!page || page.length < pageSize) break
+    const { data: taxonomyCounts, error: countsError } = await analysisWriter.rpc('catalog_taxonomy_counts')
+    if (countsError) {
+      console.error('Supabase taxonomy counts error:', countsError)
+      return res.status(500).json({ error: 'Error fetching taxonomy' })
     }
 
     const categoryCounts = new Map()
     const subcategoryCounts = new Map()
-    for (const product of productTaxonomy || []) {
-      if (product.category_id) categoryCounts.set(String(product.category_id), (categoryCounts.get(String(product.category_id)) || 0) + 1)
-      if (product.subcategory_id) subcategoryCounts.set(String(product.subcategory_id), (subcategoryCounts.get(String(product.subcategory_id)) || 0) + 1)
+    for (const row of taxonomyCounts || []) {
+      if (row.category_id) categoryCounts.set(String(row.category_id), (categoryCounts.get(String(row.category_id)) || 0) + Number(row.product_count || 0))
+      if (row.subcategory_id) subcategoryCounts.set(String(row.subcategory_id), Number(row.product_count || 0))
     }
     const subcategoriesByCategory = new Map()
     for (const subcategory of subcategories || []) {
@@ -228,7 +206,6 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
     const from = Math.max(0, Number(req.query.from || 0))
     const requestedTo = Number.isFinite(Number(req.query.to)) ? Number(req.query.to) : 99
     const to = Math.max(from, requestedTo)
-<<<<<<< HEAD
     const [previewReport, localProductsResult, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
       fetchMamiPreview({ query, from, to }),
       readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price)'),
@@ -241,22 +218,12 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
       console.error('Error loading Mami preview catalog', catalogError)
       return res.status(500).json({ error: 'No se pudo consultar el inventario local o el catálogo de categorías', detail: catalogError?.message || 'Error desconocido del catálogo' })
     }
-=======
-    const [previewReport, { data: localProducts, error: productsError }, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
-      fetchMamiPreview({ query, from, to }),
-      supabase.from('products').select('id, name, source_product_id, ean, brand, offers(id, supermarket, cash_price)'),
-      supabase.from('categories').select('id, name'),
-      supabase.from('subcategories').select('id, name, category_id'),
-    ])
-    if (productsError || categoriesError || subcategoriesError) return res.status(500).json({ error: 'No se pudo consultar el inventario local o el catálogo de categorías' })
->>>>>>> origin/main
     const comparison = compareSimulationReport({
       source: mamiSource,
       isValidProduct: isValidMamiProduct,
       getInvalidReason: getMamiInvalidReason,
       findMatches: findMamiMatches,
     }, previewReport, localProducts || [])
-<<<<<<< HEAD
     if (!previewReport.sourceRead?.htmlFetched || (!previewReport.sourceRead.categoryRouteCount && !previewReport.sourceRead.productRouteCount)) {
       return res.status(503).json({
         error: 'Mami no entregó un catálogo navegable',
@@ -264,14 +231,11 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
         retryable: true,
       })
     }
-=======
->>>>>>> origin/main
     const taxonomyComparison = (previewReport.products || []).map((product) => ({
       ...buildTaxonomyComparison(product, categories || [], subcategories || []),
       sourceProductId: product.sourceProductId,
       name: product.name,
     }))
-<<<<<<< HEAD
     const products = findMamiMatches(previewReport.products, localProducts || []).map((product) => {
       const mapping = suggestCatalogMapping({
         name: product.name,
@@ -286,18 +250,12 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
         mappingStatus: product.mappingStatus || (mapping ? 'propuesta_automatica' : 'pendiente'),
       }
     })
-=======
->>>>>>> origin/main
     res.json({
       source: mamiSource,
       query,
       from,
       to,
-<<<<<<< HEAD
       products,
-=======
-      products: previewReport.products,
->>>>>>> origin/main
       discarded: previewReport.discarded,
       dryRun: true,
       writeSafety: {
@@ -315,7 +273,6 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
   }
 })
 
-<<<<<<< HEAD
 app.get('/admin/import/compare/preview', requireAdmin, async (req, res) => {
   try {
     const query = String(req.query.query || '').slice(0, 100)
@@ -355,7 +312,7 @@ app.get('/admin/import/compare/preview', requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/admin/import/mami', requireAdmin, async (req, res) => {
+app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
   const createdProductIds = []
   const createdOfferIds = []
   const createdHistoryIds = []
@@ -493,6 +450,7 @@ app.post('/admin/import/mami', requireAdmin, async (req, res) => {
         ...skipped.map((entry) => ({ type: 'mami_import', status: 'skipped', ...entry })),
       ],
     })
+
     if (logError) console.error('Error recording Mami import update', logError)
     res.json({ source: 'mami', imported, updated, unchanged, skipped, dryRun: false, writeSafety: { productWritesAllowed: true, priceHistoryWritesAllowed: true, mutationSurface: 'mami_import' } })
   } catch (error) {
@@ -506,25 +464,21 @@ app.post('/admin/import/mami', requireAdmin, async (req, res) => {
     }
     console.error('Error importing Mami products', error)
     return res.status(500).json({ error: 'No se pudieron importar los productos de Mami', detail: error.message })
-=======
-app.post('/admin/import/mami', requireAdmin, async (req, res) => {
-  try {
-    return res.status(403).json({
-      source: mamiSource,
-      dryRun: true,
-      writeSafety: {
-        productWritesAllowed: false,
-        priceHistoryWritesAllowed: false,
-        mutationSurface: 'preview_only',
-        reason: 'Mami import is locked to simulation-only preview and must never perform product or price_history writes',
-      },
-      error: 'La importación de Mami está bloqueada en modo simulación. Usa /admin/import/mami/preview para comparar sin escribir.',
-    })
-  } catch (error) {
-    console.error('Error trying to import Mami', error)
-    return res.status(502).json({ error: error.message || 'No se pudo iniciar la importación de Mami' })
->>>>>>> origin/main
   }
+})
+
+app.post('/admin/import/mami', requireAdmin, (req, res) => {
+  res.status(403).json({
+    source: mamiSource,
+    dryRun: true,
+    writeSafety: {
+      productWritesAllowed: false,
+      priceHistoryWritesAllowed: false,
+      mutationSurface: 'preview_only',
+      reason: 'Mami import is locked to simulation-only preview and must never perform product or price_history writes',
+    },
+    error: 'La importación de Mami está bloqueada en modo simulación. Usa /admin/import/mami/preview para comparar sin escribir.',
+  })
 })
 
 app.post('/admin/import/disco', requireAdmin, async (req, res) => {
@@ -535,11 +489,7 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       supabase.from('categories').select('id, name'),
       supabase.from('subcategories').select('id, name, category_id'),
       supabase.from('brands').select('id, name'),
-<<<<<<< HEAD
       supabase.from('products').select('id, name, source_product_id, ean, offers(id, supermarket, cash_price)'),
-=======
-      supabase.from('products').select('id, name, source_product_id, ean'),
->>>>>>> origin/main
     ])
     const catalogError = categoriesError || subcategoriesError || brandsError || productsError
     if (catalogError) {
@@ -562,11 +512,8 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         source_subcategory: item.proposedSubcategory,
       })
       const proposedCategory = catalogMapping?.category || item.proposedCategory
-<<<<<<< HEAD
       const updated = []
       const unchanged = []
-=======
->>>>>>> origin/main
       const proposedSubcategory = catalogMapping?.subcategory || item.proposedSubcategory
       const sourceProductId = String(item.sourceProductId ?? '').trim()
       const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
@@ -577,7 +524,6 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       const existingByEan = item.ean
         ? (existingProducts || []).find((candidate) => String(candidate.ean || '') === String(item.ean))
         : null
-<<<<<<< HEAD
       const existingByCrossSourceName = findCrossSourceProductMatch(item, existingProducts, 'disco')
       const existing = existingBySourceId || existingByEan || existingByCrossSourceName
       if (existing) {
@@ -611,11 +557,6 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       }
       if (!category || !subcategory || seenSourceProductIds.has(sourceProductId)) {
         skipped.push({ sourceProductId: item.sourceProductId, reason: !category || !subcategory ? 'Falta precio o mapeo de categoría' : 'Producto repetido en la selección' })
-=======
-      const duplicate = existingBySourceId || existingByEan || seenSourceProductIds.has(sourceProductId)
-      if (!category || !subcategory || duplicate) {
-        skipped.push({ sourceProductId: item.sourceProductId, reason: duplicate ? (existingByEan ? 'EAN duplicado' : 'Posible duplicado') : 'Falta precio o mapeo de categoría' })
->>>>>>> origin/main
         continue
       }
       if (sourceProductId) {
@@ -1024,141 +965,79 @@ async function importDiscoSearchResults(search) {
 // GET /products - fetch from Supabase with simple filters + pagination
 app.get('/products', async (req, res) => {
   try {
-    const page = Number(req.query.page || 1)
-    const limit = Number(req.query.limit || 20)
-    const safePage = Number.isFinite(page) && page > 0 ? page : 1
-    const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 20
     const search = String(req.query.search || '').trim()
-    const category = req.query.category || ''
-    const subcategory = req.query.subcategory || ''
-    const brand = req.query.brand || ''
-    const supermarket = req.query.supermarket || ''
-
-<<<<<<< HEAD
-    if (search && safePage === 1) res.once('finish', () => scheduleDiscoSearchResults(search))
-
-    // Keep every offer for display while filtering products through a matching offer.
-    const matchingOfferSelect = supermarket ? ', matching_offers:offers!inner(id)' : ''
-    let query = analysisWriter.from('products').select(`*, offers(*)${matchingOfferSelect}, categories(id, name), subcategories(id, name), brands(id, name)`)
-    let countQuery = analysisWriter.from('products').select(
-      supermarket ? 'id, matching_offers:offers!inner(id)' : '*',
-      { count: 'exact', head: true },
-    )
-=======
-    if (search) {
-      try {
-        await importDiscoSearchResults(search)
-      } catch (error) {
-        console.error('Disco search import failed', error.message)
+    const requestedPage = Number(req.query.page || 1)
+    const requestedLimit = Number(req.query.limit || 20)
+    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? Math.floor(requestedPage) : 1
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(Math.floor(requestedLimit), 100)
+      : 20
+    const parsedMaxPrice = Number(req.query.maxPrice || 1000000)
+    const favoriteIds = [...new Set(String(req.query.favorites || '')
+      .split(',')
+      .map((id) => Number(id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0))]
+    const queryArgs = {
+      p_search: search,
+      p_category: String(req.query.category || ''),
+      p_subcategory: String(req.query.subcategory || ''),
+      p_brand: String(req.query.brand || ''),
+      p_supermarket: String(req.query.supermarket || ''),
+      p_price_status: String(req.query.status || 'todos'),
+      p_sort: String(req.query.sort || 'id-asc'),
+      p_max_price: Number.isFinite(parsedMaxPrice) ? parsedMaxPrice : 1000000,
+      p_favorites_only: req.query.favoritesOnly === 'true',
+      p_favorite_ids: favoriteIds,
+      p_valid_only: req.query.catalogOnly === 'true',
+      p_rules_version: priceStatusRulesVersion,
+    }
+    const cacheKey = JSON.stringify({
+      ...queryArgs,
+      p_favorite_ids: [...favoriteIds].sort((left, right) => left - right),
+    })
+    const fetchCatalogPage = async (requestedPage, requestedPageLimit) => {
+      const { data, error } = await analysisWriter.rpc('catalog_products_page', {
+        ...queryArgs,
+        p_page: requestedPage,
+        p_limit: requestedPageLimit,
+      })
+      if (error) throw error
+      if (!data || typeof data !== 'object' || !Array.isArray(data.data)) {
+        throw new Error('Catalog pagination RPC returned an invalid response')
       }
+      return data
     }
-
-    // Include related catalog data so admin and storefront can display it.
-    let query = analysisWriter.from('products').select('*, offers(*), categories(id, name), subcategories(id, name), brands(id, name)')
-    let countQuery = analysisWriter.from('products').select('*', { count: 'exact', head: true })
->>>>>>> origin/main
-
-    if (search) {
-      const searchPattern = `%${search}%`
-      const [brandsResult, categoriesResult, subcategoriesResult] = await Promise.all([
-        analysisWriter.from('brands').select('id').ilike('name', searchPattern),
-        analysisWriter.from('categories').select('id').ilike('name', searchPattern),
-        analysisWriter.from('subcategories').select('id').ilike('name', searchPattern),
-      ])
-
-      const brandIds = (brandsResult.data || []).map((item) => item.id).filter(Boolean)
-      const categoryIds = (categoriesResult.data || []).map((item) => item.id).filter(Boolean)
-      const subcategoryIds = (subcategoriesResult.data || []).map((item) => item.id).filter(Boolean)
-
-      const productSearchClauses = [`name.ilike.${searchPattern}`]
-      if (brandIds.length) productSearchClauses.push(`brand_id.in.(${brandIds.join(',')})`)
-      if (categoryIds.length) productSearchClauses.push(`category_id.in.(${categoryIds.join(',')})`)
-      if (subcategoryIds.length) productSearchClauses.push(`subcategory_id.in.(${subcategoryIds.join(',')})`)
-
-      const searchOr = productSearchClauses.join(',')
-      query = query.or(searchOr)
-      countQuery = countQuery.or(searchOr)
-    }
-
-    if (category) {
-      query = query.eq('category_id', category)
-      countQuery = countQuery.eq('category_id', category)
-    }
-    if (subcategory) {
-      query = query.eq('subcategory_id', subcategory)
-      countQuery = countQuery.eq('subcategory_id', subcategory)
-    }
-    if (brand) {
-      query = query.eq('brand_id', brand)
-      countQuery = countQuery.eq('brand_id', brand)
-    }
-    if (supermarket) {
-      query = query.eq('matching_offers.supermarket', supermarket)
-      countQuery = countQuery.eq('matching_offers.supermarket', supermarket)
-    }
-
-    const { count, error: countError } = await countQuery
-    if (countError) {
-      console.error('Supabase count error:', countError)
-      return res.status(500).json({ error: 'Error counting products' })
-    }
-
-    const from = (safePage - 1) * safeLimit
-    const to = from + safeLimit - 1
-
-    const { data, error } = await query.order('id', { ascending: true }).range(from, to)
-
-    if (error) {
-      console.error('Supabase error:', error)
+    let data
+    try {
+      data = await catalogPageCache.getPage({
+        key: cacheKey,
+        page,
+        limit,
+        loadIndex: fetchCatalogPage,
+        loadProductsByIds: async (productIds) => {
+          const { data: productsPayload, error } = await analysisWriter.rpc('catalog_products_by_ids', {
+            p_product_ids: productIds,
+            p_rules_version: priceStatusRulesVersion,
+          })
+          if (error) throw error
+          if (!Array.isArray(productsPayload?.data)) {
+            throw new Error('Catalog hydration RPC returned an invalid response')
+          }
+          return productsPayload.data
+        },
+        loadPage: () => fetchCatalogPage(page, limit),
+      })
+    } catch (error) {
+      console.error('Supabase catalog pagination error:', error)
       return res.status(500).json({ error: 'Error fetching products' })
     }
-
-<<<<<<< HEAD
-    const decisions = await listReviewDecisions()
-    const peerIds = getReviewGroupingPeerIds(data || [], decisions)
-    let peerProducts = []
-    if (peerIds.length) {
-      const { data: peers, error: peersError } = await analysisWriter
-        .from('products')
-        .select('*, offers(*), categories(id, name), subcategories(id, name), brands(id, name)')
-        .in('id', peerIds)
-      if (peersError) {
-        console.error('Supabase error loading reviewed product peers:', peersError)
-        return res.status(500).json({ error: 'Error fetching matched product offers' })
-      }
-      peerProducts = peers || []
-    }
-=======
->>>>>>> origin/main
-    const normalizedData = (data || []).map((product) => ({
-      ...product,
-      offers: (product.offers || []).map((offer) => ({
-        ...offer,
-        cash_price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
-      })),
-    }))
-<<<<<<< HEAD
-    const normalizedPeers = peerProducts.map((product) => ({
-      ...product,
-      offers: (product.offers || []).map((offer) => ({
-        ...offer,
-        cash_price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
-      })),
-    }))
-    const groupedData = applyReviewMatchGrouping([...normalizedData, ...normalizedPeers], decisions)
-
-    res.json({
-      data: groupedData,
-      total: Number(count || 0) - Math.max(0, normalizedData.length - groupedData.length),
-=======
-
-    res.json({
-      data: normalizedData,
-      total: Number(count || 0),
->>>>>>> origin/main
-      page: safePage,
-      limit: safeLimit,
-    })
+    const cacheHit = data?.cacheHit === true
+    const responseData = { ...data }
+    delete responseData.cacheHit
+    delete responseData.orderedIds
+    res.set('X-Catalog-Cache', cacheHit ? 'HIT' : 'MISS')
+    if (search && page === 1) res.once('finish', () => scheduleDiscoSearchResults(search))
+    res.json(responseData)
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Internal server error' })

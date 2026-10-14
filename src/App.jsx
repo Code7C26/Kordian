@@ -59,6 +59,7 @@ function MainCatalog() {
   const [storesList, setStoresList] = useState([])
 
   const [products, setProducts] = useState([])
+  const [isMockCatalog, setIsMockCatalog] = useState(false)
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
 
@@ -115,6 +116,7 @@ function MainCatalog() {
           city: selectedCity,
           page: productsPage,
           limit: productsPageSize,
+          sortBy,
         }
 
         const referencesPromise = catalogReferenceCache.current
@@ -216,6 +218,7 @@ function MainCatalog() {
         setCategories(cats.length ? cats : MOCK_CATEGORIES)
         setTaxonomy(taxonomyData)
         setSupermarkets(supermarkets)
+        setIsMockCatalog(false)
         setProducts(enrichProducts(rawProducts))
 
         // Extraer lista única de supermercados
@@ -241,6 +244,7 @@ function MainCatalog() {
           otherStores: Array.isArray(p.otherStores) ? p.otherStores : [],
         }))
 
+        setIsMockCatalog(true)
         setCategories(MOCK_CATEGORIES)
         setProducts(mockEnriched)
       } finally {
@@ -254,7 +258,7 @@ function MainCatalog() {
       mounted = false
       controller.abort()
     }
-  }, [filters, productsPage, productsPageSize, selectedCity, catalogRefreshKey])
+  }, [filters, productsPage, productsPageSize, selectedCity, sortBy, catalogRefreshKey])
 
   // Persistencia de Favoritos
   useEffect(() => {
@@ -276,47 +280,36 @@ function MainCatalog() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Filtrado y Ordenamiento local de productos
   const filteredProducts = useMemo(() => {
+    if (!isMockCatalog) return products
+
     let result = [...products]
-
-    if (filters.searchQuery.trim()) {
-      const query = filters.searchQuery.toLowerCase().trim()
-      result = result.filter(
-        (p) =>
-          p.name?.toLowerCase().includes(query) ||
-          p.brand?.toLowerCase().includes(query) ||
-          p.category?.toLowerCase().includes(query)
+    const query = filters.searchQuery.toLowerCase().trim()
+    if (query) {
+      result = result.filter((product) =>
+        [product.name, product.brand, product.category]
+          .some((value) => String(value || '').toLowerCase().includes(query))
       )
     }
-
     if (filters.category) {
-      const cat = filters.category.toLowerCase()
-      result = result.filter(
-        (p) => p.category?.toLowerCase() === cat || p.category_name?.toLowerCase() === cat
+      const category = filters.category.toLowerCase()
+      result = result.filter((product) =>
+        product.category?.toLowerCase() === category || product.category_name?.toLowerCase() === category
       )
     }
-
     if (filters.store && filters.store !== 'todos') {
       const store = filters.store.toLowerCase()
-      result = result.filter((p) =>
-        p.otherStores?.some((o) => o.supermarket?.toLowerCase() === store)
+      result = result.filter((product) =>
+        product.otherStores?.some((offer) => offer.supermarket?.toLowerCase() === store)
       )
     }
 
-    // Ordenamiento
-    if (sortBy === 'name-asc') {
-      result.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es'))
-    } else if (sortBy === 'price-asc') {
-      result.sort((a, b) => (a.currentPrice || 0) - (b.currentPrice || 0))
-    } else if (sortBy === 'price-desc') {
-      result.sort((a, b) => (b.currentPrice || 0) - (a.currentPrice || 0))
-    } else if (sortBy === 'discount') {
-      result.sort((a, b) => (b.percentageDiff || 0) - (a.percentageDiff || 0))
-    }
-
+    if (sortBy === 'name-asc') result.sort((left, right) => (left.name || '').localeCompare(right.name || '', 'es'))
+    else if (sortBy === 'price-asc') result.sort((left, right) => (left.currentPrice || 0) - (right.currentPrice || 0))
+    else if (sortBy === 'price-desc') result.sort((left, right) => (right.currentPrice || 0) - (left.currentPrice || 0))
+    else if (sortBy === 'discount') result.sort((left, right) => (right.percentageDiff || 0) - (left.percentageDiff || 0))
     return result
-  }, [products, filters, sortBy])
+  }, [products, filters, sortBy, isMockCatalog])
 
   // Manejadores
   const handleSearchSubmit = (e) => {
