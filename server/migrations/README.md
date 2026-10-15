@@ -1,13 +1,25 @@
 # Migraciones de AR-PRICE
 
-## Autenticacion de clientes
+## Estado de precio persistido
 
-1. Configurar `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` solo en el entorno del servidor. El navegador no requiere claves Supabase.
-2. Ejecutar `20261006_customer_auth.sql` desde el SQL Editor de Supabase.
-3. En Supabase Auth, permitir contraseñas de 4 caracteres y desactivar la confirmacion de email para habilitar el inicio automatico tras el registro. Si se mantiene la confirmacion, el cliente debera activarse desde el correo antes de iniciar sesion.
-4. Desplegar las rutas `POST /auth/customer-register`, `POST /auth/customer-login`, `POST /auth/customer-refresh` y `GET /auth/customer-session` del backend.
+Ejecutar en el SQL Editor de Supabase, en este orden:
 
-El rol de `customer_profiles` se inicializa como `customer`; solo una operacion administrativa debe promover una cuenta a `business`.
+1. `20261008_product_price_status.sql`
+2. `20261010_price_status_dependencies.sql`
+3. `20261012_price_status_analysis_details.sql`
+
+La API guarda la clasificación actual y una huella de los precios y comparables
+usados. Solo reemplaza una fila cuando cambia esa huella o la versión de las
+reglas. Ante cambios de precio, producto, clasificación u oferta, se encolan
+en segundo plano los productos afectados y sus comparables. Al iniciar, la API
+también programa el alta de filas faltantes y la actualización de las guardadas
+con reglas antiguas.
+`/analysis/products` devuelve ese estado guardado en lugar de recalcular todo el
+catálogo durante cada solicitud. La primera carga de productos puede tardar
+mientras la cola inicial completa los registros.
+
+La API requiere `SUPABASE_SERVICE_ROLE_KEY` para escribir en esta tabla; la
+política pública es únicamente de lectura.
 
 ## Cargar categorías y subcategorías
 
@@ -69,9 +81,9 @@ Para que `/taxonomy` pueda leer el arbol desde el backend, ejecutar tambien:
 ```sql
 create policy subcategories_public_read
 on subcategories for select to anon, authenticated using (true);
+```
 
 Las subcategorías son el único nivel lógico de comparación. Si la migración histórica creó la tabla `comparable_groups`, ejecutar también `20260824_remove_comparable_groups.sql`.
-```
 
 ## Verificar columnas
 
@@ -83,6 +95,19 @@ where table_schema = 'public'
   and column_name in ('subcategory_id', 'classification_source', 'classification_confidence')
 order by column_name;
 ```
+
+## Paginación y caché del catálogo
+
+Para desplegar el backend que usa las RPC de paginación, hidratación por IDs, conteos de taxonomía y caché en memoria, ejecutar en el SQL Editor de Supabase, en este orden:
+
+1. `20261008_product_price_status.sql`
+2. `20261012_catalog_pagination.sql`
+3. `20261013_catalog_page_cache_limit.sql`
+4. `20261013_catalog_search_index_cache.sql`
+
+Si alguna ya fue aplicada, no hace falta repetirla; continuar con la primera pendiente. La última migración conserva el límite de 100 productos por página y agrega el índice ordenado que el servidor usa para hidratar las páginas siguientes sin repetir la búsqueda completa en Supabase. El caché vive en memoria del proceso y se descarta al reiniciar o al cambiar los filtros.
+
+El endpoint `/products` incluye `X-Catalog-Cache: MISS` cuando calcula un nuevo índice y `X-Catalog-Cache: HIT` cuando reutiliza el índice para otra página. Para leer este encabezado desde el navegador, el backend lo expone mediante CORS. `/taxonomy` obtiene los conteos con `catalog_taxonomy_counts`.
 
 La aplicacion no incluye credenciales de propietario de Supabase, por lo que la migracion debe ejecutarse desde el SQL Editor, Supabase CLI autenticado o un pipeline de migraciones del proyecto. La clave anon del backend solo sirve para operaciones permitidas por RLS y no puede crear tablas.
 

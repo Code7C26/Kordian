@@ -1902,7 +1902,7 @@ export default function Admin() {
       try {
         const response =
           await adminFetch(
-            '/admin/import/mami',
+            '/admin/import/mami/execute',
             {
               method: 'POST',
               headers: {

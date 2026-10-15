@@ -46,24 +46,30 @@ function buildPricePeriods(history) {
   })
 }
 
-async function analyzeProduct(product, products = [], history = [], categoryName = '') {
+async function createAnalysisContext(products = []) {
   const [taxonomy, comparables, analysis, status] = await modulesPromise
-  let prepared = classificationCache.get(products)
-  if (!prepared) {
-    const classifications = new Map(products.map((candidate) => [
-      String(candidate.id),
-      taxonomy.suggestTaxonomy({
-        ...candidate,
-        brand: candidate.brand || candidate.brands?.name,
-        subcategory: candidate.subcategory || candidate.subcategories?.name,
-      }),
-    ]))
-    prepared = { classifications, comparableIndex: comparables.createComparableIndex(products, classifications) }
-    classificationCache.set(products, prepared)
+  const classifications = new Map(products.map((candidate) => [
+    String(candidate.id),
+    taxonomy.suggestTaxonomy({
+      ...candidate,
+      brand: candidate.brand || candidate.brands?.name,
+      subcategory: candidate.subcategory || candidate.subcategories?.name,
+    }),
+  ]))
+  return {
+    comparables,
+    analysis,
+    status,
+    classifications,
+    productIndex: comparables.createComparableProductIndex(products, classifications),
   }
-  const { classifications, comparableIndex } = prepared
+}
+
+async function analyzeProduct(product, products = [], history = [], categoryName = '', context = null) {
+  const analysisContext = context || await createAnalysisContext(products)
+  const { comparables, analysis, status, classifications, productIndex } = analysisContext
   const classification = classifications.get(String(product.id))
-  const references = comparables.findComparableReferences(product, products, classifications, comparableIndex)
+  const references = comparables.findComparableReferences(product, products, classifications, productIndex)
   const offers = (product.offers || []).map((offer) => ({
     ...offer,
     price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
@@ -128,4 +134,4 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   }
 }
 
-module.exports = { analyzeProduct }
+module.exports = { analyzeProduct, createAnalysisContext }

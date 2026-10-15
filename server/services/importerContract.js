@@ -201,7 +201,6 @@ function compareSimulationReport(contract = {}, preview = { products: [], discar
   }
 }
 
-<<<<<<< HEAD
 function normalizeCrossSourceText(value = '') {
   return String(value || '')
     .toLowerCase()
@@ -347,8 +346,6 @@ function compareCrossSourceProducts(mamiProducts = [], discoProducts = []) {
   }
 }
 
-=======
->>>>>>> origin/main
 function normalizeTaxonomyText(value = '') {
   return String(value || '')
     .trim()
@@ -418,9 +415,6 @@ module.exports = {
   createImporterContract,
   validateImporterContract,
   compareSimulationReport,
-<<<<<<< HEAD
   compareCrossSourceProducts,
-=======
->>>>>>> origin/main
   buildTaxonomyComparison,
 }

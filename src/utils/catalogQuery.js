@@ -1,4 +1,4 @@
-export function buildProductsQuery({ page = 1, limit = 20, searchQuery = '', category = 'todos', store = 'todos' }) {
+export function buildProductsQuery({ page = 1, limit = 20, searchQuery = '', category = 'todos', store = 'todos', sortBy = 'default' }) {
   const params = new URLSearchParams();
 
   params.set('page', String(Number(page) || 1));
@@ -9,6 +9,9 @@ export function buildProductsQuery({ page = 1, limit = 20, searchQuery = '', cat
 
   if (category && category !== 'todos') params.set('category', String(category));
   if (store && store !== 'todos') params.set('supermarket', String(store));
+  if (sortBy && sortBy !== 'default') {
+    params.set('sort', sortBy === 'discount' ? 'discount-desc' : String(sortBy));
+  }
 
   return params;
 }

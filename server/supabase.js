@@ -1,9 +1,4 @@
-<<<<<<< HEAD
-const path = require('path')
-require('dotenv').config({ path: path.resolve(__dirname, '.env') })
-=======
 require('dotenv').config()
->>>>>>> origin/main
 
 const { createClient } = require('@supabase/supabase-js')
 

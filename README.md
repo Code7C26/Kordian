@@ -23,6 +23,18 @@ Incluye:
 - Sistema de alertas y favoritos
 - Base para actualización automática de precios
 
+## Despliegue del backend en Render
+
+El archivo `render.yaml` configura la API como Render Blueprint. Al crear el
+Blueprint, completar `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` con los
+valores del proyecto Supabase. Render genera
+`ADMIN_SESSION_SECRET`. La clave de service role se usa solo en el backend;
+nunca debe agregarse a variables `VITE_*`.
+
+El health check de la API está disponible en `/health`. Antes del despliegue,
+aplicar en Supabase las migraciones indicadas en
+[`server/migrations/README.md`](./server/migrations/README.md).
+
 ---
 
 ## Integrantes del Equipo
@@ -78,6 +90,7 @@ Ar-Price plantea un ecosistema digital integrado que conecta a los usuarios con 
 ---
 
 ## Tecnologías Utilizadas
+
 
 ### Backend:
 - Python + Django
@@ -197,6 +210,7 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 ## Enlaces
 
 - [Informe Proyecto](./docs/)
+- [Manual de usuario](./docs/Manual_usuario_Kordian.pdf)
 - [Documentación Modelo de Datos](./docs/base_de_datos/)
 - [Tablero Kanban](https://github.com/orgs/Code7C26/projects/8)
 - [Instagram](https://www.instagram.com/kordian_empresa?igsi=ZDNlZDc0MzIxNw==)
