@@ -94,16 +94,23 @@ export function analyzePriceHistory(history = [], { currentPrice = 0, inflationR
 export function analyzeMarketOffers(offers = []) {
   const prices = offers.map((offer) => asNumber(offer.price ?? offer.cash_price)).filter((price) => price > 0)
   if (!prices.length) return { count: 0, minimum: 0, maximum: 0, average: 0, median: 0, spread: 0, spreadPercentage: 0 }
-  const minimum = Math.min(...prices)
-  const maximum = Math.max(...prices)
+  const rawMedian = calculateMedian(prices)
+  const reliablePrices = prices.length >= 2 && Math.max(...prices) / Math.min(...prices) >= 5
+    ? prices.filter((price) => price >= rawMedian * 0.2 && price <= rawMedian * 5)
+    : prices
+  const usablePrices = reliablePrices.length ? reliablePrices : prices
+  const minimum = Math.min(...usablePrices)
+  const maximum = Math.max(...usablePrices)
   return {
-    count: prices.length,
+    count: usablePrices.length,
     minimum,
     maximum,
-    average: prices.reduce((total, price) => total + price, 0) / prices.length,
-    median: calculateMedian(prices),
+    average: usablePrices.reduce((total, price) => total + price, 0) / usablePrices.length,
+    median: calculateMedian(usablePrices),
     spread: maximum - minimum,
     spreadPercentage: minimum ? ((maximum - minimum) / minimum) * 100 : 0,
+    rawPrices: prices,
+    discardedPrices: prices.filter((price) => !usablePrices.includes(price)),
   }
 }
 

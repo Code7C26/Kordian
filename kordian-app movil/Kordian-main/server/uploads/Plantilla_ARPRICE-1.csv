@@ -1,0 +1,7 @@
+name;category;brand;rating;image;supermarket;cashPrice;installmentsQuantity;installmentPrice
+Coca Cola 2L;Coca Cola;Bebidas;5;;Carrefour;2500;;
+Coca Cola 2L;Coca Cola;Bebidas;5;;Coto;2700;;
+Smart TV Samsung 55;Samsung;Electrónica;4;;Jumbo;800000;12;90000
+Smart TV Samsung 55;Samsung;Electrónica;4;;Disco;805000;12;87000
+Smart TV Samsung 55;Samsung;Electrónica;4;;Carrefour;860000;16;65000
+Smart TV Samsung 55;Samsung;Electrónica;4;;Mami;810000;24;50000

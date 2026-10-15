@@ -1,13 +1,19 @@
 import { useState, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { 
   MapPin, 
   Sun, 
   Moon, 
   ShoppingBag, 
   Heart, 
+  ListFilter,
+  LogIn,
+  LogOut,
+  UserPlus,
+  UserRound,
 } from 'lucide-react';
-import { adminFetch, apiUrl } from '../config/api.js';
+import { adminFetch, apiFetch } from '../config/api.js';
+import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
 
@@ -20,11 +26,16 @@ export function Header({
   favoritesCount,
   onOpenFavorites,
   onResetView,
+  categories = [],
+  selectedCategory,
+  onSelectCategory,
   isAdminPage = false,
 }) {
   const location = useLocation()
+  const { user, profile, signOut } = useCustomerAuth()
   const isAdminHeader = isAdminPage || location.pathname === '/admin'
   const [showAdminPanel, setShowAdminPanel] = useState(false)
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false)
   const [panelCategories, setPanelCategories] = useState([])
   const [panelBrands, setPanelBrands] = useState([])
   const [panelSupermarkets, setPanelSupermarkets] = useState([])
@@ -38,21 +49,21 @@ export function Header({
     // load categories and brands for the floating panel
     ;(async () => {
       try {
-        const cRes = await fetch(apiUrl('/categories'))
+        const cRes = await apiFetch('/categories')
         const cats = await cRes.json()
         setPanelCategories(cats.value || cats)
       } catch {
         // ignore
       }
       try {
-        const bRes = await fetch(apiUrl('/brands'))
+        const bRes = await apiFetch('/brands')
         const bs = await bRes.json()
         setPanelBrands(bs.value || bs)
       } catch {
         // ignore
       }
       try {
-        const sRes = await fetch(apiUrl('/supermarkets'))
+        const sRes = await apiFetch('/supermarkets')
         const supermarkets = await sRes.json()
         setPanelSupermarkets(supermarkets)
       } catch {
@@ -105,16 +116,21 @@ export function Header({
           {!isAdminHeader && (
             <>
               <button
+                onClick={() => setShowCategoryMenu((open) => !open)}
+                className="relative flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-bold text-white hover:bg-white/25 dark:bg-stone-800/60 dark:text-stone-200 transition-colors cursor-pointer"
+                title="Seleccionar categoría para comparar precios"
+                aria-expanded={showCategoryMenu}
+              >
+                <ListFilter className="w-4 h-4" />
+                <span className="hidden sm:inline">Categorías</span>
+              </button>
+
+              <button
                 onClick={onOpenFavorites}
                 className="relative p-2 rounded-lg text-white dark:text-stone-300 hover:text-rose-200 dark:hover:text-rose-400 hover:bg-white/20 dark:hover:bg-stone-800 transition-colors cursor-pointer"
                 title="Ver Favoritos"
               >
                 <Heart className="w-5 h-5" />
-                {favoritesCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
-                    {favoritesCount}
-                  </span>
-                )}
               </button>
 
               <button
@@ -130,6 +146,39 @@ export function Header({
                   </span>
                 )}
               </button>
+
+              {user ? (
+                <>
+                  <Link to="/perfil" aria-label="Perfil" title="Perfil" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
+                    <UserRound className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Perfil</span>
+                  </Link>
+                  <Link to="/mis-alertas" aria-label="Mis alertas" title="Mis alertas" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
+                    <Heart className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Mis alertas</span>
+                  </Link>
+                  {profile?.role === 'business' && (
+                    <Link to="/panel-gestion" aria-label="Panel de gestión" title="Panel de gestión" className="inline-flex items-center rounded-lg bg-emerald-500 px-2 py-2 text-xs font-bold text-white hover:bg-emerald-600">
+                      <span className="hidden sm:inline">Panel de gestión</span>
+                      <span className="sm:hidden">Panel</span>
+                    </Link>
+                  )}
+                  <button type="button" onClick={() => signOut()} aria-label="Cerrar sesión" title="Cerrar sesión" className="rounded-lg p-2 text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
+                    <LogOut className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link to="/ingresar" aria-label="Iniciar sesión" title="Iniciar sesión" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
+                    <LogIn className="h-4 w-4" aria-hidden="true" />
+                    <span className="hidden lg:inline">Iniciar sesión</span>
+                  </Link>
+                  <Link to="/registro" aria-label="Registrarse" title="Registrarse" className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-2 text-xs font-bold text-sky-800 hover:bg-sky-50 dark:bg-sky-700 dark:text-white dark:hover:bg-sky-600 sm:px-3">
+                    <UserPlus className="h-4 w-4" aria-hidden="true" />
+                    <span>Registrarse</span>
+                  </Link>
+                </>
+              )}
             </>
           )}
 
@@ -158,6 +207,45 @@ export function Header({
         </div>
 
       </div>
+
+      {!isAdminHeader && showCategoryMenu && (
+        <div className="fixed right-4 top-24 z-50 w-[min(22rem,calc(100vw-2rem))] max-h-[65vh] overflow-auto rounded-2xl border border-sky-200 bg-white p-3 text-stone-900 shadow-2xl dark:border-stone-700 dark:bg-stone-800 dark:text-white">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">Comparar precios</p>
+              <h2 className="text-base font-black">Selecciona una categoría</h2>
+            </div>
+            <button onClick={() => setShowCategoryMenu(false)} className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700" aria-label="Cerrar menú de categorías">Cerrar</button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowCategoryMenu(false)
+                onSelectCategory('todos')
+              }}
+              className={`rounded-xl border p-3 text-left transition-colors ${selectedCategory === 'todos' ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
+            >
+              <span className="block text-sm font-black">Todos los productos</span>
+              <span className={`mt-1 block text-xs ${selectedCategory === 'todos' ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>Comparar todo el catálogo</span>
+            </button>
+            {categories.map((category) => (
+              <button
+                type="button"
+                key={category.id}
+                onClick={() => {
+                  setShowCategoryMenu(false)
+                  onSelectCategory(category.id)
+                }}
+                className={`rounded-xl border p-3 text-left transition-colors ${selectedCategory === category.id ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
+              >
+                <span className="block text-sm font-black">{category.name}</span>
+                <span className={`mt-1 block text-xs ${selectedCategory === category.id ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>{category.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Floating admin quick panel */}
       {isAdminHeader && showAdminPanel && (

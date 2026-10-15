@@ -89,11 +89,6 @@ export const Header: React.FC<HeaderProps> = ({
             title="Ver Favoritos"
           >
             <Heart className="w-5 h-5" />
-            {favoritesCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
-                {favoritesCount}
-              </span>
-            )}
           </button>
 
           {/* Smart Basket Button */}

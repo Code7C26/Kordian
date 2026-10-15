@@ -45,15 +45,18 @@ export function createComparableProductIndex(products = [], classificationById =
 
 export function extractMeasure(product) {
   const text = [product.name, product.description, product.presentation, product.unit].join(' ')
-  const match = text.match(/\b(\d+(?:[.,]\d+)?)\s*(kg|g|mg|l|ml|cc|un(?:idad(?:es)?)?|u)\b/i)
+  const matches = [...text.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(kg|kgs|kilo(?:s)?|g|gr|grs|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|u|uds?|ud)\b/gi)]
+  const match = matches.at(-1)
   if (!match) return null
   const amount = Number(match[1].replace(',', '.'))
   const unit = match[2].toLowerCase()
-  if (!amount || unit === 'u' || unit.startsWith('un')) return null
-  if (unit === 'kg') return { amount, baseUnit: 'kg', normalizedAmount: amount }
-  if (unit === 'g' || unit === 'mg') return { amount, baseUnit: 'kg', normalizedAmount: unit === 'g' ? amount / 1000 : amount / 1000000 }
-  if (unit === 'l') return { amount, baseUnit: 'l', normalizedAmount: amount }
-  if (unit === 'ml' || unit === 'cc') return { amount, baseUnit: 'l', normalizedAmount: amount / 1000 }
+  if (!amount) return null
+  if (/^u$|^un$|^uds?$|^ud$|^unidad(?:es)?$/.test(unit)) return { amount, baseUnit: 'unit', normalizedAmount: amount }
+  if (/^kg|^kilo/.test(unit)) return { amount, baseUnit: 'kg', normalizedAmount: amount }
+  if (/^g|^gr|^gramo/.test(unit)) return { amount, baseUnit: 'kg', normalizedAmount: amount / 1000 }
+  if (unit === 'mg') return { amount, baseUnit: 'kg', normalizedAmount: amount / 1000000 }
+  if (/^l|^lt|^litro/.test(unit)) return { amount, baseUnit: 'l', normalizedAmount: amount }
+  if (unit === 'ml' || unit === 'cc' || unit === 'cl') return { amount, baseUnit: 'l', normalizedAmount: amount / (unit === 'cl' ? 100 : 1000) }
   return null
 }
 
@@ -69,7 +72,10 @@ export function findComparableReferences(product, products = [], classificationB
   if ((!classification?.categoryId || !classification?.subcategoryId) && !productSubcategory) {
     return { level: 'inflacion_general', references: [], referencePrice: 0, confidence: 'baja' }
   }
+}
 
+export function findComparableReferenceLevels(product, products = [], classificationById = new Map(), preparedIndex = null) {
+  const classification = classificationById.get(String(product.id))
   const productMeasure = extractMeasure(product)
   let candidateProducts = products
   if (productIndex) {
@@ -100,29 +106,44 @@ export function findComparableReferences(product, products = [], classificationB
         priceData,
       }
     })
-    .filter(Boolean)
-    .sort((first, second) => second.score - first.score)
-    .slice(0, 8)
+    : records
 
-  if (!candidates.length) return { level: 'subcategoria', references: [], referencePrice: 0, confidence: 'baja' }
-  const normalizedCandidates = productMeasure
-    ? candidates.filter(({ priceData }) => priceData.measure?.baseUnit === productMeasure.baseUnit)
-    : []
-  const productPrices = normalizedCandidates.length === candidates.length && productMeasure
-    ? candidates.map(({ priceData }) => priceData.unitPrice).filter(Boolean)
-    : candidates.map(({ priceData }) => priceData.price).filter(Boolean)
-  const referencePrice = calculateMedian(productPrices)
+  return comparableLevelConfig.map((level) => {
+    const references = coherentCandidates(groups[level.id])
+    const values = references.map(({ priceData }) => productBaseUnit ? priceData.unitPrice : priceData.price).filter((price) => price > 0)
+    return {
+      ...level,
+      count: references.length,
+      referencePrice: calculateMedian(values),
+      references: references.slice(0, 8).map(({ product: reference, priceData }) => ({
+        id: reference.id,
+        name: reference.name,
+        brand: reference.brands?.name || reference.brand || null,
+        price: priceData.price,
+        unitPrice: priceData.unitPrice,
+      })),
+    }
+  })
+}
+
+export function findComparableReferences(product, products = [], classificationById = new Map(), preparedIndex = null) {
+  const levels = findComparableReferenceLevels(product, products, classificationById, preparedIndex)
+  const specificLevels = levels.filter((level) => level.id !== 'same_category' && level.count > 0)
+  const availableLevels = specificLevels.length ? specificLevels : levels.filter((level) => level.count > 0)
+  if (!availableLevels.length) {
+    return { level: 'inflacion_general', references: [], referencePrice: 0, confidence: 'baja' }
+  }
+  const totalWeight = availableLevels.reduce((sum, level) => sum + level.weight, 0)
+  const referencePrice = availableLevels.reduce((sum, level) => sum + (level.referencePrice * level.weight), 0) / totalWeight
+  const strongestLevel = availableLevels[0]
+  const visibleLevels = availableLevels.filter((level) => level.id !== 'same_category')
+  const visibleReferenceCount = visibleLevels.reduce((sum, level) => sum + level.count, 0)
   return {
-    level: candidates.length >= 3 ? 'grupo_comparable' : 'subcategoria',
-    references: candidates.map(({ product, priceData }) => ({
-      id: product.id,
-      name: product.name,
-      brand: product.brands?.name || product.brand || null,
-      price: priceData.price,
-      unitPrice: priceData.unitPrice,
-    })),
+    level: visibleReferenceCount >= 3 ? 'grupo_comparable' : 'subcategoria',
+    references: visibleLevels.flatMap((level) => level.references.map((reference) => ({ ...reference, level: level.id }))),
+    levels: availableLevels,
     referencePrice,
-    normalized: Boolean(productMeasure && productPrices.length),
-    confidence: candidates.length >= 3 ? 'alta' : 'media',
+    normalized: Boolean(extractMeasure(product)),
+    confidence: strongestLevel.count >= 3 ? 'alta' : 'media',
   }
 }

@@ -6,6 +6,8 @@ const modulesPromise = Promise.all([
 ])
 
 const numeric = (value) => Number.isFinite(Number(value)) ? Number(value) : 0
+const { normalizeDiscoStoredPrice } = require('../priceNormalization')
+const classificationCache = new WeakMap()
 
 function buildPricePeriods(history) {
   const points = (history || [])
@@ -70,7 +72,7 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   const references = comparables.findComparableReferences(product, products, classifications, productIndex)
   const offers = (product.offers || []).map((offer) => ({
     ...offer,
-    price: numeric(offer.cash_price),
+    price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
     previousPrice: numeric(offer.previous_price),
   })).filter((offer) => offer.price > 0)
   const currentPrice = offers.length ? Math.min(...offers.map((offer) => offer.price)) : 0
@@ -83,14 +85,18 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   })
   const historicalAverage = behavior.previousPrice || 0
   const marketAverage = behavior.market.median || behavior.market.average || 0
+  const effectiveCurrentPrice = behavior.market.minimum || currentPrice
+  const normalizedCurrentPrice = references.normalized
+    ? comparables.normalizePrice(product, effectiveCurrentPrice).unitPrice
+    : effectiveCurrentPrice
   const classificationResult = status.calculatePriceStatus({
-    currentPrice,
+    currentPrice: effectiveCurrentPrice,
     marketAverage,
     historicalAverage,
     inflationRate: status.getCategoryInflationRate(categoryName),
     recentDifference: behavior.recentVariation,
-    peerDifference: references.referencePrice && currentPrice
-      ? ((currentPrice - references.referencePrice) / references.referencePrice) * 100
+    peerDifference: references.referencePrice && normalizedCurrentPrice
+      ? ((normalizedCurrentPrice - references.referencePrice) / references.referencePrice) * 100
       : null,
     dataPoints: history.length,
     analysis: behavior,

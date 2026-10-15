@@ -11,11 +11,12 @@ const statusLabels = {
   INFORMACION_INSUFICIENTE: 'Información insuficiente',
 }
 
-const formatValue = (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(1) : 'No disponible'
+const isAvailableNumber = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+const formatValue = (value) => isAvailableNumber(value) ? Number(value).toFixed(1) : 'No disponible'
 
 const getRiskLevel = (value) => {
+  if (!isAvailableNumber(value)) return { label: 'No disponible', className: 'text-stone-900 dark:text-white' }
   const score = Number(value)
-  if (!Number.isFinite(score)) return { label: 'No disponible', className: 'text-stone-900 dark:text-white' }
   if (score >= 60) return { label: 'Alto', className: 'text-rose-700 dark:text-rose-300' }
   if (score >= 30) return { label: 'Medio', className: 'text-amber-700 dark:text-amber-300' }
   return { label: 'Bajo', className: 'text-emerald-700 dark:text-emerald-300' }
@@ -31,6 +32,12 @@ export default function PriceExplanationModal({ product, onClose }) {
   const dataQuality = analysis.dataQuality || {}
   const status = statusLabels[analysis.classification || product.status] || 'Estado no disponible'
   const riskLevel = getRiskLevel(analysis.score)
+  const confidenceLabel = isAvailableNumber(analysis.confidencePercentage)
+    ? `${analysis.confidence || 'baja'} (${formatValue(analysis.confidencePercentage)}%)`
+    : 'No disponible'
+  const scoreLabel = isAvailableNumber(analysis.score)
+    ? `${riskLevel.label} (${formatValue(analysis.score)}/100)`
+    : 'No disponible'
   const signals = Array.isArray(analysis.indicators?.signals)
     ? analysis.indicators.signals
     : Array.isArray(analysis.indicators?.reasons)
@@ -60,7 +67,7 @@ export default function PriceExplanationModal({ product, onClose }) {
           </div>
           <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
             <p className="text-xs font-semibold text-stone-500 dark:text-stone-400">Confianza</p>
-            <p className="mt-1 font-black text-stone-900 dark:text-white">{analysis.confidence || 'baja'} ({formatValue(analysis.confidencePercentage)}%)</p>
+            <p className="mt-1 font-black text-stone-900 dark:text-white">{confidenceLabel}</p>
           </div>
           <div className="relative rounded-xl border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
             <div className="flex items-start justify-between gap-2">
@@ -69,7 +76,7 @@ export default function PriceExplanationModal({ product, onClose }) {
                 <Info className="h-4 w-4" />
               </button>
             </div>
-            <p className={`mt-1 font-black ${riskLevel.className}`}>{riskLevel.label} ({formatValue(analysis.score)}/100)</p>
+            <p className={`mt-1 font-black ${riskLevel.className}`}>{scoreLabel}</p>
             {showRiskScale && (
               <div className="absolute right-3 top-12 z-10 w-64 rounded-xl border border-stone-300 bg-white p-3 text-xs shadow-xl dark:border-stone-600 dark:bg-stone-900">
                 <p className="font-bold text-stone-900 dark:text-white">Escala del nivel de riesgo</p>

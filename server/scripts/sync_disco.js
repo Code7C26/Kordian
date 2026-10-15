@@ -1,4 +1,4 @@
-const database = require('../supabase')
+const database = require('../supabaseAdmin')
 const { syncDiscoPrices } = require('../services/discoPriceSync')
 
 async function recordPriceHistory({ productId, offerId, cashPrice, source }) {

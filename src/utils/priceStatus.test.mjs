@@ -42,6 +42,19 @@ const limitedDataResult = calculatePriceStatus({
 });
 assert.equal(limitedDataResult.status, 'AUMENTO_ATIPICO');
 assert.ok(limitedDataResult.confidencePercentage < 60);
+
+const comparableBackedResult = calculatePriceStatus({
+	currentPrice: 1200,
+	marketAverage: 1200,
+	historicalAverage: 0,
+	dataPoints: 0,
+	supermarketCount: 1,
+	comparableCount: 4,
+	peerDifference: 18,
+	analysis: { periodDays: 0, dataQuality: { historyPoints: 0 } },
+});
+assert.ok(comparableBackedResult.confidencePercentage > 50);
+assert.equal(comparableBackedResult.dataQuality.quality, 'media');
 assert.equal(calculatePriceStatus({ currentPrice: 0, marketAverage: 1000 }).status, 'INFORMACION_INSUFICIENTE');
 
 console.log('priceStatus test passed');

@@ -39,4 +39,40 @@ const leche = normalizeDiscoProduct({
 assert.equal(leche.proposedCategory, 'Alimentos Frescos y Refrigerados');
 assert.equal(leche.proposedSubcategory, 'Lácteos');
 
+const unavailable = normalizeDiscoProduct({
+  productId: '3003',
+  productName: 'Actimel 100g',
+  categories: ['Lácteos'],
+  items: [{
+    itemId: 'item-3003',
+    sellers: [{
+      sellerName: 'Disco',
+      commertialOffer: { Price: 489.07, PriceToken: 'invalid', IsAvailable: false },
+    }],
+  }],
+});
+
+assert.equal(unavailable.available, false);
+
+const beverageWithCentToken = normalizeDiscoProduct({
+  productId: '4004',
+  productName: 'Jugo Listo Multifruta 200cc',
+  categories: ['Bebidas'],
+  items: [{
+    itemId: 'item-4004',
+    sellers: [{
+      sellerName: 'Disco',
+      commertialOffer: {
+        Price: 950,
+        PriceToken: 'eyJhbGciOiJ9.eyJkYXRhIjp7InByaWNlIjo5NTAwMH19.signature',
+        IsAvailable: true,
+      },
+    }],
+  }],
+});
+
+assert.equal(beverageWithCentToken.price, 950);
+
+console.log('discoImporter availability test passed');
+
 console.log('discoImporter mapping test passed');

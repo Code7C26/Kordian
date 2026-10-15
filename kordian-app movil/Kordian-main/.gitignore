@@ -1,0 +1,24 @@
+node_modules/
+server/node_modules/
+
+.env
+server/.env
+
+# Ignore generated admin HMR artifact
+admin_src.txt
+
+# Local env overrides
+.env.local
+
+.idea/
+android/.idea/
+
+# Android / Capacitor generated files
+**/.gradle/
+**/build/
+**/node_modules/
+
+# Environment files
+**/.env
+**/.env.*
+!**/.env.example
