@@ -15,6 +15,7 @@ import { SelectedCityProvider } from './contexts/SelectedCityContext.jsx'
 import { CustomerAuthProvider } from './contexts/CustomerAuthContext.jsx'
 import CustomerAuthPage from './pages/CustomerAuthPage.jsx'
 import CustomerAccountPage from './pages/CustomerAccountPage.jsx'
+import FaqPage from './pages/FaqPage.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -28,6 +29,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/seleccionar-categorias" element={<App />} />
           <Route path="/buscar" element={<App />} />
           <Route path="/favoritos" element={<FavoritesPage />} />
+          <Route path="/ingresar" element={<CustomerAuthPage mode="login" />} />
+          <Route path="/registro" element={<CustomerAuthPage mode="register" />} />
+          <Route path="/perfil" element={<CustomerAccountPage section="profile" />} />
+          <Route path="/mis-alertas" element={<CustomerAccountPage section="alerts" />} />
+          <Route path="/panel-gestion" element={<CustomerAccountPage section="business" />} />
+          <Route path="/faq" element={<FaqPage />} />
 
           {/* LOGIN */}
           <Route path="/login" element={<Login />} />

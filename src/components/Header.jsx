@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { 
+  CircleHelp,
+  Menu,
   MapPin, 
   Sun, 
   Moon, 
@@ -23,7 +25,6 @@ export function Header({
   selectedCity,
   basketCount,
   onOpenBasket,
-  favoritesCount,
   onOpenFavorites,
   onResetView,
   categories = [],
@@ -36,6 +37,8 @@ export function Header({
   const isAdminHeader = isAdminPage || location.pathname === '/admin'
   const [showAdminPanel, setShowAdminPanel] = useState(false)
   const [showCategoryMenu, setShowCategoryMenu] = useState(false)
+  const [showAccountMenu, setShowAccountMenu] = useState(false)
+  const accountMenuRef = useRef(null)
   const [panelCategories, setPanelCategories] = useState([])
   const [panelBrands, setPanelBrands] = useState([])
   const [panelSupermarkets, setPanelSupermarkets] = useState([])
@@ -71,6 +74,24 @@ export function Header({
       }
     })()
   }, [])
+
+  useEffect(() => {
+    if (!showAccountMenu) return undefined
+
+    const closeOnOutsideClick = (event) => {
+      if (!accountMenuRef.current?.contains(event.target)) setShowAccountMenu(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setShowAccountMenu(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [showAccountMenu])
   return (
     <header className="sticky top-0 z-40 w-full border-b border-sky-400/30 dark:border-stone-800 bg-sky-600 dark:bg-stone-900/90 backdrop-blur-md transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 md:h-20 flex items-center justify-between gap-4">
@@ -147,38 +168,58 @@ export function Header({
                 )}
               </button>
 
-              {user ? (
-                <>
-                  <Link to="/perfil" aria-label="Perfil" title="Perfil" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
-                    <UserRound className="h-4 w-4" aria-hidden="true" />
-                    <span className="hidden sm:inline">Perfil</span>
-                  </Link>
-                  <Link to="/mis-alertas" aria-label="Mis alertas" title="Mis alertas" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
-                    <Heart className="h-4 w-4" aria-hidden="true" />
-                    <span className="hidden sm:inline">Mis alertas</span>
-                  </Link>
-                  {profile?.role === 'business' && (
-                    <Link to="/panel-gestion" aria-label="Panel de gestión" title="Panel de gestión" className="inline-flex items-center rounded-lg bg-emerald-500 px-2 py-2 text-xs font-bold text-white hover:bg-emerald-600">
-                      <span className="hidden sm:inline">Panel de gestión</span>
-                      <span className="sm:hidden">Panel</span>
+              <div className="relative" ref={accountMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowAccountMenu((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={showAccountMenu}
+                  aria-label="Abrir menú"
+                  title="Menú"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-white transition-colors hover:bg-white/25 dark:bg-stone-800/60 dark:text-stone-200"
+                >
+                  <Menu className="h-6 w-6" aria-hidden="true" />
+                </button>
+                {showAccountMenu && (
+                  <div
+                    role="menu"
+                    aria-label="Menú principal"
+                    className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl border border-stone-200 bg-white p-2 text-stone-800 shadow-xl dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                  >
+                    {user ? (
+                      <>
+                        <Link role="menuitem" to="/perfil" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                          <UserRound className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Perfil
+                        </Link>
+                        <Link role="menuitem" to="/mis-alertas" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                          <Heart className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Mis alertas
+                        </Link>
+                        {profile?.role === 'business' && (
+                          <Link role="menuitem" to="/panel-gestion" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                            <ShoppingBag className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" /> Panel de gestión
+                          </Link>
+                        )}
+                        <button role="menuitem" type="button" onClick={() => { setShowAccountMenu(false); signOut() }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                          <LogOut className="h-4 w-4 text-stone-500" aria-hidden="true" /> Cerrar sesión
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <Link role="menuitem" to="/ingresar" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                          <LogIn className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Iniciar sesión
+                        </Link>
+                        <Link role="menuitem" to="/registro" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                          <UserPlus className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Registrarse
+                        </Link>
+                      </>
+                    )}
+                    <div className="my-1 border-t border-stone-200 dark:border-stone-700" />
+                    <Link role="menuitem" to="/faq" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                      <CircleHelp className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> FAQ
                     </Link>
-                  )}
-                  <button type="button" onClick={() => signOut()} aria-label="Cerrar sesión" title="Cerrar sesión" className="rounded-lg p-2 text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
-                    <LogOut className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link to="/ingresar" aria-label="Iniciar sesión" title="Iniciar sesión" className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-bold text-white hover:bg-white/20 dark:text-stone-200 dark:hover:bg-stone-800">
-                    <LogIn className="h-4 w-4" aria-hidden="true" />
-                    <span className="hidden lg:inline">Iniciar sesión</span>
-                  </Link>
-                  <Link to="/registro" aria-label="Registrarse" title="Registrarse" className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-2 text-xs font-bold text-sky-800 hover:bg-sky-50 dark:bg-sky-700 dark:text-white dark:hover:bg-sky-600 sm:px-3">
-                    <UserPlus className="h-4 w-4" aria-hidden="true" />
-                    <span>Registrarse</span>
-                  </Link>
-                </>
-              )}
+                  </div>
+                )}
+              </div>
             </>
           )}
 

@@ -16,13 +16,14 @@ import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
-// Data will be loaded from backend API
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 
-  const [products, setProducts] = useState([])
-  const [isMockCatalog, setIsMockCatalog] = useState(false)
-  const [isLoadingProducts, setIsLoadingProducts] = useState(true)
-  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
+const SORT_OPTIONS = [
+  { value: 'discount-desc', label: 'Mayor ahorro', icon: Percent },
+  { value: 'price-asc', label: 'Menor precio', icon: ArrowDownWideNarrow },
+  { value: 'price-desc', label: 'Mayor precio', icon: ArrowUpWideNarrow },
+  { value: 'name-asc', label: 'Nombre A-Z', icon: ArrowDownAZ },
+]
 
 function SortMenu({ value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -100,7 +101,13 @@ export default function App() {
   const [categories, setCategories] = useState(MOCK_CATEGORIES)
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
+  const [isMockCatalog, setIsMockCatalog] = useState(false)
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
+  const [catalogLoadError, setCatalogLoadError] = useState(false)
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
+  const [selectedCategory, setSelectedCategory] = useState(
+    () => localStorage.getItem('arprice_selected_category'),
+  )
   const catalogReferenceCache = useRef(null)
   const analysisCache = useRef(null)
   const [productsPage, setProductsPage] = useState(1)
@@ -124,6 +131,7 @@ export default function App() {
     sortBy: 'discount-desc',
     maxPrice: 1000000,
   });
+  const sortBy = filters.sortBy
   const [reportModalOpen, setReportModalOpen] = useState(false);
 
   const [selectedProductForComparison, setSelectedProductForComparison] = useState(null);
@@ -177,6 +185,38 @@ export default function App() {
     }
   });
 
+  const handleSelectCategory = (category) => {
+    const selectedCategoryId = String(category)
+    setSelectedCategory(selectedCategoryId)
+    localStorage.setItem('arprice_selected_category', selectedCategoryId)
+    setFilters((previous) => ({
+      ...previous,
+      category: selectedCategoryId,
+      searchQuery: '',
+      subcategory: 'todos',
+    }));
+    setFavoritesOnlyView(false);
+    setViewMode('products');
+    navigate(`/buscar?category=${encodeURIComponent(category)}`);
+  };
+
+  const resetFilters = () => {
+    setFilters((previous) => ({
+      ...previous,
+      category: 'todos',
+      searchQuery: '',
+      store: 'todos',
+      subcategory: 'todos',
+      priceStatus: 'todos',
+      sortBy: 'discount-desc',
+      maxPrice: 1000000,
+    }));
+    setProductsPage(1);
+    setFavoritesOnlyView(false);
+    setViewMode('categories');
+    navigate('/');
+  };
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
     document.body.classList.toggle('dark', darkMode);
@@ -203,19 +243,20 @@ export default function App() {
     const controller = new AbortController()
     let searchTimer
     setIsLoadingProducts(true)
+    setCatalogLoadError(false)
     const loadData = async () => {
+      const requestTimeout = setTimeout(() => {
+        controller.abort(new DOMException('Catalog request timed out', 'TimeoutError'))
+      }, 15000)
       try {
-        const requestPageSize = Math.max(productsPageSize, 200)
+        const requestPageSize = Math.max(productsPageSize, 100)
         const baseQuery = {
-          // Pagination is applied locally after all matching products are loaded.
           page: 1,
           limit: requestPageSize,
           searchQuery: filters.searchQuery,
           category: filters.category,
           store: filters.store,
           city: selectedCity,
-          page: productsPage,
-          limit: productsPageSize,
           sortBy,
         }
 
@@ -280,35 +321,51 @@ export default function App() {
 
         const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
         const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
-        if (!analysisCache.current && !filters.searchQuery.trim()) {
-          const analysisRes = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
-          analysisCache.current = analysisRes.ok ? await analysisRes.json() : []
-        }
         const analyses = analysisCache.current || []
         const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
 
         setCategories(cats.length ? cats : MOCK_CATEGORIES)
         setTaxonomy(taxonomyData)
-        setSupermarkets(supermarkets)
         setIsMockCatalog(false)
-        setProducts(enrichProducts(rawProducts))
-
-          const analysis = analysisByProduct.get(String(p.id))
-          const analysisStatus = analysis?.classification === 'PRECIO_NORMAL' ? 'EN_PRECIO' : analysis?.classification
+        setCatalogLoadError(false)
+        const enriched = validProds.map((product) => {
+          const offers = (product.offers || [])
+            .map((offer) => ({
+              ...offer,
+              price: Number(offer.cash_price ?? offer.cashPrice ?? offer.price ?? 0),
+              supermarket: offer.supermarket || offer.supermarket_name || offer.storeName || '',
+            }))
+            .filter((offer) => Number.isFinite(offer.price) && offer.price > 0)
+          const primary = offers.reduce(
+            (lowest, offer) => (!lowest || offer.price < lowest.price ? offer : lowest),
+            null,
+          )
+          const currentPrice = Number(product.currentPrice || primary?.price || product.price || 0)
+          const avgMarketPrice = offers.length
+            ? offers.reduce((total, offer) => total + offer.price, 0) / offers.length
+            : Number(product.avgMarketPrice || 0)
+          const analysis = analysisByProduct.get(String(product.id))
+          const analysisStatus = analysis?.classification === 'PRECIO_NORMAL'
+            ? 'EN_PRECIO'
+            : analysis?.classification
 
           return {
-            ...p,
-            brand: p.brand || p.brands?.name || '',
-            subcategory: p.subcategory || p.subcategories?.name || '',
+            ...product,
+            brand: product.brand || product.brands?.name || '',
+            subcategory: product.subcategory || product.subcategories?.name || '',
             currentPrice,
-            primaryStore: primary ? { name: primary.supermarket, id: primary.id } : { name: '', id: null },
+            primaryStore: primary
+              ? { name: primary.supermarket, id: primary.id }
+              : { name: '', id: null },
             avgMarketPrice,
-            percentageDiff,
-            status: analysisStatus || status,
+            percentageDiff: avgMarketPrice
+              ? ((avgMarketPrice - currentPrice) / avgMarketPrice) * 100
+              : Number(product.percentageDiff || 0),
+            status: analysisStatus || product.status || 'EN_PRECIO',
             analysis: analysis || null,
-            priceHistory: analysis?.priceHistory || p.priceHistory || [],
-            otherStores,
-            unit: p.unit || '',
+            priceHistory: analysis?.priceHistory || product.priceHistory || [],
+            otherStores: offers.filter((offer) => offer !== primary),
+            unit: product.unit || '',
           }
         })
 
@@ -326,9 +383,39 @@ export default function App() {
 
         const storesArr = Array.from(storesSet).map((name) => ({ id: name, name, image: supermarketImages.get(name) || '' }))
         setStoresList(storesArr)
+
+        if (!analysisCache.current && !filters.searchQuery.trim()) {
+          fetch(apiUrl('/analysis/products'), { signal: controller.signal })
+            .then(async (response) => {
+              if (!response.ok) throw new Error('Backend returned non-ok analysis response')
+              return response.json()
+            })
+            .then((analysisResults) => {
+              if (!mounted) return
+              analysisCache.current = analysisResults
+              const resultsByProduct = new Map(analysisResults.map((item) => [String(item.product?.id), item]))
+              setProducts((current) => current.map((product) => {
+                const analysis = resultsByProduct.get(String(product.id))
+                if (!analysis) return product
+                return {
+                  ...product,
+                  analysis,
+                  status: analysis.classification === 'PRECIO_NORMAL'
+                    ? 'EN_PRECIO'
+                    : analysis.classification || product.status,
+                  priceHistory: analysis.priceHistory || product.priceHistory,
+                }
+              }))
+            })
+            .catch((error) => {
+              if (error.name !== 'AbortError') console.error('Error loading price analysis', error)
+            })
+        }
       } catch (err) {
-        console.error('Error loading data', err)
         if (!mounted) return
+        if (err.name === 'AbortError') return
+        console.error('Error loading data', err)
+        setCatalogLoadError(true)
 
         const enriched = MOCK_PRODUCTS.map((p) => ({
           ...p,
@@ -355,6 +442,7 @@ export default function App() {
         const storesArr = Array.from(storesSet).map((name) => ({ id: name, name }))
         setStoresList(storesArr)
       } finally {
+        clearTimeout(requestTimeout)
         if (mounted) setIsLoadingProducts(false)
       }
     }
@@ -366,7 +454,7 @@ export default function App() {
       controller.abort()
       clearTimeout(searchTimer)
     }
-  }, [filters, productsPage, productsPageSize, selectedCity, sortBy, catalogRefreshKey])
+  }, [filters, productsPageSize, selectedCity, sortBy, catalogRefreshKey])
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>
@@ -434,7 +522,7 @@ export default function App() {
           .some((value) => String(value || '').toLowerCase().includes(query))
       )
     }
-    if (filters.category) {
+    if (filters.category && filters.category !== 'todos') {
       const category = filters.category.toLowerCase()
       result = result.filter((product) =>
         product.category?.toLowerCase() === category || product.category_name?.toLowerCase() === category
@@ -450,7 +538,7 @@ export default function App() {
     if (sortBy === 'name-asc') result.sort((left, right) => (left.name || '').localeCompare(right.name || '', 'es'))
     else if (sortBy === 'price-asc') result.sort((left, right) => (left.currentPrice || 0) - (right.currentPrice || 0))
     else if (sortBy === 'price-desc') result.sort((left, right) => (right.currentPrice || 0) - (left.currentPrice || 0))
-    else if (sortBy === 'discount') result.sort((left, right) => (right.percentageDiff || 0) - (left.percentageDiff || 0))
+    else if (sortBy === 'discount' || sortBy === 'discount-desc') result.sort((left, right) => (right.percentageDiff || 0) - (left.percentageDiff || 0))
     return result
   }, [products, filters, sortBy, isMockCatalog])
 
@@ -460,6 +548,10 @@ export default function App() {
 
   const totalPages = useMemo(() => getTotalPages(filteredProducts.length, productsPageSize), [filteredProducts.length, productsPageSize]);
   const visiblePages = useMemo(() => getVisiblePageNumbers(productsPage, totalPages, 1), [productsPage, totalPages]);
+  const paginatedProducts = useMemo(
+    () => filteredProducts.slice((productsPage - 1) * productsPageSize, productsPage * productsPageSize),
+    [filteredProducts, productsPage, productsPageSize],
+  );
 
   useEffect(() => {
     if (productsPage > totalPages) {
@@ -476,6 +568,7 @@ export default function App() {
     return (
       <CategorySelectionPage
         categories={categories}
+        selectedCategory={selectedCategory}
         onSelectCategory={handleSelectCategory}
       />
     );
@@ -777,8 +870,23 @@ export default function App() {
                 Inflado
               </button>
             </div>
-
           </div>
+
+          {catalogLoadError && isMockCatalog && (
+            <div className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between" role="alert">
+              <div>
+                <p className="font-bold">No se pudo conectar con la base de datos.</p>
+                <p className="mt-1 text-sm">Se muestran productos de demostración; los precios no son datos actuales.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCatalogRefreshKey((key) => key + 1)}
+                className="shrink-0 rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
+              >
+                Reintentar conexión
+              </button>
+            </div>
+          )}
 
           {isLoadingProducts ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-sky-200 dark:border-sky-800 space-y-4" role="status" aria-live="polite">
