@@ -11,28 +11,21 @@ const app = express()
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
 
-app.get('/health', (req, res) => {
-  res.json({ service: 'arprice-api', capabilities: { reviewMatchGrouping: true } })
-})
-
-const supabaseAdmin = require('./supabaseAdmin')
-const { analyzeProduct } = require('./services/priceAnalysisService')
-const { fetchDiscoPreviewReport, findPreviewMatches, isValidDiscoProduct } = require('./services/discoImporter')
-const { fetchPreview: fetchMamiPreview, findMatches: findMamiMatches, isValidProduct: isValidMamiProduct, source: mamiSource, getInvalidReason: getMamiInvalidReason } = require('./services/mamiImporter')
-const { compareSimulationReport, compareCrossSourceProducts, buildTaxonomyComparison } = require('./services/importerContract')
+const supabase = require('./supabase')
+const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
+const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
-const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
-const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
-const { normalizeDiscoStoredPrice } = require('./priceNormalization')
-const { normalizePairKey, upsertReviewDecision, listReviewDecisions, clearReviewDecisions, summarizeReviewDecisions, getReviewGroupingPeerIds, applyReviewMatchGrouping } = require('./services/reviewDecisionStore')
-const { createCatalogPageCache } = require('./services/catalogPageCache')
-const analysisWriter = supabaseAdmin
-const supabase = analysisWriter
-const catalogPageCache = createCatalogPageCache()
-const priceStatusRulesVersion = '2026-10-12-v5'
-const publicDiscoSearchCache = new Map()
-const publicDiscoSearchInFlight = new Set()
-const publicDiscoSearchMaxResults = Math.min(500, Math.max(50, Number(process.env.DISCO_PUBLIC_SEARCH_MAX_RESULTS || 500)))
+const {
+  createPriceStatusRefreshQueue,
+  enqueueIncompletePriceStatuses,
+  saveCurrentPriceStatuses,
+} = require('./services/currentPriceStatus')
+const analysisWriter = process.env.SUPABASE_SERVICE_ROLE_KEY ? require('./supabaseAdmin') : supabase
+const priceStatusQueue = createPriceStatusRefreshQueue({
+  refreshBatch: refreshCurrentPriceStatuses,
+})
+let analysisCatalogPromise
+let priceUpdateLogsPromise
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || (
   process.env.NODE_ENV === 'production' ? null : 'arprice-local-dev-session-secret'
 )
@@ -705,20 +698,19 @@ app.put('/products/:id/classification', requireAdmin, async (req, res) => {
     const { subcategory_id } = req.body || {}
     const priceHistoryRecorded = req.body?.priceHistoryRecorded === true
     if (!subcategory_id) return res.status(400).json({ error: 'subcategory_id is required' })
+    const { data: previousProduct, error: previousError } = await supabase
+      .from('products')
+      .select('category_id, subcategory_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (previousError) throw previousError
     const { data, error } = await supabase.from('products').update({
       subcategory_id,
       classification_source: 'manual',
       classification_confidence: 'manual',
     }).eq('id', id).select().single()
     if (error) return res.status(500).json({ error: 'Error updating product classification' })
-    const { error: logError } = await analysisWriter.from('price_update_log').insert({
-      admin_username: req.admin,
-      filters: { source: 'product_edit', productId: id },
-      percentage: 0,
-      products_updated: 1,
-      changes: [{ type: 'classification_edit', productId: id, updatedFields: ['subcategory_id'], priceHistoryRecorded }],
-    })
-    if (logError) console.error('Error recording product classification update', logError)
+    scheduleRelatedPriceStatusRefresh(id, true, previousProduct)
     res.json(data)
   } catch (error) {
     console.error('Error updating product classification', error)
@@ -726,7 +718,12 @@ app.put('/products/:id/classification', requireAdmin, async (req, res) => {
   }
 })
 
-async function recordPriceHistory({ productId, offerId, cashPrice, source = 'admin', throwOnError = false }) {
+function invalidateAnalysisCache() {
+  analysisCatalogPromise = undefined
+  priceUpdateLogsPromise = undefined
+}
+
+async function recordPriceHistory({ productId, offerId, cashPrice, source = 'admin' }) {
   const price = Number(cashPrice)
   if (!productId || !offerId || !Number.isFinite(price) || price <= 0) return
 
@@ -735,12 +732,12 @@ async function recordPriceHistory({ productId, offerId, cashPrice, source = 'adm
     offer_id: offerId,
     cash_price: price,
     source,
-  }).select('id').single()
-  if (error) {
-    console.error('Error recording price history', error)
-    if (throwOnError) throw error
+  })
+  if (error) console.error('Error recording price history', error)
+  else {
+    invalidateAnalysisCache()
+    scheduleRelatedPriceStatusRefresh(productId)
   }
-  return data?.id || null
 }
 
 async function importDiscoSearchResults(search) {
@@ -1044,100 +1041,214 @@ app.get('/products', async (req, res) => {
   }
 })
 
-// GET /analysis/products - calculate the structured analysis from backend data
-app.get('/analysis/products', async (req, res) => {
-  try {
-    const products = []
-    const productPageSize = 1000
-    for (let from = 0; ; from += productPageSize) {
-      const { data: page, error: productsError } = await analysisWriter
-        .from('products')
-        .select('*, offers(*), categories(name), subcategories(name), brands(name)')
-        .range(from, from + productPageSize - 1)
-      if (productsError) return res.status(500).json({ error: 'Error fetching products for analysis' })
-      products.push(...(page || []))
-      if (!page || page.length < productPageSize) break
-    }
-
-    const productIds = (products || []).map((product) => product.id).filter(Boolean)
-    const history = []
-    const historyBatchSize = 500
-    for (let index = 0; index < productIds.length; index += historyBatchSize) {
-      const batchIds = productIds.slice(index, index + historyBatchSize)
-      const { data: batch, error: historyError } = await analysisWriter
+async function getProductAnalyses(productIds) {
+  const { products, analysisContext } = await getAnalysisCatalog()
+  const targetIds = productIds ? new Set(productIds.map(String)) : null
+  const targetProducts = (products || []).filter((product) => !targetIds || targetIds.has(String(product.id)))
+  if (!targetProducts.length) return []
+  const targetProductIds = targetProducts.map((product) => product.id)
+  const history = []
+  const pageSize = 500
+  for (let index = 0; index < targetProductIds.length; index += 100) {
+    const ids = targetProductIds.slice(index, index + 100)
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase
         .from('price_history')
         .select('*')
-        .in('product_id', batchIds)
+        .in('product_id', ids)
         .order('observed_at', { ascending: true })
-      if (historyError) {
+        .range(offset, offset + pageSize - 1)
+      if (error) {
+        const historyError = new Error('Price history query failed', { cause: error })
+        historyError.priceHistoryUnavailable = true
+        throw historyError
+      }
+      history.push(...(data || []))
+      if ((data || []).length < pageSize) break
+    }
+  }
+
+  const updateLogs = await getPriceUpdateLogs()
+
+  const historyByProduct = new Map()
+  for (const point of history || []) {
+    const points = historyByProduct.get(String(point.product_id)) || []
+    points.push(point)
+    historyByProduct.set(String(point.product_id), points)
+  }
+  for (const update of updateLogs || []) {
+    for (const change of Array.isArray(update.changes) ? update.changes : []) {
+      if (!change.productId || !change.updatedCashPrice
+        || (targetIds && !targetIds.has(String(change.productId)))) continue
+      const points = historyByProduct.get(String(change.productId)) || []
+      const alreadyRecorded = points.some((point) => String(point.offer_id) === String(change.offerId)
+        && Number(point.cash_price) === Number(change.updatedCashPrice))
+      if (!alreadyRecorded) {
+        points.push({
+          product_id: change.productId,
+          offer_id: change.offerId,
+          observed_at: update.updated_at,
+          cash_price: change.updatedCashPrice,
+          source: 'bulk_admin_log',
+        })
+        historyByProduct.set(String(change.productId), points)
+      }
+    }
+  }
+
+  return Promise.all(targetProducts.map((product) => analyzeProduct(
+    product,
+    products,
+    historyByProduct.get(String(product.id)) || [],
+    product.categories?.name || '',
+    analysisContext,
+  )))
+}
+
+async function getAnalysisCatalog() {
+  if (!analysisCatalogPromise) {
+    analysisCatalogPromise = (async () => {
+      const products = []
+      const pageSize = 500
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*, offers(*), categories(name), subcategories(name), brands(name)')
+          .order('id', { ascending: true })
+          .range(offset, offset + pageSize - 1)
+        if (error) throw error
+        products.push(...(data || []))
+        if ((data || []).length < pageSize) break
+      }
+      return { products, analysisContext: await createAnalysisContext(products) }
+    })().catch((error) => {
+      analysisCatalogPromise = undefined
+      throw error
+    })
+  }
+  return analysisCatalogPromise
+}
+
+async function getPriceUpdateLogs() {
+  if (!priceUpdateLogsPromise) {
+    priceUpdateLogsPromise = (async () => {
+      const logs = []
+      const pageSize = 500
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase
+          .from('price_update_log')
+          .select('updated_at, changes')
+          .order('updated_at', { ascending: true })
+          .range(offset, offset + pageSize - 1)
+        if (error) {
+          console.error('Error fetching price update history', error)
+          return logs
+        }
+        logs.push(...(data || []))
+        if ((data || []).length < pageSize) break
+      }
+      return logs
+    })().catch((error) => {
+      priceUpdateLogsPromise = undefined
+      throw error
+    })
+  }
+  return priceUpdateLogsPromise
+}
+
+async function refreshCurrentPriceStatuses(productIds) {
+  const analyses = await getProductAnalyses(productIds)
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    await saveCurrentPriceStatuses(analysisWriter, analyses)
+  }
+}
+
+async function enqueueRelatedPriceStatuses(productId, includeScope = true, previousProduct = null) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return
+  const ids = new Set([String(productId)])
+  const { data: dependents, error: dependencyError } = await analysisWriter
+    .from('product_price_status')
+    .select('product_id')
+    .contains('comparable_product_ids', [productId])
+  if (dependencyError) throw dependencyError
+  for (const dependent of dependents || []) ids.add(String(dependent.product_id))
+
+  if (includeScope) {
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select('category_id, subcategory_id')
+      .eq('id', productId)
+      .maybeSingle()
+    if (productError) throw productError
+    const scopes = [
+      product && { category_id: product.category_id, subcategory_id: product.subcategory_id },
+      previousProduct && { category_id: previousProduct.category_id, subcategory_id: previousProduct.subcategory_id },
+    ].filter(Boolean)
+    for (const scope of scopes) {
+      if (!scope.subcategory_id && !scope.category_id) continue
+      let query = supabase.from('products').select('id')
+      query = scope.subcategory_id
+        ? query.eq('subcategory_id', scope.subcategory_id)
+        : query.eq('category_id', scope.category_id)
+      const { data: relatedProducts, error: relatedError } = await query
+      if (relatedError) throw relatedError
+      for (const related of relatedProducts || []) ids.add(String(related.id))
+    }
+  }
+
+  priceStatusQueue.enqueue([...ids])
+}
+
+function scheduleRelatedPriceStatusRefresh(productId, includeScope = true, previousProduct = null) {
+  invalidateAnalysisCache()
+  void enqueueRelatedPriceStatuses(productId, includeScope, previousProduct)
+    .catch((error) => console.error('Unable to queue related current price statuses', error))
+}
+
+// GET /analysis/products - return the most recently persisted status for each product
+app.get('/analysis/products', async (req, res) => {
+  try {
+    const analyses = []
+    const pageSize = 500
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await analysisWriter
+        .from('product_price_status')
+        .select('product_id, classification, anomaly_score, offer_score, confidence, confidence_percentage, data_quality, analysis_details, analyzed_at')
+        .order('product_id', { ascending: true })
+        .range(offset, offset + pageSize - 1)
+      if (error) {
+        console.error('Error fetching persisted current price statuses', error)
         return res.status(503).json({
-          error: 'Price analysis migration is not available',
-          detail: 'Apply server/migrations/20260822_price_analysis.sql before using this endpoint',
+          error: 'Current price status is not available',
+          detail: 'Verify the product_price_status migration and SUPABASE_SERVICE_ROLE_KEY configuration',
         })
       }
-      history.push(...(batch || []))
-    }
-
-    const { data: updateLogs, error: updateLogsError } = await analysisWriter
-      .from('price_update_log')
-      .select('updated_at, changes')
-      .order('updated_at', { ascending: true })
-    if (updateLogsError) console.error('Error fetching price update history', updateLogsError)
-
-    const historyByProduct = new Map()
-    const activeOfferIds = new Set((products || []).flatMap((product) => (product.offers || []).map((offer) => String(offer.id))))
-    for (const point of history || []) {
-      if (!point.offer_id || !activeOfferIds.has(String(point.offer_id))) continue
-      const points = historyByProduct.get(String(point.product_id)) || []
-      points.push(point)
-      historyByProduct.set(String(point.product_id), points)
-    }
-    for (const update of updateLogs || []) {
-      for (const change of Array.isArray(update.changes) ? update.changes : []) {
-        if (!change.productId || !change.updatedCashPrice) continue
-        const points = historyByProduct.get(String(change.productId)) || []
-        const alreadyRecorded = points.some((point) => String(point.offer_id) === String(change.offerId)
-          && Number(point.cash_price) === Number(change.updatedCashPrice))
-        if (!alreadyRecorded) {
-          points.push({
-            product_id: change.productId,
-            offer_id: change.offerId,
-            observed_at: update.updated_at,
-            cash_price: change.updatedCashPrice,
-            source: 'bulk_admin_log',
-          })
-          historyByProduct.set(String(change.productId), points)
+      analyses.push(...(data || []).map((status) => {
+        const details = status.analysis_details || {}
+        return {
+          product: { id: status.product_id },
+          classification: status.classification,
+          score: Number(status.anomaly_score) || 0,
+          offerScore: Number(status.offer_score) || 0,
+          confidence: status.confidence || 'baja',
+          confidencePercentage: Number(status.confidence_percentage) || 0,
+          dataQuality: status.data_quality || {},
+          analyzedAt: status.analyzed_at,
+          indicators: details.indicators || {},
+          references: details.references || { references: [] },
+          priceHistory: details.priceHistory || [],
+          pricePeriods: details.pricePeriods || [],
+          populatedPeriods: details.populatedPeriods || 0,
+          evolutionAvailable: details.evolutionAvailable || false,
+          taxonomy: details.taxonomy || null,
         }
-      }
+      }))
+      if ((data || []).length < pageSize) break
     }
-
-    const analyses = await Promise.all((products || []).map((product) => analyzeProduct(
-      product,
-      products || [],
-      historyByProduct.get(String(product.id)) || [],
-      product.categories?.name || '',
-    )))
-
-    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      const { error: persistenceError } = await analysisWriter.from('price_analysis').insert(analyses.map((analysis) => ({
-        product_id: analysis.product.id,
-        status: analysis.classification,
-        anomaly_score: analysis.score || 0,
-        offer_score: analysis.offerScore || 0,
-        confidence: analysis.confidence || 'baja',
-        indicators: {
-          ...analysis.indicators,
-          references: analysis.references,
-          dataQuality: analysis.dataQuality,
-        },
-      })))
-      if (persistenceError) console.error('Error persisting price analysis', persistenceError)
-    }
-
     res.json(analyses)
   } catch (error) {
-    console.error('Error calculating price analysis', error)
-    res.status(500).json({ error: 'Error calculating price analysis' })
+    console.error('Error fetching persisted current price statuses', error)
+    res.status(500).json({ error: 'Error fetching current price status' })
   }
 })
 
@@ -1595,6 +1706,7 @@ app.post('/products', requireAdmin, async (req, res) => {
       offer = newOffer
       await recordPriceHistory({ productId: product.id, offerId: newOffer.id, cashPrice: newOffer.cash_price })
     }
+    scheduleRelatedPriceStatusRefresh(product.id)
 
     const responsePayload = { ...product, offers: offer ? [offer] : [] }
     res.json(responsePayload)
@@ -1607,7 +1719,13 @@ app.post('/products', requireAdmin, async (req, res) => {
 app.put('/products/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params 
-    const { name, category_id, brand_id, rating, image, priceHistoryRecorded = false } = req.body || {}
+    const { name, category_id, brand_id, rating, image } = req.body || {}
+    const { data: previousProduct, error: previousError } = await supabase
+      .from('products')
+      .select('category_id, subcategory_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (previousError) throw previousError
     const { data, error } = await supabase
       .from('products')
       .update({ name, category_id, brand_id, rating, image })
@@ -1620,18 +1738,7 @@ app.put('/products/:id', requireAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Error updating product' })
     }
 
-    const updatedFields = Object.entries({ name, category_id, brand_id, rating, image })
-      .filter(([, value]) => value !== undefined)
-      .map(([field]) => field)
-    const { error: logError } = await analysisWriter.from('price_update_log').insert({
-      admin_username: req.admin,
-      filters: { source: 'product_edit', productId: id },
-      percentage: 0,
-      products_updated: 1,
-      changes: [{ type: 'product_edit', productId: id, productName: data.name, updatedFields, priceHistoryRecorded: priceHistoryRecorded === true }],
-    })
-    if (logError) console.error('Error recording product update', logError)
-
+    scheduleRelatedPriceStatusRefresh(id, true, previousProduct)
     res.json(data)
   } catch (e) {
     console.error(e)
@@ -1642,12 +1749,20 @@ app.put('/products/:id', requireAdmin, async (req, res) => {
 app.delete('/products/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params 
-    await supabase.from('offers').delete().eq('product_id', id)
+    const { data: previousProduct, error: previousError } = await supabase
+      .from('products')
+      .select('category_id, subcategory_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (previousError) throw previousError
+    const { error: offersError } = await supabase.from('offers').delete().eq('product_id', id)
+    if (offersError) throw offersError
     const { error } = await supabase.from('products').delete().eq('id', id)
     if (error) {
       console.error('Error deleting product', error)
       return res.status(500).json({ error: 'Error deleting product' })
     }
+    scheduleRelatedPriceStatusRefresh(id, true, previousProduct)
     res.json({ success: true })
   } catch (e) {
     console.error(e)
@@ -1759,6 +1874,8 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
         }],
       })
       if (logError) return res.status(500).json({ error: 'Precio actualizado, pero no se pudo registrar la actualización' })
+    } else if (Number(previousOffer.cash_price) !== Number(data.cash_price)) {
+      scheduleRelatedPriceStatusRefresh(data.product_id)
     }
 
     res.json(data)
@@ -1771,11 +1888,14 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
 app.delete('/offers/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params 
+    const { data: offer, error: offerError } = await supabase.from('offers').select('product_id').eq('id', id).maybeSingle()
+    if (offerError) throw offerError
     const { error } = await supabase.from('offers').delete().eq('id', id)
     if (error) {
       console.error('Error deleting offer', error)
       return res.status(500).json({ error: 'Error deleting offer' })
     }
+    if (offer?.product_id) scheduleRelatedPriceStatusRefresh(offer.product_id)
     res.json({ success: true })
   } catch (e) {
     console.error(e)
@@ -2173,6 +2293,9 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Prices updated, but the operation could not be recorded' })
     }
 
+    for (const productId of new Set(changes.map((change) => String(change.productId)))) {
+      scheduleRelatedPriceStatusRefresh(productId)
+    }
     res.json({ updated: updatedCount })
   } catch (e) {
     console.error(e)
@@ -2184,7 +2307,14 @@ const desiredPort = process.env.PORT ? Number(process.env.PORT) : 3000
 const candidatePorts = [desiredPort, 3100, 3140, 3200, 3210, 3300, 3500, 4000].filter((port, index, array) => Number.isInteger(port) && port > 0 && array.indexOf(port) === index)
 let discoSyncRunning = false
 const discoSyncIntervalMs = Number(process.env.DISCO_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
-if (process.env.DISCO_SYNC_ENABLED !== 'false') {
+app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+
+if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue)
+    .catch((error) => console.error('Unable to queue missing or stale current price statuses', error))
+}
+
+if (process.env.DISCO_SYNC_ENABLED === 'true') {
   setInterval(async () => {
     if (discoSyncRunning) return
     discoSyncRunning = true

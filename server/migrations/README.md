@@ -1,13 +1,25 @@
 # Migraciones de AR-PRICE
 
-## Autenticacion de clientes
+## Estado de precio persistido
 
-1. Configurar `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` solo en el entorno del servidor. El navegador no requiere claves Supabase.
-2. Ejecutar `20261006_customer_auth.sql` desde el SQL Editor de Supabase.
-3. En Supabase Auth, permitir contraseñas de 4 caracteres y desactivar la confirmacion de email para habilitar el inicio automatico tras el registro. Si se mantiene la confirmacion, el cliente debera activarse desde el correo antes de iniciar sesion.
-4. Desplegar las rutas `POST /auth/customer-register`, `POST /auth/customer-login`, `POST /auth/customer-refresh` y `GET /auth/customer-session` del backend.
+Ejecutar en el SQL Editor de Supabase, en este orden:
 
-El rol de `customer_profiles` se inicializa como `customer`; solo una operacion administrativa debe promover una cuenta a `business`.
+1. `20261008_product_price_status.sql`
+2. `20261010_price_status_dependencies.sql`
+3. `20261012_price_status_analysis_details.sql`
+
+La API guarda la clasificación actual y una huella de los precios y comparables
+usados. Solo reemplaza una fila cuando cambia esa huella o la versión de las
+reglas. Ante cambios de precio, producto, clasificación u oferta, se encolan
+en segundo plano los productos afectados y sus comparables. Al iniciar, la API
+también programa el alta de filas faltantes y la actualización de las guardadas
+con reglas antiguas.
+`/analysis/products` devuelve ese estado guardado en lugar de recalcular todo el
+catálogo durante cada solicitud. La primera carga de productos puede tardar
+mientras la cola inicial completa los registros.
+
+La API requiere `SUPABASE_SERVICE_ROLE_KEY` para escribir en esta tabla; la
+política pública es únicamente de lectura.
 
 ## Cargar categorías y subcategorías
 

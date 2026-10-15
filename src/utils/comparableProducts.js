@@ -8,6 +8,41 @@ const getCatalogValue = (product, field) => product[field]
   || product[field === 'subcategory' ? 'subcategories' : 'categories']?.name
   || null
 
+const sameCatalogGroup = (firstProduct, secondProduct, firstClassification, secondClassification) => {
+  const firstSubcategory = getCatalogValue(firstProduct, 'subcategory')
+  const secondSubcategory = getCatalogValue(secondProduct, 'subcategory')
+  if (firstSubcategory && secondSubcategory) return normalize(firstSubcategory) === normalize(secondSubcategory)
+  return firstClassification?.categoryId === secondClassification?.categoryId
+    && firstClassification?.subcategoryId === secondClassification?.subcategoryId
+}
+
+const classificationGroupKey = (classification) => JSON.stringify([
+  classification?.categoryId,
+  classification?.subcategoryId,
+])
+
+export function createComparableProductIndex(products = [], classificationById = new Map()) {
+  const bySubcategory = new Map()
+  const byClassification = new Map()
+
+  for (const product of products) {
+    const subcategory = getCatalogValue(product, 'subcategory')
+    if (subcategory) {
+      const key = normalize(subcategory)
+      const matches = bySubcategory.get(key) || []
+      matches.push(product)
+      bySubcategory.set(key, matches)
+    }
+
+    const key = classificationGroupKey(classificationById.get(String(product.id)))
+    const matches = byClassification.get(key) || []
+    matches.push(product)
+    byClassification.set(key, matches)
+  }
+
+  return { bySubcategory, byClassification }
+}
+
 export function extractMeasure(product) {
   const text = [product.name, product.description, product.presentation, product.unit].join(' ')
   const matches = [...text.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(kg|kgs|kilo(?:s)?|g|gr|grs|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|u|uds?|ud)\b/gi)]
@@ -31,94 +66,45 @@ export function normalizePrice(product, price) {
   return { price, unitPrice: price / measure.normalizedAmount, measure }
 }
 
-const comparableLevelConfig = [
-  { id: 'same_brand_subcategory', weight: 30 },
-  { id: 'same_subcategory', weight: 15 },
-  { id: 'same_category', weight: 7 },
-]
-
-function getComparableKey(product, field, classification) {
-  return normalize(getCatalogValue(product, field) || classification?.[`${field}Id`])
-}
-
-export function createComparableIndex(products = [], classificationById = new Map()) {
-  const records = products.map((candidate) => {
-    const candidateClassification = classificationById.get(String(candidate.id))
-    const candidateMeasure = extractMeasure(candidate)
-    const offerPrices = (candidate.offers || [])
-      .map((offer) => Number(offer.cash_price ?? offer.cashPrice))
-      .filter((price) => price > 0)
-    if (!offerPrices.length) return null
-    return {
-      product: candidate,
-      brand: normalize(candidate.brands?.name || candidate.brand),
-      type: normalize(candidateClassification?.type),
-      variant: normalize(candidateClassification?.variant),
-      subcategory: getComparableKey(candidate, 'subcategory', candidateClassification),
-      category: getComparableKey(candidate, 'category', candidateClassification),
-      baseUnit: candidateMeasure?.baseUnit || null,
-      priceData: normalizePrice(candidate, calculateMedian(offerPrices)),
-    }
-  }).filter(Boolean)
-  const byKey = (keySelector) => {
-    const index = new Map()
-    for (const record of records) {
-      const key = keySelector(record)
-      if (!key) continue
-      const group = index.get(key) || []
-      group.push(record)
-      index.set(key, group)
-    }
-    return index
-  }
-  return {
-    byBrandSubcategory: byKey((record) => `${record.brand}|${record.subcategory}|${record.baseUnit || 'unit'}`),
-    bySubcategory: byKey((record) => `${record.subcategory}|${record.baseUnit || 'unit'}`),
-    byCategory: byKey((record) => `${record.category}|${record.baseUnit || 'unit'}`),
+export function findComparableReferences(product, products = [], classificationById = new Map(), productIndex = null) {
+  const classification = classificationById.get(String(product.id))
+  const productSubcategory = getCatalogValue(product, 'subcategory')
+  if ((!classification?.categoryId || !classification?.subcategoryId) && !productSubcategory) {
+    return { level: 'inflacion_general', references: [], referencePrice: 0, confidence: 'baja' }
   }
 }
 
 export function findComparableReferenceLevels(product, products = [], classificationById = new Map(), preparedIndex = null) {
   const classification = classificationById.get(String(product.id))
   const productMeasure = extractMeasure(product)
-  const productBaseUnit = productMeasure?.baseUnit || null
-  const productBrand = normalize(product.brands?.name || product.brand)
-  const productType = normalize(classification?.type)
-  const productVariant = normalize(classification?.variant)
-  const productSubcategory = getComparableKey(product, 'subcategory', classification)
-  const productCategory = getComparableKey(product, 'category', classification)
-  const index = preparedIndex || createComparableIndex(products, classificationById)
-  const unitKey = productBaseUnit || 'unit'
-  const withoutSelf = (records) => records.filter((candidate) => String(candidate.product.id) !== String(product.id))
-  const groups = {
-    same_brand_subcategory: productBrand
-      ? withoutSelf(index.byBrandSubcategory.get(`${productBrand}|${productSubcategory}|${unitKey}`) || [])
-      : [],
-    same_subcategory: withoutSelf(index.bySubcategory.get(`${productSubcategory}|${unitKey}`) || [])
-      .filter((candidate) => !productBrand || candidate.brand !== productBrand),
-    same_category: withoutSelf(index.byCategory.get(`${productCategory}|${unitKey}`) || [])
-      .filter((candidate) => candidate.subcategory !== productSubcategory),
+  let candidateProducts = products
+  if (productIndex) {
+    const candidatesById = new Map()
+    const groupCandidates = productIndex.byClassification.get(classificationGroupKey(classification)) || []
+    for (const candidate of groupCandidates) candidatesById.set(String(candidate.id), candidate)
+    if (productSubcategory) {
+      const subcategoryCandidates = productIndex.bySubcategory.get(normalize(productSubcategory)) || []
+      for (const candidate of subcategoryCandidates) candidatesById.set(String(candidate.id), candidate)
+    }
+    candidateProducts = [...candidatesById.values()]
   }
-  const sameType = (records) => productType ? records.filter((candidate) => candidate.type === productType) : records
-  const sameIdentity = (records) => productVariant
-    ? records.filter((candidate) => candidate.variant === productVariant)
-    : records
-  const typedSubcategory = sameType(groups.same_subcategory)
-  const typedBrand = sameType(groups.same_brand_subcategory)
-  const identityBrand = sameIdentity(typedBrand)
-  if (productType) groups.same_brand_subcategory = identityBrand.length ? identityBrand : typedBrand
-  if (productType && typedSubcategory.length) groups.same_subcategory = typedSubcategory
-  const currentComparablePrice = productBaseUnit
-    ? productMeasure && product.offers?.length
-      ? normalizePrice(product, calculateMedian(product.offers.map((offer) => Number(offer.cash_price)).filter((price) => price > 0))).unitPrice
-      : 0
-    : product.offers?.length
-      ? calculateMedian(product.offers.map((offer) => Number(offer.cash_price)).filter((price) => price > 0))
-      : 0
-  const coherentCandidates = (records) => currentComparablePrice > 0
-    ? records.filter((candidate) => {
-      const candidatePrice = productBaseUnit ? candidate.priceData.unitPrice : candidate.priceData.price
-      return candidatePrice > 0 && candidatePrice / currentComparablePrice <= 5 && currentComparablePrice / candidatePrice <= 5
+  const candidates = candidateProducts
+    .filter((candidate) => String(candidate.id) !== String(product.id))
+    .map((candidate) => {
+      const candidateClassification = classificationById.get(String(candidate.id))
+      if (!sameCatalogGroup(product, candidate, classification, candidateClassification)) return null
+      const sameType = candidateClassification?.type && candidateClassification.type === classification?.type
+      const sameVariant = classification?.variant && candidateClassification?.variant && normalize(classification.variant) === normalize(candidateClassification.variant)
+      const candidateMeasure = extractMeasure(candidate)
+      const sameBaseUnit = productMeasure && candidateMeasure && productMeasure.baseUnit === candidateMeasure.baseUnit
+      const offerPrices = (candidate.offers || []).map((offer) => Number(offer.cash_price ?? offer.cashPrice)).filter((price) => price > 0)
+      if (!offerPrices.length) return null
+      const priceData = normalizePrice(candidate, calculateMedian(offerPrices))
+      return {
+        product: candidate,
+        score: (sameVariant ? 3 : 0) + (sameType ? 2 : 0) + (sameBaseUnit ? 1 : 0),
+        priceData,
+      }
     })
     : records
 

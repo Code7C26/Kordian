@@ -1,37 +1,27 @@
-BEGIN;
-
-CREATE TABLE IF NOT EXISTS product_price_status (
-  product_id bigint PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
-  classification text NOT NULL CHECK (
-    classification IN ('OFERTA', 'EN_PRECIO', 'PRECIO_NORMAL', 'INFLADO', 'AUMENTO_ATIPICO', 'SOBREPRECIO', 'INFORMACION_INSUFICIENTE')
-  ),
-  anomaly_score integer NOT NULL DEFAULT 0,
-  offer_score integer NOT NULL DEFAULT 0,
-  confidence text NOT NULL DEFAULT 'baja',
-  confidence_percentage integer NOT NULL DEFAULT 0,
-  data_quality jsonb NOT NULL DEFAULT '{}'::jsonb,
-  rules_version text NOT NULL,
-  price_fingerprint text NOT NULL DEFAULT '',
-  analyzed_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+create table if not exists product_price_status (
+  product_id bigint primary key references products(id) on delete cascade,
+  classification text not null,
+  anomaly_score numeric not null default 0,
+  offer_score numeric not null default 0,
+  confidence text not null,
+  confidence_percentage numeric not null default 0,
+  data_quality jsonb not null default '{}'::jsonb,
+  rules_version text not null,
+  price_fingerprint text not null,
+  comparable_product_ids bigint[] not null default '{}'::bigint[],
+  analyzed_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
-ALTER TABLE product_price_status
-  ADD COLUMN IF NOT EXISTS price_fingerprint text NOT NULL DEFAULT '';
+create index if not exists product_price_status_rules_version_idx
+  on product_price_status(rules_version);
 
-CREATE INDEX IF NOT EXISTS product_price_status_classification_idx
-  ON product_price_status(classification);
+alter table product_price_status enable row level security;
 
-CREATE INDEX IF NOT EXISTS product_price_status_rules_version_idx
-  ON product_price_status(rules_version);
+drop policy if exists product_price_status_service_write on product_price_status;
+create policy product_price_status_service_write
+  on product_price_status for all to service_role using (true) with check (true);
 
-CREATE INDEX IF NOT EXISTS product_price_status_latest_idx
-  ON product_price_status(rules_version, analyzed_at DESC);
-
-ALTER TABLE product_price_status ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS product_price_status_public_read ON product_price_status;
-CREATE POLICY product_price_status_public_read ON product_price_status
-  FOR SELECT TO anon, authenticated USING (true);
-
-COMMIT;
+drop policy if exists product_price_status_public_read on product_price_status;
+create policy product_price_status_public_read
+  on product_price_status for select to anon, authenticated using (true);
