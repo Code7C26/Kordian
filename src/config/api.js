@@ -1,6 +1,6 @@
 const DEFAULT_API_BASES = [
   import.meta.env.VITE_API_URL,
-  'https://arprice-backend.onrender.com',
+  'https://ar-price-api.onrender.com',
   'http://localhost:3000',
   'http://localhost:3100',
   'http://localhost:3140',
@@ -22,9 +22,20 @@ const DEFAULT_API_BASES = [
   .map((value) => value.replace(/\/$/, ''))
 
 const API_BASE_STORAGE_KEY = 'arprice_api_base_url'
+const LEGACY_RENDER_API_BASE = 'https://arprice-backend.onrender.com'
+const CURRENT_RENDER_API_BASE = 'https://ar-price-api.onrender.com'
+
+const storedApiBase = localStorage.getItem(API_BASE_STORAGE_KEY)
+const normalizedStoredApiBase = storedApiBase?.replace(/\/$/, '')
+
+if (normalizedStoredApiBase === LEGACY_RENDER_API_BASE) {
+  localStorage.setItem(API_BASE_STORAGE_KEY, CURRENT_RENDER_API_BASE)
+}
 
 export const API_BASE_URL =
-  localStorage.getItem(API_BASE_STORAGE_KEY) ||
+  (normalizedStoredApiBase === LEGACY_RENDER_API_BASE
+    ? CURRENT_RENDER_API_BASE
+    : storedApiBase) ||
   DEFAULT_API_BASES[0] ||
   'http://localhost:3000'
 

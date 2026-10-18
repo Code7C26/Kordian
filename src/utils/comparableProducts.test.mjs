@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createComparableProductIndex, findComparableReferences, normalizePrice } from './comparableProducts.js';
+import { createComparableProductIndex, extractMeasure, findComparableReferences, normalizePrice } from './comparableProducts.js';
 
 const products = [
   { id: '1', name: 'Alfajor Jorgito Chocolate 55g', brand: 'Jorgito', offers: [{ cash_price: 1000 }] },

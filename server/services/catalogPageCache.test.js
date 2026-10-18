@@ -39,6 +39,7 @@ test('reuses an ordered ID index to serve successive pages without re-running th
   })
 
   assert.deepEqual(firstPage.data.map((product) => product.id), [1, 2])
+  assert.equal(firstPage.cacheHit, false)
   assert.deepEqual(secondPage.data.map((product) => product.id), [3, 4])
   assert.equal(secondPage.total, 5)
   assert.equal(secondPage.page, 2)
@@ -47,7 +48,7 @@ test('reuses an ordered ID index to serve successive pages without re-running th
   assert.equal(hydrationCount, 1)
 })
 
-test('replaces the cached result when the search query changes', async () => {
+test('keeps recent search indexes when the search query changes', async () => {
   const cache = createCatalogPageCache()
   let loadCount = 0
   const load = (value) => async (page, limit) => {
@@ -63,7 +64,7 @@ test('replaces the cached result when the search query changes', async () => {
     loadProductsByIds: async () => assert.fail('should use cached result'),
     loadPage: async () => assert.fail('should not fall back'),
   })
-  const result = await cache.getPage({
+  await cache.getPage({
     key: 'query-b',
     page: 1,
     limit: 20,
@@ -71,8 +72,17 @@ test('replaces the cached result when the search query changes', async () => {
     loadProductsByIds: async () => assert.fail('should use cached result'),
     loadPage: async () => assert.fail('should not fall back'),
   })
+  const result = await cache.getPage({
+    key: 'query-a',
+    page: 1,
+    limit: 20,
+    loadIndex: async () => assert.fail('should reuse the cached query'),
+    loadProductsByIds: async () => assert.fail('should use cached result'),
+    loadPage: async () => assert.fail('should not fall back'),
+  })
 
-  assert.deepEqual(result.data, [{ id: 'b' }])
+  assert.deepEqual(result.data, [{ id: 'a' }])
+  assert.equal(result.cacheHit, true)
   assert.equal(loadCount, 2)
 })
 

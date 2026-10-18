@@ -7,6 +7,7 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const app = express()
+const priceStatusRulesVersion = '2026-10-12-v5'
 
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
@@ -15,11 +16,13 @@ const supabase = require('./supabase')
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
 const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
+const { createCatalogPageCache } = require('./services/catalogPageCache')
 const {
   createPriceStatusRefreshQueue,
   enqueueIncompletePriceStatuses,
   saveCurrentPriceStatuses,
 } = require('./services/currentPriceStatus')
+const catalogPageCache = createCatalogPageCache()
 const analysisWriter = process.env.SUPABASE_SERVICE_ROLE_KEY ? require('./supabaseAdmin') : supabase
 const priceStatusQueue = createPriceStatusRefreshQueue({
   refreshBatch: refreshCurrentPriceStatuses,

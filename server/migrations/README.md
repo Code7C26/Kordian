@@ -105,9 +105,9 @@ Para desplegar el backend que usa las RPC de paginación, hidratación por IDs, 
 3. `20261013_catalog_page_cache_limit.sql`
 4. `20261013_catalog_search_index_cache.sql`
 
-Si alguna ya fue aplicada, no hace falta repetirla; continuar con la primera pendiente. La última migración conserva el límite de 100 productos por página y agrega el índice ordenado que el servidor usa para hidratar las páginas siguientes sin repetir la búsqueda completa en Supabase. El caché vive en memoria del proceso y se descarta al reiniciar o al cambiar los filtros.
+Si alguna ya fue aplicada, no hace falta repetirla; continuar con la primera pendiente. La última migración conserva el límite de 100 productos por página y agrega el índice ordenado que el servidor usa para hidratar las páginas siguientes sin repetir la búsqueda completa en Supabase. El backend conserva hasta 10 índices de consulta en memoria durante un minuto; se descartan al reiniciar Render o al vencer ese plazo. Los productos de cada página se vuelven a hidratar desde Supabase.
 
-El endpoint `/products` incluye `X-Catalog-Cache: MISS` cuando calcula un nuevo índice y `X-Catalog-Cache: HIT` cuando reutiliza el índice para otra página. Para leer este encabezado desde el navegador, el backend lo expone mediante CORS. `/taxonomy` obtiene los conteos con `catalog_taxonomy_counts`.
+El endpoint `/products` incluye `X-Catalog-Cache: MISS` cuando calcula un nuevo índice y `X-Catalog-Cache: HIT` cuando reutiliza un índice reciente, incluso para repetir la misma página. Para leer este encabezado desde el navegador, el backend lo expone mediante CORS. `/taxonomy` obtiene los conteos con `catalog_taxonomy_counts`.
 
 La aplicacion no incluye credenciales de propietario de Supabase, por lo que la migracion debe ejecutarse desde el SQL Editor, Supabase CLI autenticado o un pipeline de migraciones del proyecto. La clave anon del backend solo sirve para operaciones permitidas por RLS y no puede crear tablas.
 

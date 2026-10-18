@@ -72,10 +72,7 @@ export function findComparableReferences(product, products = [], classificationB
   if ((!classification?.categoryId || !classification?.subcategoryId) && !productSubcategory) {
     return { level: 'inflacion_general', references: [], referencePrice: 0, confidence: 'baja' }
   }
-}
 
-export function findComparableReferenceLevels(product, products = [], classificationById = new Map(), preparedIndex = null) {
-  const classification = classificationById.get(String(product.id))
   const productMeasure = extractMeasure(product)
   let candidateProducts = products
   if (productIndex) {
@@ -106,44 +103,29 @@ export function findComparableReferenceLevels(product, products = [], classifica
         priceData,
       }
     })
-    : records
+    .filter(Boolean)
+    .sort((first, second) => second.score - first.score)
+    .slice(0, 8)
 
-  return comparableLevelConfig.map((level) => {
-    const references = coherentCandidates(groups[level.id])
-    const values = references.map(({ priceData }) => productBaseUnit ? priceData.unitPrice : priceData.price).filter((price) => price > 0)
-    return {
-      ...level,
-      count: references.length,
-      referencePrice: calculateMedian(values),
-      references: references.slice(0, 8).map(({ product: reference, priceData }) => ({
-        id: reference.id,
-        name: reference.name,
-        brand: reference.brands?.name || reference.brand || null,
-        price: priceData.price,
-        unitPrice: priceData.unitPrice,
-      })),
-    }
-  })
-}
-
-export function findComparableReferences(product, products = [], classificationById = new Map(), preparedIndex = null) {
-  const levels = findComparableReferenceLevels(product, products, classificationById, preparedIndex)
-  const specificLevels = levels.filter((level) => level.id !== 'same_category' && level.count > 0)
-  const availableLevels = specificLevels.length ? specificLevels : levels.filter((level) => level.count > 0)
-  if (!availableLevels.length) {
-    return { level: 'inflacion_general', references: [], referencePrice: 0, confidence: 'baja' }
-  }
-  const totalWeight = availableLevels.reduce((sum, level) => sum + level.weight, 0)
-  const referencePrice = availableLevels.reduce((sum, level) => sum + (level.referencePrice * level.weight), 0) / totalWeight
-  const strongestLevel = availableLevels[0]
-  const visibleLevels = availableLevels.filter((level) => level.id !== 'same_category')
-  const visibleReferenceCount = visibleLevels.reduce((sum, level) => sum + level.count, 0)
+  if (!candidates.length) return { level: 'subcategoria', references: [], referencePrice: 0, confidence: 'baja' }
+  const normalizedCandidates = productMeasure
+    ? candidates.filter(({ priceData }) => priceData.measure?.baseUnit === productMeasure.baseUnit)
+    : []
+  const productPrices = normalizedCandidates.length === candidates.length && productMeasure
+    ? candidates.map(({ priceData }) => priceData.unitPrice).filter(Boolean)
+    : candidates.map(({ priceData }) => priceData.price).filter(Boolean)
+  const referencePrice = calculateMedian(productPrices)
   return {
-    level: visibleReferenceCount >= 3 ? 'grupo_comparable' : 'subcategoria',
-    references: visibleLevels.flatMap((level) => level.references.map((reference) => ({ ...reference, level: level.id }))),
-    levels: availableLevels,
+    level: candidates.length >= 3 ? 'grupo_comparable' : 'subcategoria',
+    references: candidates.map(({ product: reference, priceData }) => ({
+      id: reference.id,
+      name: reference.name,
+      brand: reference.brands?.name || reference.brand || null,
+      price: priceData.price,
+      unitPrice: priceData.unitPrice,
+    })),
     referencePrice,
-    normalized: Boolean(extractMeasure(product)),
-    confidence: strongestLevel.count >= 3 ? 'alta' : 'media',
+    normalized: Boolean(productMeasure && productPrices.length),
+    confidence: candidates.length >= 3 ? 'alta' : 'media',
   }
 }

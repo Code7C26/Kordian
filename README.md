@@ -27,9 +27,9 @@ Incluye:
 
 El archivo `render.yaml` configura la API como Render Blueprint. Al crear el
 Blueprint, completar `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` con los
-valores del proyecto Supabase. Render genera
-`ADMIN_SESSION_SECRET`. La clave de service role se usa solo en el backend;
-nunca debe agregarse a variables `VITE_*`.
+valores del proyecto Supabase, y también `SUPABASE_ANON_KEY` con la clave
+pública anon. Render genera `ADMIN_SESSION_SECRET`. La clave de service role
+se usa solo en el backend; nunca debe agregarse a variables `VITE_*`.
 
 El health check de la API está disponible en `/health`. Antes del despliegue,
 aplicar en Supabase las migraciones indicadas en
