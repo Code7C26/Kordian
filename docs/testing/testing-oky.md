@@ -15,7 +15,7 @@ Para verificar la estabilidad y usabilidad de la plataforma, se realizaron prueb
 
 ## 📸 Evidencia del Proceso (Planilla Combinada)
 
-- [Planilla Combinada](./docs/testing/Testing_Ar-price.xlsx)
+- [Planilla Combinada](/docs/testing/Testing_Ar-price.xlsx)
 
 ---
 
