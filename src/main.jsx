@@ -41,6 +41,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/calculadora" element={<PriceInflationPage />} />
           <Route path="/cupones" element={<CouponsPage />} />
           <Route path="/faq" element={<FaqPage />} />
+          <Route path="/configuracion" element={<SettingsPage />} />
 
           {/* LOGIN */}
           <Route path="/login" element={<Login />} />
