@@ -16,6 +16,12 @@ import { CustomerAuthProvider } from './contexts/CustomerAuthContext.jsx'
 import CustomerAuthPage from './pages/CustomerAuthPage.jsx'
 import CustomerAccountPage from './pages/CustomerAccountPage.jsx'
 import FaqPage from './pages/FaqPage.jsx'
+<<<<<<< Updated upstream
+=======
+import SharedListsPage from './pages/SharedListsPage.jsx'
+import PriceInflationPage from './pages/PriceInflationPage.jsx'
+import CouponsPage from './pages/CouponsPage.jsx'
+>>>>>>> Stashed changes
 import SettingsPage from './pages/SettingsPage.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
