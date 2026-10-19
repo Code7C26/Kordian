@@ -1,4 +1,4 @@
-### 🧪 Documentación de Testing y QA - OKY (Dromos)
+### 🧪 Documentación de Testing y QA - OKY
 Este documento detalla el proceso de validación, control de calidad y estado del Producto Mínimo Viable (MVP) de la plataforma **OKY** (Plataforma web de gestión y coordinación de pasantías escolares en Alta Gracia).
 
 ---
@@ -15,7 +15,7 @@ Para verificar la estabilidad y usabilidad de la plataforma, se realizaron prueb
 
 ## 📸 Evidencia del Proceso (Planilla Combinada)
 
-- [Planilla Combinada](./Planilla%20Combinada%20Testing%20AllWays.xlsx)
+- [Planilla Combinada](./docs/testing/Testing_Ar-price.xlsx)
 
 ---
 
@@ -64,5 +64,5 @@ Durante las pruebas del MVP se consolidaron las funciones terminadas y los punto
 ---
 
 #### 🧾 Autor
-Equipo **OKY / Dromos**
+Equipo **OKY**
 equipo  **Kordian** - Proyecto Final Integrador (2026)
