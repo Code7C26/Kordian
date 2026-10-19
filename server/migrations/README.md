@@ -31,6 +31,14 @@ Si la confirmación de correo está habilitada en Supabase Auth, cada usuario
 debe confirmar el correo recibido antes de iniciar sesión. Si está
 deshabilitada, el registro inicia la sesión inmediatamente.
 
+## Favoritos por cuenta
+
+Ejecutar completo `20261021_customer_favorites.sql` en el SQL Editor de
+Supabase para crear la tabla de favoritos asociados al usuario autenticado.
+Los favoritos se consultan y modifican mediante el backend con la sesión del
+cliente; la tabla mantiene RLS habilitado y no guarda datos de favoritos en el
+navegador.
+
 ## Estado de precio persistido
 
 Ejecutar en el SQL Editor de Supabase, en este orden:

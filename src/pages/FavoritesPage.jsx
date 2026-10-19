@@ -2,26 +2,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Heart, Loader2, TrendingDown, Tag } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config/api.js';
+import { buildProductsQuery } from '../utils/catalogQuery.js';
 import { Header } from '../components/Header.jsx';
 import { useSelectedCity } from '../contexts/SelectedCityContext.jsx';
-
-function readFavorites() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('arprice_favorites') || '[]');
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    return [];
-  }
-}
+import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 
 export default function FavoritesPage() {
   const navigate = useNavigate();
   const { selectedCity } = useSelectedCity();
+  const { user, loading: authLoading, favorites, favoritesLoading, toggleFavorite, favoritesError } = useCustomerAuth();
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('arprice_theme') === 'dark');
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [favorites, setFavorites] = useState(readFavorites);
+  const favoriteIdsKey = favorites.join(',');
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -31,6 +25,16 @@ export default function FavoritesPage() {
 
   useEffect(() => {
     let cancelled = false;
+    if (authLoading || favoritesLoading || !user || !favoriteIdsKey) {
+      setProducts([]);
+      setIsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setIsLoading(true);
+    setError('');
     const timeoutId = window.setTimeout(() => {
       if (!cancelled) {
         setError('La carga del catálogo tomó demasiado tiempo');
@@ -40,7 +44,8 @@ export default function FavoritesPage() {
 
     async function loadProducts() {
       try {
-        const response = await fetch(apiUrl('/products?limit=2000'));
+        const query = buildProductsQuery({ limit: 2000, favoritesOnly: true, favoriteIds: favoriteIdsKey.split(',') });
+        const response = await fetch(apiUrl(`/products?${query.toString()}`));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
         const catalog = Array.isArray(payload) ? payload : payload?.data || [];
@@ -60,19 +65,20 @@ export default function FavoritesPage() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, []);
+  }, [authLoading, favoriteIdsKey, favoritesLoading, user]);
 
   const favoriteProducts = useMemo(
     () => products.filter((product) => favorites.includes(String(product.id))),
     [favorites, products]
   );
 
-  const toggleFavorite = (productId) => {
-    const nextFavorites = favorites.includes(String(productId))
-      ? favorites.filter((id) => id !== String(productId))
-      : [...favorites, String(productId)];
-    setFavorites(nextFavorites);
-    localStorage.setItem('arprice_favorites', JSON.stringify(nextFavorites));
+  const removeFavorite = async (productId) => {
+    try {
+      await toggleFavorite(productId);
+      setError('');
+    } catch (toggleError) {
+      setError(toggleError.message || 'No se pudo actualizar el favorito.');
+    }
   };
 
   return (
@@ -111,16 +117,24 @@ export default function FavoritesPage() {
           </div>
         </section>
 
-        {isLoading ? (
+        {authLoading ? (
+          <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status">Cargando cuenta…</section>
+        ) : !user ? (
+          <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800">
+            <h2 className="text-xl font-bold">Inicia sesión para ver tus favoritos</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm text-stone-500 dark:text-stone-400">Tus productos favoritos se guardan en tu cuenta y no se comparten con otras cuentas.</p>
+            <Link to="/ingresar?next=%2Ffavoritos" className="mt-5 inline-flex rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">Iniciar sesión</Link>
+          </section>
+        ) : favoritesLoading || isLoading ? (
           <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status" aria-live="polite">
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-sky-600" />
             <h2 className="mt-4 text-xl font-bold">Cargando favoritos</h2>
             <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">Recuperando tu lista de productos.</p>
           </section>
-        ) : error ? (
+        ) : error || favoritesError ? (
           <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800">
             <h2 className="text-xl font-bold text-rose-600">No se pudo abrir la página</h2>
-            <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">{error}</p>
+            <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">{error || favoritesError}</p>
             <Link to="/" className="mt-4 inline-flex rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">Volver al inicio</Link>
           </section>
         ) : favoriteProducts.length === 0 ? (
@@ -151,7 +165,7 @@ export default function FavoritesPage() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => toggleFavorite(product.id)}
+                      onClick={() => removeFavorite(product.id)}
                       className="rounded-full bg-rose-50 p-2 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300"
                       aria-label="Eliminar de favoritos"
                     >

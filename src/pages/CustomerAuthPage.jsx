@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, LoaderCircle, LockKeyhole, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
@@ -9,6 +9,7 @@ export default function CustomerAuthPage({ mode = 'login' }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { signIn, signUp } = useCustomerAuth()
+  const confirmationComplete = new URLSearchParams(location.search).get('confirmation') === 'success'
   const requestedNext = new URLSearchParams(location.search).get('next')
   const nextPath = requestedNext?.startsWith('/') && !requestedNext.startsWith('//')
     ? requestedNext
@@ -20,8 +21,15 @@ export default function CustomerAuthPage({ mode = 'login' }) {
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [errors, setErrors] = useState({})
-  const [toast, setToast] = useState(null)
+  const [toast, setToast] = useState(() => confirmationComplete
+    ? { message: 'Correo confirmado. Ya puedes iniciar sesión.', type: 'success' }
+    : null)
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!confirmationComplete || !location.hash) return
+    window.history.replaceState(window.history.state, '', `${location.pathname}${location.search}`)
+  }, [confirmationComplete, location.hash, location.pathname, location.search])
 
   const showToast = (message, type = 'error') => setToast({ message, type })
 

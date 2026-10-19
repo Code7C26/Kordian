@@ -57,7 +57,7 @@ export default function SettingsPage() {
                 onClick={() => setDarkMode((current) => !current)}
                 className={`relative h-6 w-11 rounded-full transition-colors ${darkMode ? 'bg-sky-600' : 'bg-stone-300 dark:bg-stone-700'}`}
               >
-                <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${darkMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition-transform ${darkMode ? 'translate-x-5' : 'translate-x-0'}`} />
                 <span className="sr-only">Activar modo oscuro</span>
               </button>
             </section>

@@ -2118,6 +2118,16 @@ function requireCustomerAuthStorage(res) {
 app.post('/auth/customer-register', async (req, res) => {
   try {
     if (!requireCustomerAuthStorage(res)) return
+    const requestOrigin = req.get('origin')
+    let emailRedirectTo
+    try {
+      const origin = new URL(requestOrigin)
+      if (!['http:', 'https:'].includes(origin.protocol)) throw new Error('Invalid origin protocol')
+      emailRedirectTo = new URL('/ingresar?confirmation=success', origin.origin).toString()
+    } catch {
+      return res.status(400).json({ error: 'No se pudo determinar la dirección de retorno para confirmar el correo.' })
+    }
+
     const username = String(req.body?.username || '').trim().toLowerCase()
     const email = String(req.body?.email || '').trim().toLowerCase()
     const password = String(req.body?.password || '')
@@ -2149,7 +2159,7 @@ app.post('/auth/customer-register', async (req, res) => {
     const { data, error } = await authClient.auth.signUp({
       email,
       password,
-      options: { data: { username } },
+      options: { data: { username }, emailRedirectTo },
     })
     if (error) {
       const normalizedMessage = String(error.message || '').toLowerCase()
@@ -2250,6 +2260,62 @@ async function requireCustomerAuth(req, res, next) {
     return res.status(503).json({ error: 'No se pudo verificar la sesión. Inténtalo nuevamente.' })
   }
 }
+
+app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
+  try {
+    const { data, error } = await analysisWriter
+      .from('customer_favorites')
+      .select('product_id')
+      .eq('user_id', req.customerUser.id)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return res.json({ ids: (data || []).map((favorite) => String(favorite.product_id)) })
+  } catch (error) {
+    console.error('Customer favorites fetch failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar los favoritos. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
+
+app.post('/customer/favorites', requireCustomerAuth, async (req, res) => {
+  const productId = String(req.body?.productId || '')
+  if (!/^[1-9]\d*$/.test(productId)) {
+    return res.status(400).json({ error: 'El identificador del producto no es válido.' })
+  }
+
+  try {
+    const { error } = await analysisWriter
+      .from('customer_favorites')
+      .upsert(
+        { user_id: req.customerUser.id, product_id: productId },
+        { onConflict: 'user_id,product_id', ignoreDuplicates: true },
+      )
+    if (error) throw error
+    return res.status(201).json({ success: true })
+  } catch (error) {
+    console.error('Customer favorite save failed', error)
+    return res.status(503).json({ error: 'No se pudo guardar el favorito. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
+
+app.delete('/customer/favorites/:productId', requireCustomerAuth, async (req, res) => {
+  const productId = String(req.params.productId || '')
+  if (!/^[1-9]\d*$/.test(productId)) {
+    return res.status(400).json({ error: 'El identificador del producto no es válido.' })
+  }
+
+  try {
+    const { error } = await analysisWriter
+      .from('customer_favorites')
+      .delete()
+      .eq('user_id', req.customerUser.id)
+      .eq('product_id', productId)
+    if (error) throw error
+    return res.json({ success: true })
+  } catch (error) {
+    console.error('Customer favorite removal failed', error)
+    return res.status(503).json({ error: 'No se pudo quitar el favorito. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
 
 async function requireBusinessStore(req, res, next) {
   try {

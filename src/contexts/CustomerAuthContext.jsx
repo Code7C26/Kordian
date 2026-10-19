@@ -23,10 +23,28 @@ async function requestJson(path, options = {}) {
   return payload
 }
 
+async function requestCustomerJson(path, accessToken, options = {}) {
+  const headers = new Headers(options.headers || {})
+  headers.set('Authorization', `Bearer ${accessToken}`)
+  if (options.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  const response = await fetch(apiUrl(path), { ...options, headers })
+  const payload = await response.json().catch(() => ({}))
+  if (response.status === 404) {
+    throw new Error('El servidor todavía no tiene activada la función de favoritos. Actualiza el backend.')
+  }
+  if (!response.ok) throw new Error(payload.error || 'No se pudo completar la solicitud.')
+  return payload
+}
+
 export function CustomerAuthProvider({ children }) {
   const [session, setSession] = useState(() => readStoredSession())
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [favorites, setFavorites] = useState([])
+  const [favoritesLoading, setFavoritesLoading] = useState(false)
+  const [favoritesError, setFavoritesError] = useState('')
 
   useEffect(() => {
     const storedSession = readStoredSession()
@@ -73,6 +91,55 @@ export function CustomerAuthProvider({ children }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (!session?.access_token) {
+      setFavorites([])
+      setFavoritesError('')
+      setFavoritesLoading(false)
+      return undefined
+    }
+
+    let active = true
+    setFavoritesLoading(true)
+    setFavoritesError('')
+    requestCustomerJson('/customer/favorites', session.access_token)
+      .then((result) => {
+        if (active) setFavorites(result.ids.map(String))
+      })
+      .catch((error) => {
+        console.error('Customer favorites could not be loaded', error)
+        if (active) {
+          setFavorites([])
+          setFavoritesError(error.message || 'No se pudieron cargar los favoritos.')
+        }
+      })
+      .finally(() => {
+        if (active) setFavoritesLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [session?.access_token])
+
+  const toggleFavorite = async (productId) => {
+    const normalizedId = String(productId)
+    if (!session?.access_token) throw new Error('Inicia sesión para guardar favoritos en tu cuenta.')
+
+    const isFavorite = favorites.includes(normalizedId)
+    await requestCustomerJson(
+      isFavorite ? `/customer/favorites/${encodeURIComponent(normalizedId)}` : '/customer/favorites',
+      session.access_token,
+      isFavorite
+        ? { method: 'DELETE' }
+        : { method: 'POST', body: JSON.stringify({ productId: normalizedId }) },
+    )
+    setFavorites((current) => isFavorite
+      ? current.filter((id) => id !== normalizedId)
+      : current.includes(normalizedId) ? current : [...current, normalizedId])
+    setFavoritesError('')
+  }
+
   const signUp = async ({ username, email, password }) => {
     const result = await requestJson('/auth/customer-register', {
       method: 'POST',
@@ -116,6 +183,10 @@ export function CustomerAuthProvider({ children }) {
       user: session?.user || null,
       accessToken: session?.access_token || null,
       profile,
+      favorites,
+      favoritesLoading,
+      favoritesError,
+      toggleFavorite,
       signUp,
       signIn,
       signOut,
