@@ -1,11 +1,13 @@
 import { Link, Navigate } from 'react-router-dom'
 import { ArrowLeft, LogOut, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
+import BusinessCatalogPanel from './BusinessCatalogPanel.jsx'
+import BusinessPortalPage from './BusinessPortalPage.jsx'
 
 const pageContent = {
   profile: { title: 'Mi perfil', description: 'Datos de tu cuenta de Ar-Price.' },
   alerts: { title: 'Mis alertas', description: 'Aquí se mostrarán las alertas de precios asociadas a tu cuenta.' },
-  business: { title: 'Panel de gestión', description: 'Herramientas para cuentas comerciales.' },
+  business: { title: 'Panel de gestión para comercio', description: 'Administra el catálogo y revisa la actividad de tu comercio.' },
 }
 
 export default function CustomerAccountPage({ section = 'profile' }) {
@@ -58,9 +60,9 @@ export default function CustomerAccountPage({ section = 'profile' }) {
           )}
 
           {section === 'business' && (
-            <div className="mt-7 border-y border-stone-200 py-6 text-sm text-stone-600 dark:border-stone-800 dark:text-stone-400">
-              <p>Tu cuenta comercial está habilitada. Contacta al equipo Ar-Price para gestionar los permisos del comercio.</p>
-            </div>
+            <BusinessPortalPage>
+              <BusinessCatalogPanel />
+            </BusinessPortalPage>
           )}
         </section>
       </div>

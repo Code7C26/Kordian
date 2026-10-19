@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { 
-  CircleHelp,
+  BriefcaseBusiness,
+  ChartNoAxesCombined,
   Menu,
   MapPin, 
   ChevronDown,
@@ -30,6 +31,9 @@ import {
   LogOut,
   UserPlus,
   UserRound,
+  UsersRound,
+  TicketPercent,
+  X,
 } from 'lucide-react';
 import { adminFetch, apiFetch } from '../config/api.js';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
@@ -75,7 +79,7 @@ export function Header({
   isAdminPage = false,
 }) {
   const location = useLocation()
-  const { user, profile, signOut } = useCustomerAuth()
+  const { user, signOut } = useCustomerAuth()
   const isAdminHeader = isAdminPage || location.pathname === '/admin'
   const [showAdminPanel, setShowAdminPanel] = useState(false)
   const [showCategoryMenu, setShowCategoryMenu] = useState(false)
@@ -182,13 +186,13 @@ export function Header({
           <button 
             onClick={onResetView}
             className="flex items-center gap-2.5 group text-left focus:outline-none cursor-pointer"
-            title="Ir al inicio de ARPrice"
+            title="Ir al inicio de Ar-Price"
           >
             <div className="relative flex items-center gap-3">
               <div className="relative rounded-xl p-1.5 bg-white dark:bg-black shadow-[0_6px_16px_rgba(14,116,144,0.18)] ring-1 ring-sky-300/40 dark:ring-sky-700/60 backdrop-blur-sm">
                 <img
                   src={darkMode ? brandLogoDark : brandLogo}
-                  alt="ARPrice"
+                  alt="Ar-Price"
                   className="h-8 md:h-10 w-auto object-contain drop-shadow-[0_6px_10px_rgba(37,99,235,0.25)] transition-transform duration-200 group-hover:scale-[1.03] filter drop-shadow-lg"
                   style={{
                     filter: 'drop-shadow(0 4px 8px rgba(14, 116, 144, 0.2)) drop-shadow(0 0 1px rgba(37, 99, 235, 0.1))'
@@ -328,48 +332,55 @@ export function Header({
                   title="Menú"
                   className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-white transition-colors hover:bg-white/25 dark:bg-stone-800/60 dark:text-stone-200"
                 >
-                  <Menu className="h-6 w-6" aria-hidden="true" />
+                  {showAccountMenu
+                    ? <X className="h-6 w-6" aria-hidden="true" />
+                    : <Menu className="h-6 w-6" aria-hidden="true" />}
                 </button>
                 {showAccountMenu && (
                   <div
                     role="menu"
                     aria-label="Menú principal"
-                    className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl border border-stone-200 bg-white p-2 text-stone-800 shadow-xl dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                    className="absolute right-0 top-full z-50 mt-2 max-h-[min(78vh,40rem)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-stone-200 bg-white p-2 text-stone-800 shadow-xl dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
                   >
+                    <Link role="menuitem" to="/listas-compartidas" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                      <UsersRound className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                      Lista compartida
+                    </Link>
+                    <Link role="menuitem" to="/calculadora" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                      <ChartNoAxesCombined className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                      Calculadora de precios
+                    </Link>
+                    <Link role="menuitem" to="/cupones" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                      <TicketPercent className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                      Cupones y descuentos
+                    </Link>
+                    <Link role="menuitem" to="/panel-gestion" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                      <BriefcaseBusiness className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                      Panel de gestión para comercio
+                    </Link>
+                    <div className="my-2 border-t border-stone-200 dark:border-stone-700" />
                     {user ? (
                       <>
-                        <Link role="menuitem" to="/perfil" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                        <Link role="menuitem" to="/perfil" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <UserRound className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Perfil
                         </Link>
-                        <Link role="menuitem" to="/mis-alertas" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                        <Link role="menuitem" to="/mis-alertas" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <Heart className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Mis alertas
                         </Link>
-                        {profile?.role === 'business' && (
-                          <Link role="menuitem" to="/panel-gestion" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
-                            <ShoppingBag className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" /> Panel de gestión
-                          </Link>
-                        )}
-                        <button role="menuitem" type="button" onClick={() => { setShowAccountMenu(false); signOut() }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                        <button role="menuitem" type="button" onClick={() => { setShowAccountMenu(false); signOut() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <LogOut className="h-4 w-4 text-stone-500" aria-hidden="true" /> Cerrar sesión
                         </button>
                       </>
                     ) : (
                       <>
-                        <Link role="menuitem" to="/ingresar" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                        <Link role="menuitem" to="/ingresar" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <LogIn className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Iniciar sesión
                         </Link>
-                        <Link role="menuitem" to="/registro" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                        <Link role="menuitem" to="/registro" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/60">
                           <UserPlus className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Registrarse
                         </Link>
                       </>
                     )}
-                    <div className="my-1 border-t border-stone-200 dark:border-stone-700" />
-                    <Link role="menuitem" to="/configuracion" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
-                      <Settings className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Configuración
-                    </Link>
-                    <Link role="menuitem" to="/faq" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
-                      <CircleHelp className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> FAQ
-                    </Link>
                   </div>
                 )}
               </div>

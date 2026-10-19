@@ -50,7 +50,7 @@ export default function Login() {
         <div className="rounded-[32px] bg-white dark:bg-stone-900 border border-stone-200/70 dark:border-stone-700/70 shadow-[0_30px_80px_rgba(15,23,42,0.12)] p-8">
           <div className="text-center mb-8">
             <div className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-sky-600 to-emerald-500 px-4 py-2 text-white font-black text-sm shadow-lg shadow-sky-500/20">
-              <span className="text-lg">ARPrice</span>
+              <span className="text-lg">AR-PRICE</span>
               <span className="uppercase text-[10px] tracking-[0.3em] bg-white/15 px-2 py-1 rounded-full text-white">ADMIN</span>
             </div>
             <h1 className="mt-6 text-3xl font-extrabold text-stone-900 dark:text-white">Accede al panel</h1>

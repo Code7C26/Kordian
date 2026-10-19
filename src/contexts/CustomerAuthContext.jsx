@@ -114,6 +114,7 @@ export function CustomerAuthProvider({ children }) {
       configured: true,
       loading,
       user: session?.user || null,
+      accessToken: session?.access_token || null,
       profile,
       signUp,
       signIn,

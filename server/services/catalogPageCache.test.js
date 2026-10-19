@@ -86,6 +86,58 @@ test('keeps recent search indexes when the search query changes', async () => {
   assert.equal(loadCount, 2)
 })
 
+test('evicts the least recently used search when the bounded cache is full', async () => {
+  const cache = createCatalogPageCache()
+  const loadCounts = new Map()
+  const getPage = (key) => cache.getPage({
+    key,
+    page: 1,
+    limit: 20,
+    loadIndex: async (page, limit) => {
+      loadCounts.set(key, (loadCounts.get(key) || 0) + 1)
+      return { data: [{ id: key }], orderedIds: [key], total: 1, page, limit }
+    },
+    loadProductsByIds: async () => assert.fail('should use cached result'),
+    loadPage: async () => assert.fail('should not fall back'),
+  })
+
+  for (let index = 0; index < 10; index += 1) {
+    await getPage(`query-${index}`)
+  }
+  await getPage('query-0')
+  await getPage('query-10')
+  await getPage('query-1')
+  await getPage('query-0')
+
+  assert.equal(loadCounts.get('query-0'), 1)
+  assert.equal(loadCounts.get('query-1'), 2)
+})
+
+test('clears cached indexes after catalog data changes', async () => {
+  const cache = createCatalogPageCache()
+  let loadCount = 0
+  const loadIndex = async (page, limit) => {
+    loadCount += 1
+    return { data: [{ id: loadCount }], orderedIds: [loadCount], total: 1, page, limit }
+  }
+  const options = {
+    key: 'query-a',
+    page: 1,
+    limit: 20,
+    loadIndex,
+    loadProductsByIds: async () => assert.fail('should use cached result'),
+    loadPage: async () => assert.fail('should not fall back'),
+  }
+
+  await cache.getPage(options)
+  cache.clear()
+  const refreshed = await cache.getPage(options)
+
+  assert.equal(loadCount, 2)
+  assert.equal(refreshed.cacheHit, false)
+  assert.deepEqual(refreshed.data, [{ id: 2 }])
+})
+
 test('falls back to the requested page if the index response is incomplete', async () => {
   const cache = createCatalogPageCache()
   let pageLoadCount = 0

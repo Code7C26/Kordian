@@ -553,7 +553,7 @@ export default function App() {
                   <TrendingDown className="w-4 h-4" />
                 </div>
                 <span className="text-xl font-black bg-gradient-to-r from-sky-600 to-emerald-600 bg-clip-text text-transparent">
-                  ARPrice
+                  AR-PRICE
                 </span>
               </div>
               <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">
@@ -572,7 +572,7 @@ export default function App() {
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400 font-medium">
-            <p>© {new Date().getFullYear()} ARPrice Argentina</p>
+            <p>© {new Date().getFullYear()} AR-PRICE Argentina</p>
             <p>Ubicación activa: <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
           </div>
 
@@ -602,4 +602,3 @@ export default function App() {
     </div>
   );
 }
-

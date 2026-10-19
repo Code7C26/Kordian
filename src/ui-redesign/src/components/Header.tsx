@@ -41,13 +41,13 @@ export const Header: React.FC<HeaderProps> = ({
           <button 
             onClick={onResetView}
             className="flex items-center gap-2.5 group text-left focus:outline-none cursor-pointer"
-            title="Ir al inicio de ARPrice"
+            title="Ir al inicio de Ar-Price"
           >
             <div className="relative flex items-center gap-3">
               <div className="relative rounded-xl p-1.5 bg-white dark:bg-black shadow-[0_6px_16px_rgba(14,116,144,0.18)] ring-1 ring-sky-300/40 dark:ring-sky-700/60 backdrop-blur-sm">
                 <img
                   src={darkMode ? brandLogoDark : brandLogo}
-                  alt="ARPrice"
+                  alt="Ar-Price"
                   className="h-8 sm:h-9 w-auto object-contain drop-shadow-[0_6px_10px_rgba(37,99,235,0.25)] transition-transform duration-200 group-hover:scale-[1.03] filter drop-shadow-lg"
                   style={{
                     filter: 'drop-shadow(0 4px 8px rgba(14, 116, 144, 0.2)) drop-shadow(0 0 1px rgba(37, 99, 235, 0.1))'
@@ -124,4 +124,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-
