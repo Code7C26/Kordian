@@ -982,7 +982,7 @@ export default function App() {
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white">
                   <TrendingDown className="w-4 h-4" />
                 </div>
-                <span className="text-xl font-black text-stone-900 dark:text-white">ARPrice</span>
+                <span className="text-xl font-black text-stone-900 dark:text-white">AR-Price</span>
               </div>
               <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">Plataforma colaborativa e independiente para la comparación de precios en tiempo real.</p>
             </div>

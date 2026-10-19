@@ -16,6 +16,7 @@ import { CustomerAuthProvider } from './contexts/CustomerAuthContext.jsx'
 import CustomerAuthPage from './pages/CustomerAuthPage.jsx'
 import CustomerAccountPage from './pages/CustomerAccountPage.jsx'
 import FaqPage from './pages/FaqPage.jsx'
+import SettingsPage from './pages/SettingsPage.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -35,6 +36,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/mis-alertas" element={<CustomerAccountPage section="alerts" />} />
           <Route path="/panel-gestion" element={<CustomerAccountPage section="business" />} />
           <Route path="/faq" element={<FaqPage />} />
+          <Route path="/configuracion" element={<SettingsPage />} />
 
           {/* LOGIN */}
           <Route path="/login" element={<Login />} />

@@ -4,6 +4,23 @@ import {
   CircleHelp,
   Menu,
   MapPin, 
+  ChevronDown,
+  Apple,
+  Baby,
+  BookOpen,
+  Dog,
+  Dumbbell,
+  Flower2,
+  House,
+  LayoutGrid,
+  Package,
+  Pill,
+  Settings,
+  Shirt,
+  ShoppingCart,
+  Sparkles,
+  Tv,
+  Wrench,
   Sun, 
   Moon, 
   ShoppingBag, 
@@ -16,13 +33,38 @@ import {
 } from 'lucide-react';
 import { adminFetch, apiFetch } from '../config/api.js';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
+import { CITIES_LIST } from '../data/mockProducts.js'
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
+
+function getCategoryIcon(category) {
+  const categoryName = `${category.id || ''} ${category.name || ''}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+
+  if (/farmacia|salud|medic|cuidado|belleza|perfumer/.test(categoryName)) return Pill
+  if (/electro|tecnolog|electron|tv|comput|celular/.test(categoryName)) return Tv
+  if (/ferreter|herramient|jardin|construccion/.test(categoryName)) return Wrench
+  if (/ropa|calzado|indument|vestir/.test(categoryName)) return Shirt
+  if (/mascota|animal|veterin/.test(categoryName)) return Dog
+  if (/bebe|infantil|juguet/.test(categoryName)) return Baby
+  if (/deport|fitness/.test(categoryName)) return Dumbbell
+  if (/libro|libreria|educacion/.test(categoryName)) return BookOpen
+  if (/hogar|mueble|decoracion/.test(categoryName)) return House
+  if (/jardin|planta|flor/.test(categoryName)) return Flower2
+  if (/supermerc|almacen|alimento|comida|bebida|verdura|fruta/.test(categoryName)) return Apple
+  if (/limpieza/.test(categoryName)) return Sparkles
+  if (/todos/.test(categoryName)) return LayoutGrid
+  if (/compra|mercado/.test(categoryName)) return ShoppingCart
+  return Package
+}
 
 export function Header({
   darkMode,
   setDarkMode,
   selectedCity,
+  setSelectedCity,
   basketCount,
   onOpenBasket,
   onOpenFavorites,
@@ -39,6 +81,9 @@ export function Header({
   const [showCategoryMenu, setShowCategoryMenu] = useState(false)
   const [showAccountMenu, setShowAccountMenu] = useState(false)
   const accountMenuRef = useRef(null)
+  const [showLocationMenu, setShowLocationMenu] = useState(false)
+  const [locationQuery, setLocationQuery] = useState('')
+  const locationMenuRef = useRef(null)
   const [panelCategories, setPanelCategories] = useState([])
   const [panelBrands, setPanelBrands] = useState([])
   const [panelSupermarkets, setPanelSupermarkets] = useState([])
@@ -92,6 +137,44 @@ export function Header({
       document.removeEventListener('keydown', closeOnEscape)
     }
   }, [showAccountMenu])
+
+  useEffect(() => {
+    if (!showLocationMenu) return undefined
+
+    const closeOnOutsideClick = (event) => {
+      if (!locationMenuRef.current?.contains(event.target)) setShowLocationMenu(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setShowLocationMenu(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [showLocationMenu])
+
+  const normalizedLocationQuery = locationQuery
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+  const matchingCities = CITIES_LIST.filter((city) => city
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .includes(normalizedLocationQuery))
+  const customCity = locationQuery.trim()
+  const isKnownCity = CITIES_LIST.some((city) => city.toLowerCase() === customCity.toLowerCase())
+
+  const selectCity = (city) => {
+    setSelectedCity(city)
+    setLocationQuery(city)
+    setShowLocationMenu(false)
+  }
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-sky-400/30 dark:border-stone-800 bg-sky-600 dark:bg-stone-900/90 backdrop-blur-md transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 md:h-20 flex items-center justify-between gap-4">
@@ -128,9 +211,76 @@ export function Header({
           </button>
         </div>
 
-        <div className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white dark:text-stone-200 bg-white/20 dark:bg-stone-900/40 rounded-xl border border-white/30 dark:border-stone-700/40">
-          <MapPin className="w-4 h-4 text-white dark:text-sky-400 shrink-0" />
-          <span className="max-w-[120px] sm:max-w-[180px] truncate">{selectedCity}</span>
+        <div className="relative" ref={locationMenuRef}>
+          <button
+            type="button"
+            onClick={() => {
+              setLocationQuery(selectedCity)
+              setShowLocationMenu((open) => !open)
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={showLocationMenu}
+            aria-label={`Cambiar ubicación. Ubicación actual: ${selectedCity}`}
+            className="flex items-center gap-2 rounded-xl border border-white/30 bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30 dark:border-stone-700/40 dark:bg-stone-900/40 dark:text-stone-200"
+          >
+            <MapPin className="h-4 w-4 shrink-0 text-white dark:text-sky-400" aria-hidden="true" />
+            <span className="max-w-[120px] truncate sm:max-w-[180px]">{selectedCity}</span>
+            <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${showLocationMenu ? 'rotate-180' : ''}`} aria-hidden="true" />
+          </button>
+          {showLocationMenu && (
+            <div
+              role="dialog"
+              aria-label="Seleccionar ubicación"
+              className="absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-stone-200 bg-white p-3 text-stone-900 shadow-xl dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100 sm:left-1/2 sm:-translate-x-1/2"
+            >
+              <label htmlFor="location-search" className="mb-2 block text-sm font-bold">Selecciona tu ubicación</label>
+              <input
+                id="location-search"
+                type="text"
+                value={locationQuery}
+                onChange={(event) => setLocationQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && customCity) {
+                    event.preventDefault()
+                    selectCity(customCity)
+                  }
+                }}
+                placeholder="Escribe una ciudad"
+                autoComplete="address-level2"
+                className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200 dark:border-stone-600 dark:bg-stone-900 dark:focus:ring-sky-900"
+              />
+              <div className="mt-2 max-h-40 overflow-y-auto" role="listbox" aria-label="Ciudades disponibles">
+                {matchingCities.map((city) => (
+                  <button
+                    key={city}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedCity === city}
+                    onClick={() => selectCity(city)}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-sky-50 dark:hover:bg-stone-700"
+                  >
+                    <span>{city}</span>
+                    {selectedCity === city && <span className="text-xs font-bold text-sky-700 dark:text-sky-300">Actual</span>}
+                  </button>
+                ))}
+                {customCity && !isKnownCity && (
+                  <button
+                    type="button"
+                    onClick={() => selectCity(customCity)}
+                    className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-stone-700"
+                  >
+                    Usar “{customCity}”
+                  </button>
+                )}
+                {!matchingCities.length && !customCity && (
+                  <p className="px-3 py-2 text-sm text-stone-500 dark:text-stone-400">Escribe el nombre de tu ciudad.</p>
+                )}
+              </div>
+              <p className="mt-2 border-t border-stone-200 pt-2 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">
+                Por ahora, el catálogo no cambia según la ubicación seleccionada.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
@@ -214,6 +364,9 @@ export function Header({
                       </>
                     )}
                     <div className="my-1 border-t border-stone-200 dark:border-stone-700" />
+                    <Link role="menuitem" to="/configuracion" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
+                      <Settings className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Configuración
+                    </Link>
                     <Link role="menuitem" to="/faq" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-700">
                       <CircleHelp className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> FAQ
                     </Link>
@@ -267,22 +420,42 @@ export function Header({
               }}
               className={`rounded-xl border p-3 text-left transition-colors ${selectedCategory === 'todos' ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
             >
-              <span className="block text-sm font-black">Todos los productos</span>
-              <span className={`mt-1 block text-xs ${selectedCategory === 'todos' ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>Comparar todo el catálogo</span>
+              <span className="flex items-start gap-3">
+                <span className={`mt-0.5 rounded-lg p-2 ${selectedCategory === 'todos' ? 'bg-white/20' : 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300'}`}>
+                  <LayoutGrid className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="block text-sm font-black">Todos los productos</span>
+                  <span className={`mt-1 block text-xs ${selectedCategory === 'todos' ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>Comparar todo el catálogo</span>
+                </span>
+              </span>
             </button>
             {categories.map((category) => (
-              <button
-                type="button"
-                key={category.id}
-                onClick={() => {
-                  setShowCategoryMenu(false)
-                  onSelectCategory(category.id)
-                }}
-                className={`rounded-xl border p-3 text-left transition-colors ${selectedCategory === category.id ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
-              >
-                <span className="block text-sm font-black">{category.name}</span>
-                <span className={`mt-1 block text-xs ${selectedCategory === category.id ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>{category.description}</span>
-              </button>
+              (() => {
+                const CategoryIcon = getCategoryIcon(category)
+                const isSelected = selectedCategory === category.id
+                return (
+                  <button
+                    type="button"
+                    key={category.id}
+                    onClick={() => {
+                      setShowCategoryMenu(false)
+                      onSelectCategory(category.id)
+                    }}
+                    className={`rounded-xl border p-3 text-left transition-colors ${isSelected ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
+                  >
+                    <span className="flex items-start gap-3">
+                      <span className={`mt-0.5 rounded-lg p-2 ${isSelected ? 'bg-white/20' : 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300'}`}>
+                        <CategoryIcon className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-black">{category.name}</span>
+                        <span className={`mt-1 block text-xs ${isSelected ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>{category.description}</span>
+                      </span>
+                    </span>
+                  </button>
+                )
+              })()
             ))}
           </div>
         </div>
