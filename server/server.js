@@ -13,6 +13,9 @@ app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
 
 const supabase = require('./supabase')
+const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
+  ? require('./supabaseAdmin')
+  : null
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
 const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
@@ -2087,8 +2090,15 @@ function sendCustomerAuthUnavailable(res, error) {
   return res.status(503).json({ error: 'La autenticación de clientes no está lista. Aplica la migración de perfiles en Supabase.' })
 }
 
+function requireCustomerAuthStorage(res) {
+  if (supabaseAdmin) return true
+  res.status(503).json({ error: 'La autenticación de clientes requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+  return false
+}
+
 app.post('/auth/customer-register', async (req, res) => {
   try {
+    if (!requireCustomerAuthStorage(res)) return
     const username = String(req.body?.username || '').trim().toLowerCase()
     const email = String(req.body?.email || '').trim().toLowerCase()
     const password = String(req.body?.password || '')
@@ -2146,6 +2156,7 @@ app.post('/auth/customer-register', async (req, res) => {
 
 app.post('/auth/customer-login', async (req, res) => {
   try {
+    if (!requireCustomerAuthStorage(res)) return
     const identifier = String(req.body?.identifier || '').trim()
     const password = String(req.body?.password || '')
     if (!identifier || !password) return res.status(400).json({ error: 'Ingresa tus credenciales.' })
@@ -2179,6 +2190,7 @@ app.post('/auth/customer-login', async (req, res) => {
 
 app.post('/auth/customer-refresh', async (req, res) => {
   try {
+    if (!requireCustomerAuthStorage(res)) return
     const refreshToken = String(req.body?.refreshToken || '')
     if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' })
     const { data, error } = await createCustomerAuthClient().auth.refreshSession({ refresh_token: refreshToken })
@@ -2191,6 +2203,7 @@ app.post('/auth/customer-refresh', async (req, res) => {
 
 app.get('/auth/customer-session', async (req, res) => {
   try {
+    if (!requireCustomerAuthStorage(res)) return
     const accessToken = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     if (!accessToken) return res.status(401).json({ error: 'Authentication required' })
     const { data, error } = await createCustomerAuthClient().auth.getUser(accessToken)
