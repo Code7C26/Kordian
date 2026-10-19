@@ -7,7 +7,6 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const app = express()
-const priceStatusRulesVersion = '2026-10-12-v5'
 
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
@@ -21,10 +20,12 @@ const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
 const {
+  PRICE_STATUS_RULES_VERSION,
   createPriceStatusRefreshQueue,
   enqueueIncompletePriceStatuses,
   saveCurrentPriceStatuses,
 } = require('./services/currentPriceStatus')
+const priceStatusRulesVersion = PRICE_STATUS_RULES_VERSION
 const catalogPageCache = createCatalogPageCache()
 const analysisWriter = process.env.SUPABASE_SERVICE_ROLE_KEY ? require('./supabaseAdmin') : supabase
 const priceStatusQueue = createPriceStatusRefreshQueue({
@@ -645,7 +646,12 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
 
 app.post('/admin/import/disco/update-prices', requireAdmin, async (req, res) => {
   try {
-    const result = await syncDiscoPrices({ database: analysisWriter, historyRecorder: recordPriceHistory, adminUsername: req.admin })
+    const result = await syncDiscoPrices({
+      database: analysisWriter,
+      historyRecorder: recordPriceHistory,
+      onCatalogChange: invalidateCatalogPageCache,
+      adminUsername: req.admin,
+    })
     res.json({ updated: result.updated.length, unchanged: result.unchanged.length, unavailable: result.unavailable })
   } catch (error) {
     console.error('Error updating Disco prices', error)
@@ -716,6 +722,7 @@ app.put('/products/:id/classification', requireAdmin, async (req, res) => {
       classification_confidence: 'manual',
     }).eq('id', id).select().single()
     if (error) return res.status(500).json({ error: 'Error updating product classification' })
+    invalidateCatalogPageCache()
     scheduleRelatedPriceStatusRefresh(id, true, previousProduct)
     res.json(data)
   } catch (error) {
@@ -729,9 +736,15 @@ function invalidateAnalysisCache() {
   priceUpdateLogsPromise = undefined
 }
 
-async function recordPriceHistory({ productId, offerId, cashPrice, source = 'admin' }) {
+function invalidateCatalogPageCache() {
+  catalogPageCache.clear()
+}
+
+async function recordPriceHistory({ productId, offerId, cashPrice, source = 'admin', scheduleStatusRefresh = true }) {
   const price = Number(cashPrice)
-  if (!productId || !offerId || !Number.isFinite(price) || price <= 0) return
+  if (!productId || !offerId) return
+  invalidateCatalogPageCache()
+  if (!Number.isFinite(price) || price <= 0) return
 
   const { data, error } = await analysisWriter.from('price_history').insert({
     product_id: productId,
@@ -742,7 +755,7 @@ async function recordPriceHistory({ productId, offerId, cashPrice, source = 'adm
   if (error) console.error('Error recording price history', error)
   else {
     invalidateAnalysisCache()
-    scheduleRelatedPriceStatusRefresh(productId)
+    if (scheduleStatusRefresh) scheduleRelatedPriceStatusRefresh(productId)
   }
 }
 
@@ -1715,6 +1728,7 @@ app.post('/products', requireAdmin, async (req, res) => {
     scheduleRelatedPriceStatusRefresh(product.id)
 
     const responsePayload = { ...product, offers: offer ? [offer] : [] }
+    invalidateCatalogPageCache()
     res.json(responsePayload)
   } catch (e) {
     console.error(e)
@@ -1744,6 +1758,7 @@ app.put('/products/:id', requireAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Error updating product' })
     }
 
+    invalidateCatalogPageCache()
     scheduleRelatedPriceStatusRefresh(id, true, previousProduct)
     res.json(data)
   } catch (e) {
@@ -1768,6 +1783,7 @@ app.delete('/products/:id', requireAdmin, async (req, res) => {
       console.error('Error deleting product', error)
       return res.status(500).json({ error: 'Error deleting product' })
     }
+    invalidateCatalogPageCache()
     scheduleRelatedPriceStatusRefresh(id, true, previousProduct)
     res.json({ success: true })
   } catch (e) {
@@ -1814,6 +1830,7 @@ app.post('/offers', requireAdmin, async (req, res) => {
       await recordPriceHistory({ productId: data.product_id, offerId: data.id, cashPrice: data.cash_price })
     }
 
+    invalidateCatalogPageCache()
     res.json(data)
   } catch (e) {
     console.error(e)
@@ -1884,6 +1901,7 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
       scheduleRelatedPriceStatusRefresh(data.product_id)
     }
 
+    invalidateCatalogPageCache()
     res.json(data)
   } catch (e) {
     console.error(e)
@@ -1901,6 +1919,7 @@ app.delete('/offers/:id', requireAdmin, async (req, res) => {
       console.error('Error deleting offer', error)
       return res.status(500).json({ error: 'Error deleting offer' })
     }
+    invalidateCatalogPageCache()
     if (offer?.product_id) scheduleRelatedPriceStatusRefresh(offer.product_id)
     res.json({ success: true })
   } catch (e) {
@@ -2074,7 +2093,7 @@ function createCustomerAuthClient() {
 async function getCustomerProfile(user) {
   const { data, error } = await supabaseAdmin
     .from('customer_profiles')
-    .select('username, email, role')
+    .select('username, email, role, supermarket_id')
     .eq('user_id', user.id)
     .maybeSingle()
   if (error) throw error
@@ -2214,6 +2233,532 @@ app.get('/auth/customer-session', async (req, res) => {
   }
 })
 
+async function requireCustomerAuth(req, res, next) {
+  const accessToken = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+  if (!accessToken) return res.status(401).json({ error: 'Inicia sesión para continuar.' })
+
+  try {
+    const { data, error } = await createCustomerAuthClient().auth.getUser(accessToken)
+    if (error || !data.user) return res.status(401).json({ error: 'La sesión no es válida. Inicia sesión nuevamente.' })
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return res.status(503).json({ error: 'Las operaciones de cuenta requieren configuración privada del servidor.' })
+    }
+    req.customerUser = data.user
+    return next()
+  } catch (error) {
+    console.error('Customer authentication failed', error)
+    return res.status(503).json({ error: 'No se pudo verificar la sesión. Inténtalo nuevamente.' })
+  }
+}
+
+async function requireBusinessStore(req, res, next) {
+  try {
+    const { data: profile, error: profileError } = await analysisWriter
+      .from('customer_profiles')
+      .select('role, supermarket_id')
+      .eq('user_id', req.customerUser.id)
+      .maybeSingle()
+    if (profileError) throw profileError
+    if (profile?.role !== 'business') {
+      return res.status(403).json({ error: 'Esta función está disponible solo para cuentas comerciales.' })
+    }
+    if (!profile.supermarket_id) {
+      return res.status(409).json({ error: 'Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.' })
+    }
+
+    const { data: store, error: storeError } = await analysisWriter
+      .from('supermarkets')
+      .select('id, name')
+      .eq('id', profile.supermarket_id)
+      .maybeSingle()
+    if (storeError) throw storeError
+    if (!store) {
+      return res.status(409).json({ error: 'El supermercado asignado ya no está disponible. Contacta a administración.' })
+    }
+
+    req.businessStore = store
+    return next()
+  } catch (error) {
+    console.error('Business catalog authorization failed', error)
+    return res.status(503).json({ error: 'No se pudo verificar la asignación comercial.' })
+  }
+}
+
+app.get('/admin/business-accounts', requireAdmin, async (req, res) => {
+  try {
+    const accounts = []
+    const batchSize = 1000
+    for (let offset = 0; ; offset += batchSize) {
+      const { data, error } = await analysisWriter
+        .from('customer_profiles')
+        .select('user_id, username, email, role, supermarket_id')
+        .order('username', { ascending: true })
+        .range(offset, offset + batchSize - 1)
+      if (error) throw error
+      accounts.push(...(data || []))
+      if ((data || []).length < batchSize) break
+    }
+    return res.json(accounts)
+  } catch (error) {
+    console.error('Business account listing failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar las cuentas. Verifica la migración del catálogo comercial.' })
+  }
+})
+
+app.put('/admin/business-accounts/:userId', requireAdmin, async (req, res) => {
+  const userId = String(req.params.userId || '')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+    return res.status(400).json({ error: 'La cuenta seleccionada no es válida.' })
+  }
+
+  const role = String(req.body?.role || '')
+  const supermarketId = req.body?.supermarketId ? String(req.body.supermarketId) : null
+  if (!['customer', 'business'].includes(role)) {
+    return res.status(400).json({ error: 'El tipo de cuenta no es válido.' })
+  }
+  if (role === 'customer' && supermarketId) {
+    return res.status(400).json({ error: 'Las cuentas de cliente no pueden tener un supermercado asignado.' })
+  }
+  if (supermarketId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(supermarketId)) {
+    return res.status(400).json({ error: 'El supermercado seleccionado no es válido.' })
+  }
+
+  try {
+    if (supermarketId) {
+      const { data: store, error: storeError } = await analysisWriter
+        .from('supermarkets')
+        .select('id')
+        .eq('id', supermarketId)
+        .maybeSingle()
+      if (storeError) throw storeError
+      if (!store) return res.status(400).json({ error: 'El supermercado seleccionado no existe.' })
+    }
+
+    const { data, error } = await analysisWriter
+      .from('customer_profiles')
+      .update({ role, supermarket_id: role === 'business' ? supermarketId : null })
+      .eq('user_id', userId)
+      .select('user_id, username, email, role, supermarket_id')
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'No se encontró la cuenta seleccionada.' })
+    return res.json(data)
+  } catch (error) {
+    console.error('Business account assignment failed', error)
+    return res.status(503).json({ error: 'No se pudo actualizar la cuenta comercial.' })
+  }
+})
+
+app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+  const search = String(req.query.search || '').trim()
+  const requestedPage = Number(req.query.page || 1)
+  if (search.length > 120) return res.status(400).json({ error: 'La búsqueda no puede superar 120 caracteres.' })
+  if (!Number.isSafeInteger(requestedPage) || requestedPage < 1) {
+    return res.status(400).json({ error: 'La página solicitada no es válida.' })
+  }
+
+  const page = Math.min(requestedPage, 1000000)
+  const pageSize = 40
+  const offset = (page - 1) * pageSize
+
+  try {
+    let pageProducts
+    let offersByProduct = new Map()
+    let hasMore
+
+    if (search) {
+      const { data: productRows, error: productsError } = await analysisWriter
+        .from('products')
+        .select('id, name, image')
+        .ilike('name', `%${search}%`)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize)
+      if (productsError) throw productsError
+
+      hasMore = (productRows || []).length > pageSize
+      pageProducts = (productRows || []).slice(0, pageSize)
+      const productIds = pageProducts.map((product) => product.id)
+      if (productIds.length) {
+        const { data: offers, error: offersError } = await analysisWriter
+          .from('offers')
+          .select('id, product_id, cash_price')
+          .eq('supermarket', req.businessStore.name)
+          .in('product_id', productIds)
+        if (offersError) throw offersError
+        offersByProduct = new Map((offers || []).map((offer) => [String(offer.product_id), offer]))
+      }
+    } else {
+      const { data: offerRows, error: offersError } = await analysisWriter
+        .from('offers')
+        .select('id, product_id, cash_price')
+        .eq('supermarket', req.businessStore.name)
+        .order('product_id', { ascending: true })
+        .range(offset, offset + pageSize)
+      if (offersError) throw offersError
+
+      hasMore = (offerRows || []).length > pageSize
+      const pageOffers = (offerRows || []).slice(0, pageSize)
+      const productIds = pageOffers.map((offer) => offer.product_id)
+      offersByProduct = new Map(pageOffers.map((offer) => [String(offer.product_id), offer]))
+
+      if (productIds.length) {
+        const { data: productRows, error: productsError } = await analysisWriter
+          .from('products')
+          .select('id, name, image')
+          .in('id', productIds)
+          .order('name', { ascending: true })
+          .order('id', { ascending: true })
+        if (productsError) throw productsError
+        pageProducts = productRows || []
+      } else {
+        pageProducts = []
+      }
+    }
+
+    return res.json({
+      store: req.businessStore,
+      page,
+      hasMore,
+      products: pageProducts.map((product) => {
+        const offer = offersByProduct.get(String(product.id))
+        return {
+          ...product,
+          available: Boolean(offer),
+          offerId: offer?.id || null,
+          cashPrice: Number(offer?.cash_price) || null,
+        }
+      }),
+    })
+  } catch (error) {
+    console.error('Business catalog listing failed', error)
+    return res.status(503).json({ error: 'No se pudo cargar el catálogo comercial.' })
+  }
+})
+
+app.put('/business/catalog/:productId', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+  const productId = Number(req.params.productId)
+  const available = req.body?.available
+  if (!Number.isSafeInteger(productId) || productId <= 0) {
+    return res.status(400).json({ error: 'El producto seleccionado no es válido.' })
+  }
+  if (typeof available !== 'boolean') {
+    return res.status(400).json({ error: 'Indica si el producto debe estar disponible.' })
+  }
+
+  const cashPrice = Number(req.body?.cashPrice)
+  if (available && (!Number.isFinite(cashPrice) || cashPrice <= 0)) {
+    return res.status(400).json({ error: 'El precio debe ser un número mayor que cero.' })
+  }
+
+  try {
+    const { data: product, error: productError } = await analysisWriter
+      .from('products')
+      .select('id')
+      .eq('id', productId)
+      .maybeSingle()
+    if (productError) throw productError
+    if (!product) return res.status(404).json({ error: 'No se encontró el producto del catálogo.' })
+
+    const { data: existingOffer, error: offerLookupError } = await analysisWriter
+      .from('offers')
+      .select('id, cash_price')
+      .eq('product_id', productId)
+      .eq('supermarket', req.businessStore.name)
+      .maybeSingle()
+    if (offerLookupError) throw offerLookupError
+
+    if (!available) {
+      if (existingOffer) {
+        const { error: deleteError } = await analysisWriter
+          .from('offers')
+          .delete()
+          .eq('id', existingOffer.id)
+          .eq('supermarket', req.businessStore.name)
+        if (deleteError) throw deleteError
+        invalidateCatalogPageCache()
+        scheduleRelatedPriceStatusRefresh(productId)
+      }
+      return res.json({ productId, available: false })
+    }
+
+    let offer = existingOffer
+    const priceChanged = !existingOffer || Number(existingOffer.cash_price) !== cashPrice
+    if (existingOffer && priceChanged) {
+      const { data, error } = await analysisWriter
+        .from('offers')
+        .update({ cash_price: cashPrice })
+        .eq('id', existingOffer.id)
+        .eq('supermarket', req.businessStore.name)
+        .select('id, cash_price')
+        .single()
+      if (error) throw error
+      offer = data
+    } else if (!existingOffer) {
+      const { data, error } = await analysisWriter
+        .from('offers')
+        .insert({
+          product_id: productId,
+          supermarket: req.businessStore.name,
+          cash_price: cashPrice,
+        })
+        .select('id, cash_price')
+        .single()
+      if (error) throw error
+      offer = data
+    }
+
+    if (priceChanged) {
+      await recordPriceHistory({
+        productId,
+        offerId: offer.id,
+        cashPrice,
+        source: 'business_catalog',
+        scheduleStatusRefresh: false,
+      })
+      scheduleRelatedPriceStatusRefresh(productId)
+    }
+
+    return res.json({
+      productId,
+      available: true,
+      offerId: offer.id,
+      cashPrice: Number(offer.cash_price),
+    })
+  } catch (error) {
+    console.error('Business catalog update failed', error)
+    return res.status(503).json({ error: 'No se pudo actualizar el producto del comercio.' })
+  }
+})
+
+async function isSharedListMember(listId, userId) {
+  const { data, error } = await analysisWriter
+    .from('shared_shopping_list_members')
+    .select('role')
+    .eq('list_id', listId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+app.get('/shared-lists', requireCustomerAuth, async (req, res) => {
+  try {
+    const { data: memberships, error: membershipError } = await analysisWriter
+      .from('shared_shopping_list_members')
+      .select('list_id, role, joined_at')
+      .eq('user_id', req.customerUser.id)
+      .order('joined_at', { ascending: false })
+    if (membershipError) throw membershipError
+
+    const listIds = (memberships || []).map((membership) => membership.list_id)
+    if (!listIds.length) return res.json([])
+
+    const { data: lists, error: listsError } = await analysisWriter
+      .from('shared_shopping_lists')
+      .select('id, name, owner_user_id, created_at, updated_at')
+      .in('id', listIds)
+      .order('updated_at', { ascending: false })
+    if (listsError) throw listsError
+
+    const roleByListId = new Map(memberships.map((membership) => [membership.list_id, membership.role]))
+    return res.json((lists || []).map((list) => ({
+      ...list,
+      role: roleByListId.get(list.id) || 'member',
+    })))
+  } catch (error) {
+    console.error('Shared-list fetch failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar las listas. Verifica que la migración de listas compartidas esté aplicada en Supabase.' })
+  }
+})
+
+app.post('/shared-lists', requireCustomerAuth, async (req, res) => {
+  const name = String(req.body?.name || '').trim()
+  if (!name || name.length > 80) {
+    return res.status(400).json({ error: 'El nombre debe tener entre 1 y 80 caracteres.' })
+  }
+  try {
+    const { data: list, error: listError } = await analysisWriter
+      .from('shared_shopping_lists')
+      .insert({
+        name,
+        owner_user_id: req.customerUser.id,
+        invite_code: crypto.randomBytes(24).toString('base64url'),
+      })
+      .select('id, name, owner_user_id, invite_code, created_at, updated_at')
+      .single()
+    if (listError) throw listError
+
+    const { error: membershipError } = await analysisWriter
+      .from('shared_shopping_list_members')
+      .insert({ list_id: list.id, user_id: req.customerUser.id, role: 'owner' })
+    if (membershipError) {
+      const { error: cleanupError } = await analysisWriter
+        .from('shared_shopping_lists')
+        .delete()
+        .eq('id', list.id)
+      if (cleanupError) console.error('Failed to clean up incomplete shared list', cleanupError)
+      throw membershipError
+    }
+
+    return res.status(201).json(list)
+  } catch (error) {
+    console.error('Shared-list creation failed', error)
+    return res.status(503).json({ error: 'No se pudo crear la lista. Verifica que la migración de listas compartidas esté aplicada en Supabase.' })
+  }
+})
+
+app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
+  const inviteCode = String(req.body?.inviteCode || '').trim()
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(inviteCode)) {
+    return res.status(400).json({ error: 'El enlace o código de invitación no es válido.' })
+  }
+
+  try {
+    const { data: list, error: listError } = await analysisWriter
+      .from('shared_shopping_lists')
+      .select('id, name, owner_user_id, created_at, updated_at')
+      .eq('invite_code', inviteCode)
+      .maybeSingle()
+    if (listError) throw listError
+    if (!list) return res.status(404).json({ error: 'No se encontró una lista con esa invitación.' })
+
+    const { error: membershipError } = await analysisWriter
+      .from('shared_shopping_list_members')
+      .upsert(
+        { list_id: list.id, user_id: req.customerUser.id, role: 'member' },
+        { onConflict: 'list_id,user_id', ignoreDuplicates: true },
+      )
+    if (membershipError) throw membershipError
+    return res.json(list)
+  } catch (error) {
+    console.error('Joining shared list failed', error)
+    return res.status(503).json({ error: 'No se pudo aceptar la invitación. Inténtalo nuevamente.' })
+  }
+})
+
+app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+
+    const [{ data: list, error: listError }, { data: items, error: itemsError }, { count: memberCount, error: countError }] = await Promise.all([
+      analysisWriter
+        .from('shared_shopping_lists')
+        .select('id, name, owner_user_id, invite_code, created_at, updated_at')
+        .eq('id', req.params.listId)
+        .maybeSingle(),
+      analysisWriter
+        .from('shared_shopping_list_items')
+        .select('id, product_id, item_name, quantity, is_checked, added_by, created_at')
+        .eq('list_id', req.params.listId)
+        .order('created_at', { ascending: true }),
+      analysisWriter
+        .from('shared_shopping_list_members')
+        .select('user_id', { count: 'exact', head: true })
+        .eq('list_id', req.params.listId),
+    ])
+    if (listError) throw listError
+    if (itemsError) throw itemsError
+    if (countError) throw countError
+    if (!list) return res.status(404).json({ error: 'No se encontró la lista.' })
+
+    return res.json({
+      ...list,
+      role: membership.role,
+      memberCount: memberCount || 1,
+      items: items || [],
+    })
+  } catch (error) {
+    console.error('Shared-list detail fetch failed', error)
+    return res.status(503).json({ error: 'No se pudo cargar la lista compartida.' })
+  }
+})
+
+app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) => {
+  const itemName = String(req.body?.itemName || '').trim()
+  const quantity = Number(req.body?.quantity ?? 1)
+  if (!itemName || itemName.length > 160 || !Number.isFinite(quantity) || quantity <= 0 || quantity > 999) {
+    return res.status(400).json({ error: 'Ingresa un artículo y una cantidad válida (máximo 999).' })
+  }
+
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+    const { data, error } = await analysisWriter
+      .from('shared_shopping_list_items')
+      .insert({
+        list_id: req.params.listId,
+        item_name: itemName,
+        quantity,
+        added_by: req.customerUser.id,
+      })
+      .select('id, product_id, item_name, quantity, is_checked, added_by, created_at')
+      .single()
+    if (error) throw error
+    return res.status(201).json(data)
+  } catch (error) {
+    console.error('Shared-list item creation failed', error)
+    return res.status(503).json({ error: 'No se pudo agregar el artículo a la lista.' })
+  }
+})
+
+app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req, res) => {
+  const changes = {}
+  if (typeof req.body?.isChecked === 'boolean') changes.is_checked = req.body.isChecked
+  if (req.body?.quantity !== undefined) {
+    const quantity = Number(req.body.quantity)
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 999) {
+      return res.status(400).json({ error: 'La cantidad debe ser mayor que 0 y no superar 999.' })
+    }
+    changes.quantity = quantity
+  }
+  if (typeof req.body?.itemName === 'string') {
+    const itemName = req.body.itemName.trim()
+    if (!itemName || itemName.length > 160) {
+      return res.status(400).json({ error: 'El nombre del artículo debe tener entre 1 y 160 caracteres.' })
+    }
+    changes.item_name = itemName
+  }
+  if (!Object.keys(changes).length) return res.status(400).json({ error: 'No hay cambios válidos para guardar.' })
+
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+    const { data, error } = await analysisWriter
+      .from('shared_shopping_list_items')
+      .update(changes)
+      .eq('id', req.params.itemId)
+      .eq('list_id', req.params.listId)
+      .select('id, product_id, item_name, quantity, is_checked, added_by, created_at')
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'No se encontró el artículo.' })
+    return res.json(data)
+  } catch (error) {
+    console.error('Shared-list item update failed', error)
+    return res.status(503).json({ error: 'No se pudo actualizar el artículo.' })
+  }
+})
+
+app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req, res) => {
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+    const { error, count } = await analysisWriter
+      .from('shared_shopping_list_items')
+      .delete({ count: 'exact' })
+      .eq('id', req.params.itemId)
+      .eq('list_id', req.params.listId)
+    if (error) throw error
+    if (!count) return res.status(404).json({ error: 'No se encontró el artículo.' })
+    return res.status(204).end()
+  } catch (error) {
+    console.error('Shared-list item deletion failed', error)
+    return res.status(503).json({ error: 'No se pudo quitar el artículo.' })
+  }
+})
+
 // Admin: update offers prices by category with a percentage
 app.post('/admin/update-prices', requireAdmin, async (req, res) => {
   try {
@@ -2335,7 +2880,11 @@ if (process.env.DISCO_SYNC_ENABLED === 'true') {
     if (discoSyncRunning) return
     discoSyncRunning = true
     try {
-      const result = await syncDiscoPrices({ database: analysisWriter, historyRecorder: recordPriceHistory })
+      const result = await syncDiscoPrices({
+        database: analysisWriter,
+        historyRecorder: recordPriceHistory,
+        onCatalogChange: invalidateCatalogPageCache,
+      })
       console.log(`Disco scheduled sync: ${result.updated.length} updated, ${result.unchanged.length} unchanged, ${result.unavailable.length} unavailable`)
     } catch (error) {
       console.error('Disco scheduled sync failed:', error.message)

@@ -30,14 +30,14 @@ export default function FaqPage() {
       <div className="mx-auto max-w-3xl">
         <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-sky-700 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Volver a AR-Price
+          Volver a Ar-Price
         </Link>
 
         <header className="mt-8 rounded-3xl bg-sky-600 p-6 text-white sm:p-8">
           <CircleHelp className="h-8 w-8 text-sky-100" aria-hidden="true" />
           <h1 className="mt-4 text-3xl font-black">Preguntas frecuentes</h1>
           <p className="mt-2 text-sm leading-relaxed text-sky-100">
-            Respuestas rápidas para ayudarte a usar AR-Price.
+            Respuestas rápidas para ayudarte a usar Ar-Price.
           </p>
         </header>
 

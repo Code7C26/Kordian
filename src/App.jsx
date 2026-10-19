@@ -18,6 +18,8 @@ import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 
+const CATEGORY_ONBOARDING_KEY = 'arprice_category_onboarding_complete';
+
 const SORT_OPTIONS = [
   { value: 'discount-desc', label: 'Mayor ahorro', icon: Percent },
   { value: 'price-asc', label: 'Menor precio', icon: ArrowDownWideNarrow },
@@ -73,14 +75,6 @@ function SortMenu({ value, onChange }) {
   );
 }
 
-function normalizeSearchText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-}
-
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -101,6 +95,7 @@ export default function App() {
   const [categories, setCategories] = useState(MOCK_CATEGORIES)
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
+  const [catalogTotal, setCatalogTotal] = useState(0)
   const [isMockCatalog, setIsMockCatalog] = useState(false)
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
   const [catalogLoadError, setCatalogLoadError] = useState(false)
@@ -138,9 +133,14 @@ export default function App() {
   const [selectedProductForExplanation, setSelectedProductForExplanation] = useState(null);
   const [basketOpen, setBasketOpen] = useState(false);
   const [favoritesOnlyView, setFavoritesOnlyView] = useState(false);
+  const updateFilters = (updater) => {
+    setProductsPage(1)
+    setFilters(updater)
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    setProductsPage(1)
     setViewMode(
       location.pathname === '/buscar'
         ? 'products'
@@ -148,12 +148,25 @@ export default function App() {
           ? 'favorites'
           : 'categories'
     );
+    setFavoritesOnlyView(location.pathname === '/favoritos');
     if (location.pathname === '/buscar') {
       setFilters((previous) => ({
         ...previous,
         searchQuery: params.get('q') ?? '',
         category: params.get('category') ?? 'todos',
         subcategory: 'todos',
+        priceStatus: params.get('deals') === '1' ? 'OFERTA' : 'todos',
+      }));
+    } else if (
+      location.pathname === '/'
+      && localStorage.getItem(CATEGORY_ONBOARDING_KEY) === 'true'
+    ) {
+      setFilters((previous) => ({
+        ...previous,
+        searchQuery: '',
+        category: localStorage.getItem('arprice_selected_category') || 'todos',
+        subcategory: 'todos',
+        priceStatus: 'todos',
       }));
     } else {
       setFilters((previous) => ({
@@ -161,6 +174,7 @@ export default function App() {
         searchQuery: '',
         category: 'todos',
         subcategory: 'todos',
+        priceStatus: 'todos',
       }));
     }
   }, [location.pathname, location.search]);
@@ -173,6 +187,7 @@ export default function App() {
       return ['prod-1', 'prod-4'];
     }
   });
+  const favoriteIdsKey = favoritesOnlyView ? favorites.join(',') : ''
 
   const [basket, setBasket] = useState(() => {
     try {
@@ -189,7 +204,7 @@ export default function App() {
     const selectedCategoryId = String(category)
     setSelectedCategory(selectedCategoryId)
     localStorage.setItem('arprice_selected_category', selectedCategoryId)
-    setFilters((previous) => ({
+    updateFilters((previous) => ({
       ...previous,
       category: selectedCategoryId,
       searchQuery: '',
@@ -200,8 +215,45 @@ export default function App() {
     navigate(`/buscar?category=${encodeURIComponent(category)}`);
   };
 
+  const handleOnboardingCategorySelect = (category) => {
+    localStorage.setItem(CATEGORY_ONBOARDING_KEY, 'true')
+    handleSelectCategory(category)
+  }
+
+  const navigateToSearch = () => {
+    const query = filters.searchQuery.trim()
+    if (query) {
+      setSearchHistory((previous) => [
+        query,
+        ...previous.filter((item) => item !== query),
+      ].slice(0, 6))
+    }
+    setFavoritesOnlyView(false)
+    setViewMode('products')
+    navigate(query ? `/buscar?q=${encodeURIComponent(query)}` : '/buscar')
+  }
+
+  const handleQuickSearch = (query) => {
+    const normalizedQuery = String(query || '').trim()
+    updateFilters((previous) => ({
+      ...previous,
+      category: 'todos',
+      searchQuery: normalizedQuery,
+      subcategory: 'todos',
+    }))
+    if (normalizedQuery) {
+      setSearchHistory((previous) => [
+        normalizedQuery,
+        ...previous.filter((item) => item !== normalizedQuery),
+      ].slice(0, 6))
+    }
+    setFavoritesOnlyView(false)
+    setViewMode('products')
+    navigate(normalizedQuery ? `/buscar?q=${encodeURIComponent(normalizedQuery)}` : '/buscar')
+  }
+
   const resetFilters = () => {
-    setFilters((previous) => ({
+    updateFilters((previous) => ({
       ...previous,
       category: 'todos',
       searchQuery: '',
@@ -211,7 +263,6 @@ export default function App() {
       sortBy: 'discount-desc',
       maxPrice: 1000000,
     }));
-    setProductsPage(1);
     setFavoritesOnlyView(false);
     setViewMode('categories');
     navigate('/');
@@ -231,13 +282,7 @@ export default function App() {
     localStorage.setItem('arprice_basket', JSON.stringify(basket));
   }, [basket]);
 
-  useEffect(() => {
-    if (productsPage !== 1) {
-      setProductsPage(1);
-    }
-  }, [filters.searchQuery, filters.category, filters.store]);
-
-  // Load categories and products from backend
+  // Keep the result index keyed by query and fetch only the requested page.
   useEffect(() => {
     let mounted = true
     const controller = new AbortController()
@@ -249,17 +294,19 @@ export default function App() {
         controller.abort(new DOMException('Catalog request timed out', 'TimeoutError'))
       }, 15000)
       try {
-        const requestPageSize = Math.max(productsPageSize, 100)
-        const baseQuery = {
-          page: 1,
-          limit: requestPageSize,
+        const query = buildProductsQuery({
+          page: productsPage,
+          limit: productsPageSize,
           searchQuery: filters.searchQuery,
           category: filters.category,
+          subcategory: filters.subcategory,
           store: filters.store,
-          city: selectedCity,
+          status: filters.priceStatus,
           sortBy,
-        }
-
+          favoritesOnly: favoritesOnlyView,
+          favoriteIds: favoriteIdsKey ? favoriteIdsKey.split(',') : [],
+          maxPrice: filters.maxPrice,
+        })
         const referencesPromise = catalogReferenceCache.current
           ? Promise.resolve(catalogReferenceCache.current)
           : Promise.all([
@@ -275,60 +322,25 @@ export default function App() {
             catalogReferenceCache.current = references
             return references
           })
-        const [firstPageRes, references] = await Promise.all([
-          fetch(apiUrl(`/products?${buildProductsQuery(baseQuery).toString()}`), { signal: controller.signal }),
+        const [productsResponse, references] = await Promise.all([
+          fetch(apiUrl(`/products?${query.toString()}`), { signal: controller.signal }),
           referencesPromise,
         ])
 
         if (!mounted) return
+        if (!productsResponse.ok) throw new Error('Backend returned non-ok response')
 
-        if (!firstPageRes.ok) {
-          throw new Error('Backend returned non-ok response')
-        }
-
-        const firstPagePayload = await firstPageRes.json()
-        const firstPageData = Array.isArray(firstPagePayload) ? firstPagePayload : firstPagePayload.data || []
-        const firstPageTotal = Array.isArray(firstPagePayload)
-          ? firstPageData.length
-          : Number(firstPagePayload.total || firstPageData.length || 0)
-
-        const totalPagesToFetch = Math.max(1, Math.ceil(firstPageTotal / requestPageSize))
-        const pageNumbers = Array.from({ length: totalPagesToFetch }, (_, index) => index + 1)
-
-        const remainingPageResponses = await Promise.all(
-          pageNumbers.slice(1).map(async (pageNumber) => {
-            const pageQuery = buildProductsQuery({
-              ...baseQuery,
-              page: pageNumber,
-              limit: requestPageSize,
-            })
-
-            const response = await fetch(apiUrl(`/products?${pageQuery.toString()}`), { signal: controller.signal })
-            if (!response.ok) {
-              throw new Error('Backend returned non-ok response')
-            }
-
-            return response.json()
-          })
-        )
-
-        const pagePayloads = [firstPagePayload, ...remainingPageResponses]
-        const allProductsFromApi = pagePayloads.flatMap((payload) => {
-          const pageData = Array.isArray(payload) ? payload : payload?.data || []
-          return Array.isArray(pageData) ? pageData : []
-        })
-        const validProds = allProductsFromApi.filter((product) => isValidCatalogProduct(product))
-
+        const pagePayload = await productsResponse.json()
+        const pageData = Array.isArray(pagePayload) ? pagePayload : pagePayload?.data || []
+        const total = Array.isArray(pagePayload)
+          ? pageData.length
+          : Number(pagePayload?.total ?? pageData.length)
+        const validProducts = pageData.filter((product) => isValidCatalogProduct(product))
         const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
         const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
-        const analyses = analysisCache.current || []
-        const analysisByProduct = new Map((analyses || []).map((item) => [String(item.product?.id), item]))
+        const analysisByProduct = new Map((analysisCache.current || []).map((item) => [String(item.product?.id), item]))
 
-        setCategories(cats.length ? cats : MOCK_CATEGORIES)
-        setTaxonomy(taxonomyData)
-        setIsMockCatalog(false)
-        setCatalogLoadError(false)
-        const enriched = validProds.map((product) => {
+        const enriched = validProducts.map((product) => {
           const offers = (product.offers || [])
             .map((offer) => ({
               ...offer,
@@ -342,12 +354,9 @@ export default function App() {
           )
           const currentPrice = Number(product.currentPrice || primary?.price || product.price || 0)
           const avgMarketPrice = offers.length
-            ? offers.reduce((total, offer) => total + offer.price, 0) / offers.length
+            ? offers.reduce((sum, offer) => sum + offer.price, 0) / offers.length
             : Number(product.avgMarketPrice || 0)
           const analysis = analysisByProduct.get(String(product.id))
-          const analysisStatus = analysis?.classification === 'PRECIO_NORMAL'
-            ? 'EN_PRECIO'
-            : analysis?.classification
 
           return {
             ...product,
@@ -361,7 +370,9 @@ export default function App() {
             percentageDiff: avgMarketPrice
               ? ((avgMarketPrice - currentPrice) / avgMarketPrice) * 100
               : Number(product.percentageDiff || 0),
-            status: analysisStatus || product.status || 'EN_PRECIO',
+            status: analysis?.classification === 'PRECIO_NORMAL'
+              ? 'EN_PRECIO'
+              : analysis?.classification || product.status || 'EN_PRECIO',
             analysis: analysis || null,
             priceHistory: analysis?.priceHistory || product.priceHistory || [],
             otherStores: offers.filter((offer) => offer !== primary),
@@ -369,22 +380,24 @@ export default function App() {
           }
         })
 
-        setCategories(cats || [])
+        setCategories(cats.length ? cats : MOCK_CATEGORIES)
         setTaxonomy(taxonomyData || [])
         setProducts(enriched)
+        setCatalogTotal(total)
+        setIsMockCatalog(false)
+        setCatalogLoadError(false)
 
-        // derive stores list from offers
-        const storesSet = new Set()
-        validProds.forEach((p) => {
-          (p.offers || []).forEach((o) => {
-            if (o.supermarket) storesSet.add(o.supermarket)
-          })
+        const stores = new Map()
+        ;(supermarkets || []).forEach((supermarket) => {
+          if (supermarket?.name) stores.set(supermarket.name, { id: supermarket.name, name: supermarket.name, image: supermarket.image || '' })
         })
+        validProducts.forEach((product) => (product.offers || []).forEach((offer) => {
+          const name = offer.supermarket || offer.supermarket_name || offer.storeName
+          if (name && !stores.has(name)) stores.set(name, { id: name, name, image: supermarketImages.get(name) || '' })
+        }))
+        setStoresList([...stores.values()])
 
-        const storesArr = Array.from(storesSet).map((name) => ({ id: name, name, image: supermarketImages.get(name) || '' }))
-        setStoresList(storesArr)
-
-        if (!analysisCache.current && !filters.searchQuery.trim()) {
+        if (!analysisCache.current && !filters.searchQuery.trim() && !favoritesOnlyView) {
           fetch(apiUrl('/analysis/products'), { signal: controller.signal })
             .then(async (response) => {
               if (!response.ok) throw new Error('Backend returned non-ok analysis response')
@@ -411,36 +424,33 @@ export default function App() {
               if (error.name !== 'AbortError') console.error('Error loading price analysis', error)
             })
         }
-      } catch (err) {
-        if (!mounted) return
-        if (err.name === 'AbortError') return
-        console.error('Error loading data', err)
+      } catch (error) {
+        if (!mounted || error.name === 'AbortError') return
+        console.error('Error loading data', error)
         setCatalogLoadError(true)
 
-        const enriched = MOCK_PRODUCTS.map((p) => ({
-          ...p,
-          currentPrice: Number(p.currentPrice || 0),
-          avgMarketPrice: Number(p.avgMarketPrice || 0),
-          percentageDiff: Number(p.percentageDiff || 0),
-          status: p.status || 'EN_PRECIO',
-          primaryStore: p.primaryStore || { name: '', id: null },
-          otherStores: Array.isArray(p.otherStores) ? p.otherStores : [],
+        const fallbackProducts = MOCK_PRODUCTS.map((product) => ({
+          ...product,
+          currentPrice: Number(product.currentPrice || 0),
+          avgMarketPrice: Number(product.avgMarketPrice || 0),
+          percentageDiff: Number(product.percentageDiff || 0),
+          status: product.status || 'EN_PRECIO',
+          primaryStore: product.primaryStore || { name: '', id: null },
+          otherStores: Array.isArray(product.otherStores) ? product.otherStores : [],
         }))
-
         setIsMockCatalog(true)
         setCategories(MOCK_CATEGORIES)
-        setProducts(enriched)
+        setProducts(fallbackProducts)
+        setCatalogTotal(fallbackProducts.length)
 
-        const storesSet = new Set()
-        enriched.forEach((p) => {
-          (p.otherStores || []).forEach((o) => {
-            if (o.storeName) storesSet.add(o.storeName)
+        const stores = new Set()
+        fallbackProducts.forEach((product) => {
+          product.otherStores.forEach((offer) => {
+            if (offer.storeName) stores.add(offer.storeName)
           })
-          if (p.primaryStore?.name) storesSet.add(p.primaryStore.name)
+          if (product.primaryStore?.name) stores.add(product.primaryStore.name)
         })
-
-        const storesArr = Array.from(storesSet).map((name) => ({ id: name, name }))
-        setStoresList(storesArr)
+        setStoresList([...stores].map((name) => ({ id: name, name })))
       } finally {
         clearTimeout(requestTimeout)
         if (mounted) setIsLoadingProducts(false)
@@ -448,18 +458,18 @@ export default function App() {
     }
 
     searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? 250 : 0)
-
     return () => {
       mounted = false
       controller.abort()
       clearTimeout(searchTimer)
     }
-  }, [filters, productsPageSize, selectedCity, sortBy, catalogRefreshKey])
+  }, [filters, productsPage, productsPageSize, selectedCity, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView])
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>
       prev.includes(product.id) ? prev.filter((id) => id !== product.id) : [...prev, product.id]
     );
+    if (favoritesOnlyView) setProductsPage(1)
   };
 
   const addToBasket = (product, selectedOffer = null) => {
@@ -541,16 +551,26 @@ export default function App() {
     else if (sortBy === 'discount' || sortBy === 'discount-desc') result.sort((left, right) => (right.percentageDiff || 0) - (left.percentageDiff || 0))
     return result
   }, [products, filters, sortBy, isMockCatalog])
+  const favoriteIds = useMemo(() => new Set(favorites.map(String)), [favorites])
+  const favoriteProducts = useMemo(
+    () => filteredProducts.filter((product) => favoriteIds.has(String(product.id))),
+    [favoriteIds, filteredProducts],
+  )
 
   useEffect(() => {
     localStorage.setItem('arprice_search_history', JSON.stringify(searchHistory))
   }, [searchHistory])
 
-  const totalPages = useMemo(() => getTotalPages(filteredProducts.length, productsPageSize), [filteredProducts.length, productsPageSize]);
+  const totalPages = useMemo(
+    () => getTotalPages(isMockCatalog ? filteredProducts.length : catalogTotal, productsPageSize),
+    [catalogTotal, filteredProducts.length, isMockCatalog, productsPageSize],
+  );
   const visiblePages = useMemo(() => getVisiblePageNumbers(productsPage, totalPages, 1), [productsPage, totalPages]);
   const paginatedProducts = useMemo(
-    () => filteredProducts.slice((productsPage - 1) * productsPageSize, productsPage * productsPageSize),
-    [filteredProducts, productsPage, productsPageSize],
+    () => isMockCatalog
+      ? filteredProducts.slice((productsPage - 1) * productsPageSize, productsPage * productsPageSize)
+      : filteredProducts,
+    [filteredProducts, isMockCatalog, productsPage, productsPageSize],
   );
 
   useEffect(() => {
@@ -562,14 +582,18 @@ export default function App() {
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
   const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
   const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
-  const isCategoryOnboarding = location.pathname === '/' || location.pathname === '/seleccionar-categorias';
+  const isCategoryOnboarding = location.pathname === '/seleccionar-categorias'
+    || (
+      location.pathname === '/'
+      && localStorage.getItem(CATEGORY_ONBOARDING_KEY) !== 'true'
+    );
 
   if (isCategoryOnboarding) {
     return (
       <CategorySelectionPage
         categories={categories}
         selectedCategory={selectedCategory}
-        onSelectCategory={handleSelectCategory}
+        onSelectCategory={handleOnboardingCategorySelect}
       />
     );
   }
@@ -585,6 +609,7 @@ export default function App() {
         onOpenBasket={() => setBasketOpen(true)}
         favoritesCount={favorites.length}
         onOpenFavorites={() => {
+          setProductsPage(1)
           setFavoritesOnlyView(true);
           setViewMode('favorites');
           navigate('/favoritos', { replace: true });
@@ -653,7 +678,7 @@ export default function App() {
             selectedCategory={filters.category}
             onSelectCategory={handleSelectCategory}
             searchQuery={filters.searchQuery}
-            setSearchQuery={(value) => setFilters((prev) => ({ ...prev, searchQuery: value }))}
+            setSearchQuery={(value) => updateFilters((prev) => ({ ...prev, searchQuery: value }))}
             onSearchSubmit={navigateToSearch}
             onQuickSearch={handleQuickSearch}
             searchHistory={searchHistory}
@@ -731,7 +756,7 @@ export default function App() {
               {(filters.category !== 'todos' || filters.subcategory !== 'todos' || filters.searchQuery || filters.store !== 'todos' || favoritesOnlyView) && (
                 <button
                   onClick={() => {
-                    setFilters({
+                    updateFilters({
                       category: filters.category,
                       searchQuery: '',
                       store: 'todos',
@@ -794,7 +819,7 @@ export default function App() {
                   <input
                     type="text"
                     value={filters.searchQuery}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
+                    onChange={(e) => updateFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
                     placeholder="Ej: Leche, Playadito, TV..."
                     className="w-full pl-9 pr-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                   />
@@ -806,7 +831,7 @@ export default function App() {
                 <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Filtrar por Comercio</label>
                 <select
                   value={filters.store}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, store: e.target.value }))}
+                  onChange={(e) => updateFilters((prev) => ({ ...prev, store: e.target.value }))}
                   className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                 >
                   <option value="todos">Todos los comercios</option>
@@ -822,7 +847,7 @@ export default function App() {
                 <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Subcategoría</label>
                 <select
                   value={filters.subcategory}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, subcategory: e.target.value }))}
+                  onChange={(e) => updateFilters((prev) => ({ ...prev, subcategory: e.target.value }))}
                   disabled={filters.category === 'todos'}
                   className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-bold disabled:opacity-60"
                 >
@@ -837,7 +862,7 @@ export default function App() {
                 <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Ordenar Lista Por</label>
                 <SortMenu
                   value={filters.sortBy}
-                  onChange={(sortBy) => setFilters((prev) => ({ ...prev, sortBy }))}
+                  onChange={(sortBy) => updateFilters((prev) => ({ ...prev, sortBy }))}
                 />
 
               </div>
@@ -847,15 +872,25 @@ export default function App() {
               <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider">Filtros rápidos:</span>
               <button
                 type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'OFERTA' }))}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'OFERTA' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900'}`}
+                 onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'todos' }))}
+                 aria-pressed={filters.priceStatus === 'todos'}
+                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'todos' ? 'bg-stone-700 text-white dark:bg-stone-200 dark:text-stone-900' : 'bg-stone-100 text-stone-700 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700'}`}
+               >
+                 Todos
+               </button>
+               <button
+                 type="button"
+                 onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'OFERTA' }))}
+                 aria-pressed={filters.priceStatus === 'OFERTA'}
+                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'OFERTA' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900'}`}
               >
                 <Tag className="h-3.5 w-3.5" aria-hidden="true" />
                 En oferta
               </button>
               <button
                 type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'EN_PRECIO' }))}
+                onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'EN_PRECIO' }))}
+                aria-pressed={filters.priceStatus === 'EN_PRECIO'}
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'EN_PRECIO' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-900'}`}
               >
                 <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
@@ -863,7 +898,8 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, priceStatus: 'INFLADO' }))}
+                onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'INFLADO' }))}
+                aria-pressed={filters.priceStatus === 'INFLADO'}
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'INFLADO' ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900'}`}
               >
                 <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
@@ -907,7 +943,7 @@ export default function App() {
               <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.</p>
               <button
                 onClick={() => {
-                  setFilters({
+                  updateFilters({
                     category: 'todos',
                     searchQuery: '',
                     store: 'todos',
@@ -982,7 +1018,7 @@ export default function App() {
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white">
                   <TrendingDown className="w-4 h-4" />
                 </div>
-                <span className="text-xl font-black text-stone-900 dark:text-white">AR-Price</span>
+                <span className="text-xl font-black text-stone-900 dark:text-white">Ar-Price</span>
               </div>
               <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">Plataforma colaborativa e independiente para la comparación de precios en tiempo real.</p>
             </div>

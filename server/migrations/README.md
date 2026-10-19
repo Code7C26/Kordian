@@ -135,12 +135,23 @@ Para desplegar el backend que usa las RPC de paginación, hidratación por IDs, 
 2. `20261012_catalog_pagination.sql`
 3. `20261013_catalog_page_cache_limit.sql`
 4. `20261013_catalog_search_index_cache.sql`
+5. `20261019_catalog_status_filters.sql`
 
-Si alguna ya fue aplicada, no hace falta repetirla; continuar con la primera pendiente. La última migración conserva el límite de 100 productos por página y agrega el índice ordenado que el servidor usa para hidratar las páginas siguientes sin repetir la búsqueda completa en Supabase. El backend conserva hasta 10 índices de consulta en memoria durante un minuto; se descartan al reiniciar Render o al vencer ese plazo. Los productos de cada página se vuelven a hidratar desde Supabase.
+Si alguna ya fue aplicada, no hace falta repetirla; continuar con la primera pendiente. La migración `20261013_catalog_search_index_cache.sql` conserva el límite de 100 productos por página y agrega el índice ordenado que el servidor usa para hidratar las páginas siguientes sin repetir la búsqueda completa en Supabase. La migración `20261019_catalog_status_filters.sql` permite que los filtros rápidos usen la última clasificación guardada aunque su actualización esté pendiente. El frontend solicita una página por vez; el backend conserva hasta 10 índices de consulta en una caché LRU en memoria, reutilizada al recorrer páginas y separada por búsqueda y filtros. Se descartan al salir del conjunto LRU o al reiniciar Render. Los productos de cada página se vuelven a hidratar desde Supabase.
 
 El endpoint `/products` incluye `X-Catalog-Cache: MISS` cuando calcula un nuevo índice y `X-Catalog-Cache: HIT` cuando reutiliza un índice reciente, incluso para repetir la misma página. Para leer este encabezado desde el navegador, el backend lo expone mediante CORS. `/taxonomy` obtiene los conteos con `catalog_taxonomy_counts`.
 
 La aplicacion no incluye credenciales de propietario de Supabase, por lo que la migracion debe ejecutarse desde el SQL Editor, Supabase CLI autenticado o un pipeline de migraciones del proyecto. La clave anon del backend solo sirve para operaciones permitidas por RLS y no puede crear tablas.
+
+## Listas de compras compartidas
+
+Ejecutar `20261018_shared_shopping_lists.sql` en el SQL Editor de Supabase antes de desplegar la API que ofrece `/shared-lists`. Las tablas tienen RLS habilitado sin políticas públicas; las operaciones pasan por el backend, que valida el access token del cliente y comprueba la membresía antes de leer o cambiar una lista. Por eso el servicio de Render debe tener `SUPABASE_SERVICE_ROLE_KEY` configurada solo como variable privada del servidor.
+
+## Catálogo gestionado por comercios
+
+Ejecutar `20261020_business_catalog_management.sql` después de crear `customer_profiles` y `supermarkets`. Desde el panel administrativo, la pestaña “Comercios” permite habilitar una cuenta comercial y asignarle un supermercado. El panel comercial solo puede publicar, actualizar o quitar las ofertas de ese supermercado; no puede modificar los productos ni las ofertas de otros comercios. El backend requiere `SUPABASE_SERVICE_ROLE_KEY` como variable privada del servidor.
+
+Los enlaces de invitación contienen un código aleatorio privado. Para unirse, cada colaborador debe iniciar sesión en una cuenta Ar-Price. Los artículos y cantidades se guardan en Supabase y la pantalla sincroniza cambios consultando la lista cada 10 segundos.
 
 ## Backfill de productos existentes
 

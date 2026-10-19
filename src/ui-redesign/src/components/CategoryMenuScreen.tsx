@@ -107,10 +107,9 @@ export const CategoryMenuScreen: React.FC<CategoryMenuScreenProps> = ({
 
       {/* Footer Info Note */}
       <div className="mt-12 text-center text-xs text-stone-400">
-        <p>ARPrice Argentina • Selección rápida de categorías para comparación de precios</p>
+        <p>Ar-Price Argentina • Selección rápida de categorías para comparación de precios</p>
       </div>
 
     </div>
   );
 };
-
