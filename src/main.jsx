@@ -16,6 +16,9 @@ import { CustomerAuthProvider } from './contexts/CustomerAuthContext.jsx'
 import CustomerAuthPage from './pages/CustomerAuthPage.jsx'
 import CustomerAccountPage from './pages/CustomerAccountPage.jsx'
 import FaqPage from './pages/FaqPage.jsx'
+import SharedListsPage from './pages/SharedListsPage.jsx'
+import PriceInflationPage from './pages/PriceInflationPage.jsx'
+import CouponsPage from './pages/CouponsPage.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -34,6 +37,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/perfil" element={<CustomerAccountPage section="profile" />} />
           <Route path="/mis-alertas" element={<CustomerAccountPage section="alerts" />} />
           <Route path="/panel-gestion" element={<CustomerAccountPage section="business" />} />
+          <Route path="/listas-compartidas" element={<SharedListsPage />} />
+          <Route path="/calculadora" element={<PriceInflationPage />} />
+          <Route path="/cupones" element={<CouponsPage />} />
           <Route path="/faq" element={<FaqPage />} />
 
           {/* LOGIN */}

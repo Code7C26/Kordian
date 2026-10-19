@@ -19,9 +19,9 @@ export function CategorySelectionPage({ categories, selectedCategory, onSelectCa
       <div className="relative mx-auto max-w-6xl">
         <div className="mx-auto max-w-3xl text-center">
           <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-white p-2 shadow-xl shadow-sky-600/10">
-            <img src={brandLogo} alt="ARPRICE" className="h-full w-full object-contain" />
+            <img src={brandLogo} alt="AR-PRICE" className="h-full w-full object-contain" />
           </div>
-          <p className="mb-2 text-xs font-black uppercase tracking-[0.25em] text-sky-600 dark:text-sky-400">Bienvenido a ARPRICE</p>
+          <p className="mb-2 text-xs font-black uppercase tracking-[0.25em] text-sky-600 dark:text-sky-400">Bienvenido a AR-PRICE</p>
           <h1 className="text-4xl font-black tracking-tight sm:text-5xl">Elige un rubro para comparar</h1>
           <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-stone-600 dark:text-stone-300">
             Primero selecciona la categoría de negocios que quieres explorar. Después podrás consultar precios, ofertas y productos en esa categoría.

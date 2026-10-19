@@ -10,7 +10,7 @@ assert.equal(
     store: 'todos',
     sortBy: 'default',
   }).toString(),
-  'page=1&limit=20&search=leche'
+  'page=1&limit=20&search=leche&catalogOnly=true&maxPrice=1000000'
 );
 
 assert.equal(
@@ -22,14 +22,25 @@ assert.equal(
     store: 'disco',
     sortBy: 'price-asc',
   }).toString(),
-  'page=1&limit=20&category=cat-1&supermarket=disco&sort=price-asc'
+  'page=1&limit=20&category=cat-1&supermarket=disco&sort=price-asc&catalogOnly=true&maxPrice=1000000'
 );
 
 console.log('catalogQuery test passed');
 
 assert.equal(
   buildProductsQuery({ sortBy: 'discount' }).toString(),
-  'page=1&limit=20&sort=discount-desc'
+  'page=1&limit=20&sort=discount-desc&catalogOnly=true&maxPrice=1000000'
+);
+
+assert.equal(
+  buildProductsQuery({
+    page: 3,
+    subcategory: 'sub-2',
+    status: 'OFERTA',
+    favoritesOnly: true,
+    favoriteIds: [12, 3, 12],
+  }).toString(),
+  'page=3&limit=20&subcategory=sub-2&status=OFERTA&favoritesOnly=true&favorites=12%2C3&catalogOnly=true&maxPrice=1000000'
 );
 
 assert.deepEqual(

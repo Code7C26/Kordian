@@ -1,6 +1,11 @@
 const { fetchDiscoProductById } = require('./discoImporter')
 
-async function syncDiscoPrices({ database, historyRecorder, adminUsername = 'system' }) {
+async function syncDiscoPrices({
+  database,
+  historyRecorder,
+  onCatalogChange = () => {},
+  adminUsername = 'system',
+}) {
   const { data: products, error: productsError } = await database
     .from('products')
     .select('id, name, source_product_id, offers(id, supermarket, cash_price)')
@@ -24,6 +29,7 @@ async function syncDiscoPrices({ database, historyRecorder, adminUsername = 'sys
       if (historyDeleteError) throw historyDeleteError
       const { error: deleteError } = await database.from('offers').delete().eq('id', offer.id)
       if (deleteError) throw deleteError
+      onCatalogChange()
       unavailable.push({ productId: product.id, name: product.name, removedOfferId: offer.id })
       continue
     }
@@ -34,6 +40,7 @@ async function syncDiscoPrices({ database, historyRecorder, adminUsername = 'sys
     }
     const { error: updateError } = await database.from('offers').update({ cash_price: current.price }).eq('id', offer.id)
     if (updateError) throw updateError
+    onCatalogChange()
     await historyRecorder({ productId: product.id, offerId: offer.id, cashPrice: current.price, source: 'disco_sync' })
     updated.push({ productId: product.id, offerId: offer.id, previousCashPrice: previousPrice, updatedCashPrice: current.price })
   }

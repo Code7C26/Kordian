@@ -1,6 +1,5 @@
 const MAX_CACHED_PRODUCT_IDS = 20000
 const MAX_CACHED_QUERIES = 10
-const CACHE_TTL_MS = 60 * 1000
 
 function createCatalogPageCache() {
   const indexes = new Map()
@@ -11,19 +10,13 @@ function createCatalogPageCache() {
 
   async function getPage({ key, page, limit, loadIndex, loadProductsByIds, loadPage }) {
     let entry = indexes.get(key)
-    const cacheHit = Boolean(entry && entry.expiresAt > Date.now())
-
-    if (entry && !cacheHit) {
-      indexes.delete(key)
-      entry = null
-    }
+    const cacheHit = Boolean(entry)
 
     if (entry) {
       indexes.delete(key)
       indexes.set(key, entry)
     } else {
       entry = {
-        expiresAt: Date.now() + CACHE_TTL_MS,
         promise: Promise.resolve().then(() => loadIndex(page, limit)),
       }
       indexes.set(key, entry)
@@ -84,7 +77,10 @@ function createCatalogPageCache() {
     }
   }
 
-  return { getPage }
+  return {
+    getPage,
+    clear: () => indexes.clear(),
+  }
 }
 
 module.exports = { createCatalogPageCache }

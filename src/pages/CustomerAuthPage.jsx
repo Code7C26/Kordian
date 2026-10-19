@@ -1,13 +1,19 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, LoaderCircle, LockKeyhole, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { validateCustomerRegistration } from '../utils/customerAuthValidation.js'
 
 export default function CustomerAuthPage({ mode = 'login' }) {
   const isRegistration = mode === 'register'
+  const location = useLocation()
   const navigate = useNavigate()
   const { signIn, signUp } = useCustomerAuth()
+  const requestedNext = new URLSearchParams(location.search).get('next')
+  const nextPath = requestedNext?.startsWith('/') && !requestedNext.startsWith('//')
+    ? requestedNext
+    : '/'
+  const authSwitchPath = `${isRegistration ? '/ingresar' : '/registro'}?next=${encodeURIComponent(nextPath)}`
   const [username, setUsername] = useState('')
   const [identifier, setIdentifier] = useState('')
   const [email, setEmail] = useState('')
@@ -43,13 +49,13 @@ export default function CustomerAuthPage({ mode = 'login' }) {
       if (isRegistration) {
         const result = await signUp({ username, email, password })
         if (result.session) {
-          navigate('/', { replace: true })
+          navigate(nextPath, { replace: true })
           return
         }
         showToast('Cuenta creada. Confirma tu correo para activar el acceso.', 'success')
       } else {
         await signIn({ identifier, password })
-        navigate('/', { replace: true })
+        navigate(nextPath, { replace: true })
       }
     } catch (error) {
       const message = String(error?.message || '')
@@ -79,7 +85,7 @@ export default function CustomerAuthPage({ mode = 'login' }) {
         <section className="hidden max-w-md flex-1 lg:block">
           <Link to="/" className="mb-10 inline-flex items-center gap-3 text-sm font-bold text-sky-700 dark:text-sky-300">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            Volver a AR-Price
+            Volver a Ar-Price
           </Link>
           <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-400">Ar-Price · Alta Gracia</p>
           <h1 className="mt-4 text-4xl font-black leading-tight">{isRegistration ? 'Tu próxima compra empieza acá.' : 'Qué bueno verte de nuevo.'}</h1>
@@ -148,7 +154,7 @@ export default function CustomerAuthPage({ mode = 'login' }) {
 
           <p className="mt-6 text-center text-sm text-stone-600 dark:text-stone-400">
             {isRegistration ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?'}{' '}
-            <Link to={isRegistration ? '/ingresar' : '/registro'} className="font-bold text-sky-700 underline decoration-sky-300 underline-offset-4 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">
+            <Link to={authSwitchPath} className="font-bold text-sky-700 underline decoration-sky-300 underline-offset-4 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">
               {isRegistration ? 'Inicia sesión' : 'Regístrate'}
             </Link>
           </p>

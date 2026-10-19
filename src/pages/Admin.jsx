@@ -4,7 +4,9 @@ import ProductForm from '../components/ProductForm.jsx'
 import CategoryBrandForm from '../components/CategoryBrandForm.jsx'
 import CsvUploader from '../components/CsvUploader.jsx'
 import Toast from '../components/Toast.jsx'
+import BusinessStoreAssignments from '../components/BusinessStoreAssignments.jsx'
 import {
+  BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -32,6 +34,7 @@ const ADMIN_PAGES = [
   { id: 'vista-previa', label: 'Vista previa', icon: Eye },
   { id: 'agrupacion', label: 'Agrupación', icon: GitMerge },
   { id: 'usuario', label: 'Usuario', icon: Users },
+  { id: 'comercios', label: 'Comercios', icon: BriefcaseBusiness },
 ]
 
 export default function Admin() {
@@ -4213,6 +4216,12 @@ export default function Admin() {
                 )}
             </section>
           )}
+
+          {/* ================================================= */}
+          {/* COMERCIOS */}
+          {/* ================================================= */}
+
+          {activePage === 'comercios' && <BusinessStoreAssignments />}
 
           {/* ================================================= */}
           {/* USUARIOS */}
