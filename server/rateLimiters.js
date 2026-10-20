@@ -4,6 +4,16 @@ const rateLimitMessage = {
   error: 'Hiciste demasiadas solicitudes. Espera un momento e inténtalo nuevamente.',
 }
 
+function createIpRateLimiter({ windowMs, limit }) {
+  return rateLimit({
+    windowMs,
+    limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: rateLimitMessage,
+  })
+}
+
 function createCustomerRateLimiter({ windowMs, limit }) {
   return rateLimit({
     windowMs,
@@ -14,6 +24,21 @@ function createCustomerRateLimiter({ windowMs, limit }) {
     message: rateLimitMessage,
   })
 }
+
+const customerIpReadRateLimit = createIpRateLimiter({
+  windowMs: 60 * 1000,
+  limit: 300,
+})
+
+const customerIpWriteRateLimit = createIpRateLimiter({
+  windowMs: 60 * 1000,
+  limit: 120,
+})
+
+const sharedListJoinIpRateLimit = createIpRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+})
 
 const customerReadRateLimit = createCustomerRateLimiter({
   windowMs: 60 * 1000,
@@ -31,7 +56,11 @@ const sharedListJoinRateLimit = createCustomerRateLimiter({
 })
 
 module.exports = {
+  createIpRateLimiter,
   createCustomerRateLimiter,
+  customerIpReadRateLimit,
+  customerIpWriteRateLimit,
+  sharedListJoinIpRateLimit,
   customerReadRateLimit,
   customerWriteRateLimit,
   sharedListJoinRateLimit,
