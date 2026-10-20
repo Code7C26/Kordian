@@ -6,6 +6,11 @@ const cors = require('cors')
 const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
+const {
+  customerReadRateLimit,
+  customerWriteRateLimit,
+  sharedListJoinRateLimit,
+} = require('./rateLimiters')
 const app = express()
 
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
@@ -2415,7 +2420,7 @@ app.put('/admin/business-accounts/:userId', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+app.get('/business/catalog', requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
   const search = String(req.query.search || '').trim()
   const requestedPage = Number(req.query.page || 1)
   if (search.length > 120) return res.status(400).json({ error: 'La búsqueda no puede superar 120 caracteres.' })
@@ -2502,7 +2507,7 @@ app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (r
   }
 })
 
-app.put('/business/catalog/:productId', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+app.put('/business/catalog/:productId', requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, async (req, res) => {
   const productId = Number(req.params.productId)
   const available = req.body?.available
   if (!Number.isSafeInteger(productId) || productId <= 0) {
@@ -2608,7 +2613,7 @@ async function isSharedListMember(listId, userId) {
   return data
 }
 
-app.get('/shared-lists', requireCustomerAuth, async (req, res) => {
+app.get('/shared-lists', requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data: memberships, error: membershipError } = await analysisWriter
       .from('shared_shopping_list_members')
@@ -2638,7 +2643,7 @@ app.get('/shared-lists', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name || name.length > 80) {
     return res.status(400).json({ error: 'El nombre debe tener entre 1 y 80 caracteres.' })
@@ -2674,7 +2679,7 @@ app.post('/shared-lists', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/join', requireCustomerAuth, sharedListJoinRateLimit, async (req, res) => {
   const inviteCode = String(req.body?.inviteCode || '').trim()
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(inviteCode)) {
     return res.status(400).json({ error: 'El enlace o código de invitación no es válido.' })
@@ -2703,7 +2708,7 @@ app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
+app.get('/shared-lists/:listId', requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -2741,7 +2746,7 @@ app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/:listId/items', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const itemName = String(req.body?.itemName || '').trim()
   const quantity = Number(req.body?.quantity ?? 1)
   if (!itemName || itemName.length > 160 || !Number.isFinite(quantity) || quantity <= 0 || quantity > 999) {
@@ -2769,7 +2774,7 @@ app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) =>
   }
 })
 
-app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req, res) => {
+app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const changes = {}
   if (typeof req.body?.isChecked === 'boolean') changes.is_checked = req.body.isChecked
   if (req.body?.quantity !== undefined) {
@@ -2807,7 +2812,7 @@ app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req
   }
 })
 
-app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req, res) => {
+app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
