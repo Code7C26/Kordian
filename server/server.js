@@ -7,6 +7,10 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const {
+  customerRegisterIpRateLimit,
+  customerLoginIpRateLimit,
+  customerRefreshIpRateLimit,
+  customerSessionIpRateLimit,
   customerIpReadRateLimit,
   customerIpWriteRateLimit,
   sharedListJoinIpRateLimit,
@@ -2124,7 +2128,7 @@ function requireCustomerAuthStorage(res) {
   return false
 }
 
-app.post('/auth/customer-register', async (req, res) => {
+app.post('/auth/customer-register', customerRegisterIpRateLimit, async (req, res) => {
   try {
     if (!requireCustomerAuthStorage(res)) return
     const requestOrigin = req.get('origin')
@@ -2192,7 +2196,7 @@ app.post('/auth/customer-register', async (req, res) => {
   }
 })
 
-app.post('/auth/customer-login', async (req, res) => {
+app.post('/auth/customer-login', customerLoginIpRateLimit, async (req, res) => {
   try {
     if (!requireCustomerAuthStorage(res)) return
     const identifier = String(req.body?.identifier || '').trim()
@@ -2226,7 +2230,7 @@ app.post('/auth/customer-login', async (req, res) => {
   }
 })
 
-app.post('/auth/customer-refresh', async (req, res) => {
+app.post('/auth/customer-refresh', customerRefreshIpRateLimit, async (req, res) => {
   try {
     if (!requireCustomerAuthStorage(res)) return
     const refreshToken = String(req.body?.refreshToken || '')
@@ -2239,7 +2243,7 @@ app.post('/auth/customer-refresh', async (req, res) => {
   }
 })
 
-app.get('/auth/customer-session', async (req, res) => {
+app.get('/auth/customer-session', customerSessionIpRateLimit, async (req, res) => {
   try {
     if (!requireCustomerAuthStorage(res)) return
     const accessToken = req.headers.authorization?.replace(/^Bearer\s+/i, '')
@@ -2270,7 +2274,7 @@ async function requireCustomerAuth(req, res, next) {
   }
 }
 
-app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
+app.get('/customer/favorites', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data, error } = await analysisWriter
       .from('customer_favorites')
@@ -2285,7 +2289,7 @@ app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/customer/favorites', requireCustomerAuth, async (req, res) => {
+app.post('/customer/favorites', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const productId = String(req.body?.productId || '')
   if (!/^[1-9]\d*$/.test(productId)) {
     return res.status(400).json({ error: 'El identificador del producto no es válido.' })
@@ -2306,7 +2310,7 @@ app.post('/customer/favorites', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/customer/favorites/:productId', requireCustomerAuth, async (req, res) => {
+app.delete('/customer/favorites/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const productId = String(req.params.productId || '')
   if (!/^[1-9]\d*$/.test(productId)) {
     return res.status(400).json({ error: 'El identificador del producto no es válido.' })
