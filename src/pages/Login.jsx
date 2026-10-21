@@ -40,7 +40,7 @@ export default function Login() {
 
       if (!res.ok) {
         setError(res.status === 401
-          ? 'Usuario o contraseña incorrectos'
+          ? 'Usuario o contraseña incorrectos. En producción necesitas una cuenta registrada con rol Administrador; las credenciales de desarrollo local no están habilitadas.'
           : payload.error || 'Error al autenticar')
         return
       }
