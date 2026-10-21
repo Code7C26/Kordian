@@ -49,6 +49,25 @@ desde la sección Usuarios del panel administrativo. Una cuenta clasificada
 como administrador puede iniciar sesión en el panel con su usuario y
 contraseña de AR-PRICE.
 
+## Importación controlada de Carrefour
+
+Para habilitar la vista previa y la importación manual de Carrefour:
+
+1. Aplicar primero `20260826_external_catalog.sql` si aún no se aplicó.
+2. Aplicar `20261023_carrefour_price_history.sql` en Supabase.
+3. Desplegar en el backend las rutas `/admin/import/carrefour/preview` y
+   `/admin/import/carrefour/execute`.
+
+La vista previa solo consulta el catálogo local y la oferta regional de
+Carrefour; no modifica productos, ofertas ni historial. La importación exige
+selección explícita, revalida los datos de Carrefour antes de escribir y limita
+cada lote a cinco productos.
+
+La consulta depende de resolver el código postal a una región de entrega.
+Si Carrefour bloquea esa resolución o no devuelve región, la operación se
+detiene sin usar precios no regionalizados. No importar en producción hasta
+validar primero el flujo en un entorno de staging con base de datos aislada.
+
 ## Estado de precio persistido
 
 Ejecutar en el SQL Editor de Supabase, en este orden:
