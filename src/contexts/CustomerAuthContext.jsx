@@ -17,7 +17,7 @@ async function requestJson(path, options = {}) {
   const response = await fetch(apiUrl(path), options)
   const payload = await response.json().catch(() => ({}))
   if (response.status === 404) {
-    throw new Error('El servidor todavía no tiene activado el registro de clientes. Despliega la actualización del backend.')
+    throw new Error('El servidor todavía no tiene activadas las funciones de cuenta y recuperación de contraseña. Despliega la actualización del backend.')
   }
   if (!response.ok) throw new Error(payload.error || 'No se pudo completar la solicitud.')
   return payload
@@ -182,6 +182,24 @@ export function CustomerAuthProvider({ children }) {
     return result
   }
 
+  const requestPasswordReset = async (identifier, accountType = 'customer') => {
+    const path = accountType === 'admin' ? '/auth/admin-password-reset' : '/auth/customer-password-reset'
+    const body = accountType === 'admin'
+      ? { email: identifier.trim() }
+      : { identifier: identifier.trim() }
+    return requestJson(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  }
+
+  const updatePassword = async ({ accessToken, password }) => requestJson('/auth/password-update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken, password }),
+  })
+
   const signOut = async () => {
     localStorage.removeItem(CUSTOMER_SESSION_KEY)
     setSession(null)
@@ -202,6 +220,8 @@ export function CustomerAuthProvider({ children }) {
       toggleFavorite,
       signUp,
       signIn,
+      requestPasswordReset,
+      updatePassword,
       signOut,
     }}>
       {children}

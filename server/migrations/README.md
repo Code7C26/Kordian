@@ -39,6 +39,14 @@ Los favoritos se consultan y modifican mediante el backend con la sesión del
 cliente; la tabla mantiene RLS habilitado y no guarda datos de favoritos en el
 navegador.
 
+## Reportes de precios
+
+Ejecutar completo `20261022_price_reports.sql` en el SQL Editor de Supabase.
+Los usuarios autenticados envían los reportes al backend; el servidor guarda
+el detalle del precio y una copia del usuario/email asociado al reporte. Solo
+el endpoint autenticado del panel de administración puede consultar los
+reportes; la tabla no expone políticas de lectura o escritura al cliente.
+
 ## Tipos de cuenta de usuarios
 
 Ejecutar `20261022_customer_account_roles.sql` en el SQL Editor de Supabase
@@ -49,6 +57,16 @@ desde la sección Usuarios del panel administrativo. Una cuenta clasificada
 como administrador puede iniciar sesión en el panel con su usuario y
 contraseña de AR-PRICE.
 
+## Recuperación de contraseña
+
+Configurar `FRONTEND_URL` en el backend con la URL pública del sitio
+(localmente, `http://localhost:5173`). Agregar
+`<FRONTEND_URL>/restablecer-contrasena*` a las URL de redirección permitidas
+en Supabase Auth. La recuperación se envía al correo asociado al perfil; para
+administradores, el perfil debe tener el rol `administrator`. Las cuentas
+administradoras antiguas guardadas solo en `public.admins` no tienen un correo
+asociado y no pueden recuperar la clave por email hasta migrarse a un perfil
+con correo.
 ## Importación controlada de Carrefour
 
 Para habilitar la vista previa y la importación manual de Carrefour:

@@ -20,6 +20,7 @@ import SharedListsPage from './pages/SharedListsPage.jsx'
 import PriceInflationPage from './pages/PriceInflationPage.jsx'
 import CouponsPage from './pages/CouponsPage.jsx'
 import SettingsPage from './pages/SettingsPage.jsx'
+import PasswordRecoveryPage from './pages/PasswordRecoveryPage.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -34,6 +35,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/favoritos" element={<FavoritesPage />} />
             <Route path="/ingresar" element={<CustomerAuthPage mode="login" />} />
             <Route path="/registro" element={<CustomerAuthPage mode="register" />} />
+            <Route path="/restablecer-contrasena" element={<PasswordRecoveryPage />} />
             <Route path="/mi-cuenta" element={<CustomerAccountPage section="profile" />} />
             <Route path="/perfil" element={<CustomerAccountPage section="profile" />} />
             <Route path="/mis-alertas" element={<CustomerAccountPage section="alerts" />} />

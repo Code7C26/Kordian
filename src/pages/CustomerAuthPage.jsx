@@ -8,8 +8,9 @@ export default function CustomerAuthPage({ mode = 'login' }) {
   const isRegistration = mode === 'register'
   const location = useLocation()
   const navigate = useNavigate()
-  const { signIn, signUp } = useCustomerAuth()
+  const { signIn, signUp, requestPasswordReset } = useCustomerAuth()
   const confirmationComplete = new URLSearchParams(location.search).get('confirmation') === 'success'
+  const passwordUpdated = new URLSearchParams(location.search).get('password') === 'updated'
   const requestedNext = new URLSearchParams(location.search).get('next')
   const nextPath = requestedNext?.startsWith('/') && !requestedNext.startsWith('//')
     ? requestedNext
@@ -17,14 +18,18 @@ export default function CustomerAuthPage({ mode = 'login' }) {
   const authSwitchPath = `${isRegistration ? '/ingresar' : '/registro'}?next=${encodeURIComponent(nextPath)}`
   const [username, setUsername] = useState('')
   const [identifier, setIdentifier] = useState('')
+  const [recoveryIdentifier, setRecoveryIdentifier] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [errors, setErrors] = useState({})
   const [toast, setToast] = useState(() => confirmationComplete
     ? { message: 'Correo confirmado. Ya puedes iniciar sesión.', type: 'success' }
-    : null)
+    : passwordUpdated
+      ? { message: 'Contraseña actualizada. Ya puedes iniciar sesión.', type: 'success' }
+      : null)
   const [busy, setBusy] = useState(false)
+  const [isRecovering, setIsRecovering] = useState(false)
 
   useEffect(() => {
     if (!confirmationComplete || !location.hash) return
@@ -85,6 +90,24 @@ export default function CustomerAuthPage({ mode = 'login' }) {
     }
   }
 
+  const handleRecoverySubmit = async (event) => {
+    event.preventDefault()
+    setToast(null)
+    if (!recoveryIdentifier.trim()) {
+      showToast('Ingresa tu correo o nombre de usuario.')
+      return
+    }
+    setBusy(true)
+    try {
+      const result = await requestPasswordReset(recoveryIdentifier)
+      showToast(result.message, 'success')
+    } catch (error) {
+      showToast(error.message || 'No se pudo solicitar la recuperación.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const fieldClass = (hasError = false) => `w-full rounded-lg border bg-white px-3 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 focus:ring-2 dark:bg-stone-950 dark:text-white ${hasError ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-100 dark:focus:ring-rose-950' : 'border-stone-300 focus:border-sky-600 focus:ring-sky-100 dark:border-stone-700 dark:focus:ring-sky-950'}`
 
   return (
@@ -112,13 +135,37 @@ export default function CustomerAuthPage({ mode = 'login' }) {
               {isRegistration ? <UserRound className="h-5 w-5" /> : <LockKeyhole className="h-5 w-5" />}
             </div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-400">Cuenta de cliente</p>
-            <h2 className="mt-1 text-2xl font-black">{isRegistration ? 'Crear cuenta' : 'Iniciar sesión'}</h2>
+            <h2 className="mt-1 text-2xl font-black">{isRegistration ? 'Crear cuenta' : isRecovering ? 'Recuperar contraseña' : 'Iniciar sesión'}</h2>
             <p className="mt-2 text-sm text-stone-600 dark:text-stone-400">
-              {isRegistration ? 'Completa tus datos para registrarte en Ar-Price.' : 'Usa tu correo electrónico o nombre de usuario.'}
+              {isRegistration
+                ? 'Completa tus datos para registrarte en Ar-Price.'
+                : isRecovering
+                  ? 'Te enviaremos un enlace para elegir una contraseña nueva.'
+                  : 'Usa tu correo electrónico o nombre de usuario.'}
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} noValidate className="space-y-4">
+          {isRecovering ? (
+            <form onSubmit={handleRecoverySubmit} noValidate className="space-y-4">
+              <div>
+                <label htmlFor="customer-recovery-identifier" className="mb-1.5 block text-sm font-semibold">Correo o nombre de usuario</label>
+                <input
+                  id="customer-recovery-identifier"
+                  type="text"
+                  autoComplete="username"
+                  required
+                  value={recoveryIdentifier}
+                  onChange={(event) => setRecoveryIdentifier(event.target.value)}
+                  className={fieldClass()}
+                  placeholder="usuario@email.com o cliente2026"
+                />
+              </div>
+              <button type="submit" disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50">
+                {busy && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                Enviar enlace de recuperación
+              </button>
+            </form>
+          ) : <form onSubmit={handleSubmit} noValidate className="space-y-4">
             {isRegistration ? (
               <>
                 <div>
@@ -146,6 +193,14 @@ export default function CustomerAuthPage({ mode = 'login' }) {
               {!isRegistration && errors.credentials && <p className="mt-1 text-xs font-medium text-rose-600">{errors.credentials}</p>}
             </div>
 
+            {!isRegistration && (
+              <div className="text-right">
+                <button type="button" onClick={() => { setIsRecovering(true); setErrors({}); setToast(null) }} className="text-sm font-semibold text-sky-700 underline underline-offset-4 dark:text-sky-300">
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+            )}
+
             {isRegistration && (
               <div>
                 <label htmlFor="customer-confirmation" className="mb-1.5 block text-sm font-semibold">Repetir contraseña</label>
@@ -158,13 +213,22 @@ export default function CustomerAuthPage({ mode = 'login' }) {
               {busy && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
               {isRegistration ? 'REGISTRARSE' : 'INGRESAR'}
             </button>
-          </form>
+
+          </form>}
 
           <p className="mt-6 text-center text-sm text-stone-600 dark:text-stone-400">
-            {isRegistration ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?'}{' '}
-            <Link to={authSwitchPath} className="font-bold text-sky-700 underline decoration-sky-300 underline-offset-4 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">
-              {isRegistration ? 'Inicia sesión' : 'Regístrate'}
-            </Link>
+            {isRecovering ? (
+              <button type="button" onClick={() => { setIsRecovering(false); setToast(null) }} className="font-bold text-sky-700 underline decoration-sky-300 underline-offset-4 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">
+                Volver a iniciar sesión
+              </button>
+            ) : (
+              <>
+                {isRegistration ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?'}{' '}
+                <Link to={authSwitchPath} className="font-bold text-sky-700 underline decoration-sky-300 underline-offset-4 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">
+                  {isRegistration ? 'Inicia sesión' : 'Regístrate'}
+                </Link>
+              </>
+            )}
           </p>
         </section>
       </div>
