@@ -2443,7 +2443,6 @@ app.put('/admin/business-accounts/:userId', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/business/catalog', requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
 app.get('/business/catalog', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
   const search = String(req.query.search || '').trim()
   const requestedPage = Number(req.query.page || 1)
@@ -2531,7 +2530,6 @@ app.get('/business/catalog', customerIpReadRateLimit, requireCustomerAuth, custo
   }
 })
 
-app.put('/business/catalog/:productId', requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, async (req, res) => {
 app.put('/business/catalog/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, async (req, res) => {
   const productId = Number(req.params.productId)
   const available = req.body?.available
@@ -2638,7 +2636,6 @@ async function isSharedListMember(listId, userId) {
   return data
 }
 
-app.get('/shared-lists', requireCustomerAuth, customerReadRateLimit, async (req, res) => {
 app.get('/shared-lists', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data: memberships, error: membershipError } = await analysisWriter
@@ -2669,7 +2666,6 @@ app.get('/shared-lists', customerIpReadRateLimit, requireCustomerAuth, customerR
   }
 })
 
-app.post('/shared-lists', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
 app.post('/shared-lists', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name || name.length > 80) {
@@ -2706,7 +2702,6 @@ app.post('/shared-lists', customerIpWriteRateLimit, requireCustomerAuth, custome
   }
 })
 
-app.post('/shared-lists/join', requireCustomerAuth, sharedListJoinRateLimit, async (req, res) => {
 app.post('/shared-lists/join', sharedListJoinIpRateLimit, requireCustomerAuth, sharedListJoinRateLimit, async (req, res) => {
   const inviteCode = String(req.body?.inviteCode || '').trim()
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(inviteCode)) {
@@ -2736,7 +2731,6 @@ app.post('/shared-lists/join', sharedListJoinIpRateLimit, requireCustomerAuth, s
   }
 })
 
-app.get('/shared-lists/:listId', requireCustomerAuth, customerReadRateLimit, async (req, res) => {
 app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
@@ -2775,7 +2769,6 @@ app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, c
   }
 })
 
-app.post('/shared-lists/:listId/items', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
 app.post('/shared-lists/:listId/items', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const itemName = String(req.body?.itemName || '').trim()
   const quantity = Number(req.body?.quantity ?? 1)
@@ -2804,7 +2797,6 @@ app.post('/shared-lists/:listId/items', customerIpWriteRateLimit, requireCustome
   }
 })
 
-app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
 app.patch('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const changes = {}
   if (typeof req.body?.isChecked === 'boolean') changes.is_checked = req.body.isChecked
@@ -2843,7 +2835,6 @@ app.patch('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requi
   }
 })
 
-app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
 app.delete('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)

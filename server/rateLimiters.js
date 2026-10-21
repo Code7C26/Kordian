@@ -76,7 +76,6 @@ const sharedListJoinRateLimit = createCustomerRateLimiter({
 })
 
 module.exports = {
-  createCustomerRateLimiter,
   createIpRateLimiter,
   createCustomerRateLimiter,
   customerIpReadRateLimit,
