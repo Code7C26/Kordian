@@ -108,6 +108,11 @@ export function ProductCard({
         </div>
 
         <div className="bg-stone-50 dark:bg-stone-900/60 p-3 rounded-xl border border-stone-200/50 dark:border-stone-800/80 space-y-1">
+          {Number(product.primaryStore?.listPrice) > Number(product.currentPrice) && (
+            <p className="text-xs text-stone-500 line-through">
+              Precio regular: {formatCurrency(product.primaryStore.listPrice)}
+            </p>
+          )}
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-black text-stone-900 dark:text-white tracking-tight">
               {formatCurrency(product.currentPrice)}
