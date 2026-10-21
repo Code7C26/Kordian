@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Header } from '../components/Header.jsx'
 import ProductForm from '../components/ProductForm.jsx'
 import CategoryBrandForm from '../components/CategoryBrandForm.jsx'
@@ -70,6 +71,7 @@ export default function Admin() {
 
   const [priceUpdates, setPriceUpdates] = useState([])
   const [priceReports, setPriceReports] = useState([])
+  const [priceReportsCount, setPriceReportsCount] = useState(0)
   const [priceReportsLoading, setPriceReportsLoading] = useState(false)
   const [priceReportsError, setPriceReportsError] = useState('')
 
@@ -1207,20 +1209,25 @@ export default function Admin() {
     }
   }
 
-  const loadPriceReports = async () => {
+  const loadPriceReports = useCallback(async () => {
     setPriceReportsLoading(true)
     setPriceReportsError('')
     try {
       const response = await adminFetch('/admin/price-reports')
-      const reports = await readApiResponse(response, 'No se pudieron cargar los reportes de precios.')
+      const result = await readApiResponse(response, 'No se pudieron cargar los reportes de precios.')
+      const reports = Array.isArray(result) ? result : Array.isArray(result?.reports) ? result.reports : []
+      const totalCount = Array.isArray(result)
+        ? reports.length
+        : Number.isInteger(result?.totalCount) ? result.totalCount : reports.length
       setPriceReports(reports)
+      setPriceReportsCount(totalCount)
     } catch (error) {
       console.error('Price reports could not be loaded', error)
       setPriceReportsError(error.message || 'No se pudieron cargar los reportes de precios.')
     } finally {
       setPriceReportsLoading(false)
     }
-  }
+  }, [])
 
   const deletePriceUpdate = async (
     id,
@@ -2089,8 +2096,12 @@ export default function Admin() {
   // =========================================================
 
   useEffect(() => {
+    loadPriceReports()
+  }, [loadPriceReports])
+
+  useEffect(() => {
     if (activePage === 'reportes') loadPriceReports()
-  }, [activePage])
+  }, [activePage, loadPriceReports])
 
   useEffect(() => {
     loadProducts(productPage)
@@ -2550,26 +2561,27 @@ export default function Admin() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              localStorage.removeItem(
-                'adminAuth',
-              )
-              localStorage.removeItem(
-                'adminToken',
-              )
-              localStorage.removeItem(
-                'currentAdmin',
-              )
-
-              window.location.href =
-                '/login'
-            }}
-            className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800"
-          >
-            Cerrar sesión
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/configuracion"
+              className="inline-flex items-center gap-2 rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+              Volver
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.removeItem('adminAuth')
+                localStorage.removeItem('adminToken')
+                localStorage.removeItem('currentAdmin')
+                window.location.href = '/login'
+              }}
+              className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800"
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </div>
 
         <nav
@@ -2607,6 +2619,14 @@ export default function Admin() {
                     aria-hidden="true"
                   />
                   {label}
+                  {id === 'reportes' && priceReportsCount > 0 && (
+                    <span
+                      aria-label={`${priceReportsCount} reportes de precios`}
+                      className="inline-flex min-w-5 items-center justify-center rounded-full bg-sky-200 px-1.5 py-0.5 text-[10px] font-black leading-none text-sky-900 dark:bg-sky-800 dark:text-sky-100"
+                    >
+                      {priceReportsCount >= 100 ? '+99' : priceReportsCount}
+                    </span>
+                  )}
                 </button>
               ),
             )}

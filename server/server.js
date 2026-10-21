@@ -2929,13 +2929,13 @@ app.get('/admin/price-reports', requireAdmin, async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, count, error } = await supabaseAdmin
       .from('price_reports')
-      .select('id, reporter_user_id, reporter_username, reporter_email, report_type, product_name, store_name, reported_price, city, comments, status, created_at')
+      .select('id, reporter_user_id, reporter_username, reporter_email, report_type, product_name, store_name, reported_price, city, comments, status, created_at', { count: 'exact' })
       .order('created_at', { ascending: false })
       .limit(500)
     if (error) throw error
-    return res.json(data || [])
+    return res.json({ reports: data || [], totalCount: count || 0 })
   } catch (error) {
     console.error('Admin price reports fetch failed', error)
     return res.status(503).json({ error: 'No se pudieron cargar los reportes. Verifica que la migración de reportes esté aplicada.' })

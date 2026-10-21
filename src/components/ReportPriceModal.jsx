@@ -1,14 +1,21 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { X, Send, AlertTriangle, CheckCircle, LoaderCircle } from 'lucide-react';
-import { STORES_LIST } from '../data/mockProducts.js';
 import { apiUrl } from '../config/api.js';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 
-export function ReportPriceModal({ onClose, selectedCity }) {
+export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoading = false }) {
   const { user, accessToken, loading: authLoading } = useCustomerAuth();
+  const [storeName, setStoreName] = useState('');
+  const availableStores = [...new Map(
+    stores
+      .filter((store) => store?.name?.trim())
+      .map((store) => [store.name.trim().toLocaleLowerCase(), { ...store, name: store.name.trim() }]),
+  ).values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const selectedStoreName = availableStores.some((store) => store.name === storeName)
+    ? storeName
+    : availableStores[0]?.name || '';
   const [productName, setProductName] = useState('');
-  const [storeName, setStoreName] = useState(STORES_LIST[0]?.name || '');
   const [reportedPrice, setReportedPrice] = useState('');
   const [reportType, setReportType] = useState('oferta');
   const [comments, setComments] = useState('');
@@ -32,7 +39,7 @@ export function ReportPriceModal({ onClose, selectedCity }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ productName, storeName, reportedPrice, reportType, comments, city: selectedCity }),
+        body: JSON.stringify({ productName, storeName: selectedStoreName, reportedPrice, reportType, comments, city: selectedCity }),
       });
       const payload = await response.json().catch(() => ({}));
       if (response.status === 404) {
@@ -150,15 +157,22 @@ export function ReportPriceModal({ onClose, selectedCity }) {
                 <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">Comercio / Tienda</label>
                 <select
                   required
-                  value={storeName}
+                  value={selectedStoreName}
                   onChange={(e) => setStoreName(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  disabled={!availableStores.length}
                 >
-                  {STORES_LIST.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name}
+                  {availableStores.length ? (
+                    availableStores.map((store) => (
+                      <option key={store.id || store.name} value={store.name}>
+                        {store.name}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="" disabled>
+                      {storesLoading ? 'Cargando comercios…' : 'No hay comercios integrados disponibles'}
                     </option>
-                  ))}
+                  )}
                 </select>
               </div>
               <div>
@@ -201,7 +215,7 @@ export function ReportPriceModal({ onClose, selectedCity }) {
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || storesLoading || !availableStores.length || !selectedStoreName}
                 className="px-5 py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSubmitting ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
