@@ -1092,7 +1092,12 @@ export default function App() {
       )}
 
       {reportModalOpen && (
-        <ReportPriceModal onClose={() => setReportModalOpen(false)} selectedCity={selectedCity} />
+        <ReportPriceModal
+          onClose={() => setReportModalOpen(false)}
+          selectedCity={selectedCity}
+          stores={storesList}
+          storesLoading={isLoadingProducts && !storesList.length}
+        />
       )}
     </div>
 

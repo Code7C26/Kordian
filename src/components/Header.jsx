@@ -45,11 +45,12 @@ export function Header({
   const location = useLocation()
   const { user, signOut } = useCustomerAuth()
   const isAdminHeader = isAdminPage || location.pathname === '/admin'
-  const [showAdminPanel, setShowAdminPanel] = useState(false)
-  const [showCategoryMenu, setShowCategoryMenu] = useState(false)
-  const [showAccountMenu, setShowAccountMenu] = useState(false)
+  const [openMenu, setOpenMenu] = useState(null)
+  const showAdminPanel = openMenu === 'admin'
+  const showCategoryMenu = openMenu === 'category'
+  const showAccountMenu = openMenu === 'account'
   const accountMenuRef = useRef(null)
-  const [showLocationMenu, setShowLocationMenu] = useState(false)
+  const showLocationMenu = openMenu === 'location'
   const [locationQuery, setLocationQuery] = useState('')
   const locationMenuRef = useRef(null)
   const [panelCategories, setPanelCategories] = useState([])
@@ -60,6 +61,10 @@ export function Header({
   const [panelSupermarket, setPanelSupermarket] = useState('')
   const [panelPercentage, setPanelPercentage] = useState(5)
   const [panelUpdatedAt, setPanelUpdatedAt] = useState(() => new Date().toISOString().slice(0, 10))
+
+  const toggleExclusiveMenu = (menu) => {
+    setOpenMenu((currentMenu) => currentMenu === menu ? null : menu)
+  }
 
   useEffect(() => {
     // load categories and brands for the floating panel
@@ -92,10 +97,10 @@ export function Header({
     if (!showAccountMenu) return undefined
 
     const closeOnOutsideClick = (event) => {
-      if (!accountMenuRef.current?.contains(event.target)) setShowAccountMenu(false)
+      if (!accountMenuRef.current?.contains(event.target)) setOpenMenu(null)
     }
     const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setShowAccountMenu(false)
+      if (event.key === 'Escape') setOpenMenu(null)
     }
 
     document.addEventListener('pointerdown', closeOnOutsideClick)
@@ -110,10 +115,10 @@ export function Header({
     if (!showLocationMenu) return undefined
 
     const closeOnOutsideClick = (event) => {
-      if (!locationMenuRef.current?.contains(event.target)) setShowLocationMenu(false)
+      if (!locationMenuRef.current?.contains(event.target)) setOpenMenu(null)
     }
     const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setShowLocationMenu(false)
+      if (event.key === 'Escape') setOpenMenu(null)
     }
 
     document.addEventListener('pointerdown', closeOnOutsideClick)
@@ -140,7 +145,7 @@ export function Header({
   const selectCity = (city) => {
     setSelectedCity(city)
     setLocationQuery(city)
-    setShowLocationMenu(false)
+    setOpenMenu(null)
   }
 
   return (
@@ -184,7 +189,7 @@ export function Header({
             type="button"
             onClick={() => {
               setLocationQuery(selectedCity)
-              setShowLocationMenu((open) => !open)
+              toggleExclusiveMenu('location')
             }}
             aria-haspopup="dialog"
             aria-expanded={showLocationMenu}
@@ -255,7 +260,7 @@ export function Header({
           {!isAdminHeader && (
             <>
               <button
-                onClick={() => setShowCategoryMenu((open) => !open)}
+                onClick={() => toggleExclusiveMenu('category')}
                 className="relative flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-bold text-white hover:bg-white/25 dark:bg-stone-800/60 dark:text-stone-200 transition-colors cursor-pointer"
                 title="Seleccionar categoría para comparar precios"
                 aria-expanded={showCategoryMenu}
@@ -289,7 +294,7 @@ export function Header({
               <div className="relative" ref={accountMenuRef}>
                 <button
                   type="button"
-                  onClick={() => setShowAccountMenu((open) => !open)}
+                  onClick={() => toggleExclusiveMenu('account')}
                   aria-haspopup="menu"
                   aria-expanded={showAccountMenu}
                   aria-label="Abrir menú"
@@ -306,42 +311,42 @@ export function Header({
                     aria-label="Menú principal"
                     className="absolute right-0 top-full z-50 mt-2 max-h-[min(78vh,40rem)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-stone-200 bg-white p-2 text-stone-800 shadow-xl dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
                   >
-                    <Link role="menuitem" to="/listas-compartidas" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/listas-compartidas" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <UsersRound className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       Lista compartida
                     </Link>
-                    <Link role="menuitem" to="/calculadora" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/calculadora" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <ChartNoAxesCombined className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       Calculadora de precios
                     </Link>
-                    <Link role="menuitem" to="/cupones" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/cupones" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <TicketPercent className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       Cupones y descuentos
                     </Link>
                     <div className="my-2 border-t border-stone-200 dark:border-stone-700" />
-                    <Link role="menuitem" to="/configuracion" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/configuracion" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <Settings className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       Configuración
                     </Link>
-                    <Link role="menuitem" to="/faq" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/faq" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <CircleHelp className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       FAQ
                     </Link>
                     {user ? (
                       <>
-                        <Link role="menuitem" to="/mis-alertas" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                        <Link role="menuitem" to="/mis-alertas" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <Heart className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Mis alertas
                         </Link>
-                        <button role="menuitem" type="button" onClick={() => { setShowAccountMenu(false); signOut() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                        <button role="menuitem" type="button" onClick={() => { setOpenMenu(null); signOut() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <LogOut className="h-4 w-4 text-stone-500" aria-hidden="true" /> Cerrar sesión
                         </button>
                       </>
                     ) : (
                       <>
-                        <Link role="menuitem" to="/ingresar" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                        <Link role="menuitem" to="/ingresar" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <LogIn className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Iniciar sesión
                         </Link>
-                        <Link role="menuitem" to="/registro" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/60">
+                        <Link role="menuitem" to="/registro" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/60">
                           <UserPlus className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> Registrarse
                         </Link>
                       </>
@@ -355,7 +360,7 @@ export function Header({
           {/* Admin action button in header */}
           {isAdminHeader && (
             <button
-              onClick={() => setShowAdminPanel(true)}
+              onClick={() => toggleExclusiveMenu('admin')}
               className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold bg-yellow-500 text-black rounded-2xl hover:brightness-90 transition-all duration-150 ml-2"
               title="Abrir panel rápido de actualización de precios"
             >
@@ -385,13 +390,13 @@ export function Header({
               <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">Comparar precios</p>
               <h2 className="text-base font-black">Selecciona una categoría</h2>
             </div>
-            <button onClick={() => setShowCategoryMenu(false)} className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700" aria-label="Cerrar menú de categorías">Cerrar</button>
+            <button onClick={() => setOpenMenu(null)} className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700" aria-label="Cerrar menú de categorías">Cerrar</button>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => {
-                setShowCategoryMenu(false)
+                setOpenMenu(null)
                 onSelectCategory('todos')
               }}
               className={`rounded-xl border p-3 text-left transition-colors ${selectedCategory === 'todos' ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
@@ -415,7 +420,7 @@ export function Header({
                     type="button"
                     key={category.id}
                     onClick={() => {
-                      setShowCategoryMenu(false)
+                      setOpenMenu(null)
                       onSelectCategory(category.id)
                     }}
                     className={`rounded-xl border p-3 text-left transition-colors ${isSelected ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 hover:border-sky-300 hover:bg-sky-50 dark:border-stone-700 dark:hover:border-sky-700 dark:hover:bg-sky-950/40'}`}
@@ -442,7 +447,7 @@ export function Header({
         <div className="fixed right-4 top-4 z-50 w-72 max-h-[60vh] overflow-auto bg-white dark:bg-stone-800 border rounded-xl p-3 shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <strong>Actualizar precios (rápido)</strong>
-            <button onClick={() => setShowAdminPanel(false)} className="text-sm text-stone-500">Cerrar</button>
+            <button onClick={() => setOpenMenu(null)} className="text-sm text-stone-500">Cerrar</button>
           </div>
           <div className="space-y-2 text-sm">
             <label className="block">Filtros de actualización</label>
