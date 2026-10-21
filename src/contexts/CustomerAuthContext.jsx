@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { apiUrl } from '../config/api.js'
 
 const CustomerAuthContext = createContext(null)
@@ -45,6 +45,18 @@ export function CustomerAuthProvider({ children }) {
   const [favorites, setFavorites] = useState([])
   const [favoritesLoading, setFavoritesLoading] = useState(false)
   const [favoritesError, setFavoritesError] = useState('')
+
+  const refreshProfile = useCallback(async () => {
+    if (!session?.access_token) {
+      throw new Error('Inicia sesión para actualizar los datos de tu cuenta.')
+    }
+
+    const result = await requestJson('/auth/customer-session', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+    setProfile(result.profile)
+    return result.profile
+  }, [session])
 
   useEffect(() => {
     const storedSession = readStoredSession()
@@ -183,6 +195,7 @@ export function CustomerAuthProvider({ children }) {
       user: session?.user || null,
       accessToken: session?.access_token || null,
       profile,
+      refreshProfile,
       favorites,
       favoritesLoading,
       favoritesError,
