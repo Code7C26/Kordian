@@ -1025,6 +1025,17 @@ app.get('/products', async (req, res) => {
       }
       return data
     }
+    const loadProductsByIds = async (productIds) => {
+      const { data: productsPayload, error } = await analysisWriter.rpc('catalog_products_by_ids', {
+        p_product_ids: productIds,
+        p_rules_version: priceStatusRulesVersion,
+      })
+      if (error) throw error
+      if (!Array.isArray(productsPayload?.data)) {
+        throw new Error('Catalog hydration RPC returned an invalid response')
+      }
+      return productsPayload.data
+    }
     let data
     try {
       data = await catalogPageCache.getPage({
@@ -1032,17 +1043,7 @@ app.get('/products', async (req, res) => {
         page,
         limit,
         loadIndex: fetchCatalogPage,
-        loadProductsByIds: async (productIds) => {
-          const { data: productsPayload, error } = await analysisWriter.rpc('catalog_products_by_ids', {
-            p_product_ids: productIds,
-            p_rules_version: priceStatusRulesVersion,
-          })
-          if (error) throw error
-          if (!Array.isArray(productsPayload?.data)) {
-            throw new Error('Catalog hydration RPC returned an invalid response')
-          }
-          return productsPayload.data
-        },
+        loadProductsByIds,
         loadPage: () => fetchCatalogPage(page, limit),
       })
     } catch (error) {
@@ -1054,6 +1055,20 @@ app.get('/products', async (req, res) => {
     delete responseData.cacheHit
     delete responseData.orderedIds
     res.set('X-Catalog-Cache', cacheHit ? 'HIT' : 'MISS')
+    if (page * limit < Number(data.total)) {
+      res.once('finish', () => {
+        setImmediate(() => {
+          catalogPageCache.prefetchPage({
+            key: cacheKey,
+            page: page + 1,
+            limit,
+            loadProductsByIds,
+          }).catch((error) => {
+            console.error('Supabase catalog page prefetch error:', error)
+          })
+        })
+      })
+    }
     if (search && page === 1) res.once('finish', () => scheduleDiscoSearchResults(search))
     res.json(responseData)
   } catch (err) {
