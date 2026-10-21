@@ -357,6 +357,7 @@ export default function App() {
             primaryStore: primary
               ? { name: primary.supermarket, id: primary.id }
               : { name: '', id: null },
+            primaryOffer: primary,
             avgMarketPrice,
             percentageDiff: avgMarketPrice
               ? ((avgMarketPrice - currentPrice) / avgMarketPrice) * 100
