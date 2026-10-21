@@ -336,6 +336,7 @@ export default function App() {
             .map((offer) => ({
               ...offer,
               price: Number(offer.cash_price ?? offer.cashPrice ?? offer.price ?? 0),
+              listPrice: Number(offer.list_price ?? offer.listPrice ?? 0),
               supermarket: offer.supermarket || offer.supermarket_name || offer.storeName || '',
             }))
             .filter((offer) => Number.isFinite(offer.price) && offer.price > 0)
@@ -355,8 +356,8 @@ export default function App() {
             subcategory: product.subcategory || product.subcategories?.name || '',
             currentPrice,
             primaryStore: primary
-              ? { name: primary.supermarket, id: primary.id }
-              : { name: '', id: null },
+              ? { name: primary.supermarket, id: primary.id, listPrice: primary.listPrice }
+              : { name: '', id: null, listPrice: 0 },
             primaryOffer: primary,
             avgMarketPrice,
             percentageDiff: avgMarketPrice
