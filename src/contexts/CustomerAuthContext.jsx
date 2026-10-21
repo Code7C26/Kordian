@@ -1,8 +1,11 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { apiUrl } from '../config/api.js'
 
 const CustomerAuthContext = createContext(null)
 const CUSTOMER_SESSION_KEY = 'arprice_customer_session'
+const LOCAL_FAVORITES_KEY = 'arprice_local_favorites'
+const LOCAL_FAVORITE_PRODUCTS_KEY = 'arprice_local_favorite_products'
+export const isLocalDevelopment = import.meta.env.DEV
 
 function readStoredSession() {
   try {
@@ -10,6 +13,26 @@ function readStoredSession() {
   } catch {
     localStorage.removeItem(CUSTOMER_SESSION_KEY)
     return null
+  }
+}
+
+function readLocalFavorites() {
+  try {
+    const storedFavorites = JSON.parse(localStorage.getItem(LOCAL_FAVORITES_KEY) || '[]')
+    return Array.isArray(storedFavorites) ? storedFavorites.map(String) : []
+  } catch {
+    localStorage.removeItem(LOCAL_FAVORITES_KEY)
+    return []
+  }
+}
+
+function readLocalFavoriteProducts() {
+  try {
+    const storedProducts = JSON.parse(localStorage.getItem(LOCAL_FAVORITE_PRODUCTS_KEY) || '[]')
+    return Array.isArray(storedProducts) ? storedProducts.filter((product) => product?.id != null) : []
+  } catch {
+    localStorage.removeItem(LOCAL_FAVORITE_PRODUCTS_KEY)
+    return []
   }
 }
 
@@ -27,6 +50,17 @@ export function CustomerAuthProvider({ children }) {
   const [session, setSession] = useState(() => readStoredSession())
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+<<<<<<< Updated upstream
+=======
+  const [favorites, setFavorites] = useState(() =>
+    isLocalDevelopment && !readStoredSession()?.access_token ? readLocalFavorites() : []
+  )
+  const [localFavoriteProducts, setLocalFavoriteProducts] = useState(() =>
+    isLocalDevelopment && !readStoredSession()?.access_token ? readLocalFavoriteProducts() : []
+  )
+  const [favoritesLoading, setFavoritesLoading] = useState(false)
+  const [favoritesError, setFavoritesError] = useState('')
+>>>>>>> Stashed changes
 
   useEffect(() => {
     const storedSession = readStoredSession()
@@ -73,6 +107,85 @@ export function CustomerAuthProvider({ children }) {
     }
   }, [])
 
+<<<<<<< Updated upstream
+=======
+  useEffect(() => {
+    if (!session?.access_token) {
+      setFavorites(isLocalDevelopment ? readLocalFavorites() : [])
+      setLocalFavoriteProducts(isLocalDevelopment ? readLocalFavoriteProducts() : [])
+      setFavoritesError('')
+      setFavoritesLoading(false)
+      return undefined
+    }
+
+    let active = true
+    setFavoritesLoading(true)
+    setFavoritesError('')
+    requestCustomerJson('/customer/favorites', session.access_token)
+      .then((result) => {
+        if (active) setFavorites(result.ids.map(String))
+      })
+      .catch((error) => {
+        console.error('Customer favorites could not be loaded', error)
+        if (active) {
+          setFavorites([])
+          setFavoritesError(error.message || 'No se pudieron cargar los favoritos.')
+        }
+      })
+      .finally(() => {
+        if (active) setFavoritesLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [session?.access_token])
+
+  const accessToken = session?.access_token
+  const refreshProfile = useCallback(async () => {
+    if (!accessToken) return null
+    const result = await requestJson('/auth/customer-session', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    setProfile(result.profile)
+    return result.profile
+  }, [accessToken])
+
+  const toggleFavorite = async (productId, product = null) => {
+    const normalizedId = String(productId)
+    const isFavorite = favorites.includes(normalizedId)
+    if (!session?.access_token) {
+      if (!isLocalDevelopment) throw new Error('Inicia sesión para guardar favoritos en tu cuenta.')
+      const nextFavorites = isFavorite
+        ? favorites.filter((id) => id !== normalizedId)
+        : [...favorites, normalizedId]
+      const nextFavoriteProducts = isFavorite
+        ? localFavoriteProducts.filter((favoriteProduct) => String(favoriteProduct.id) !== normalizedId)
+        : product && !localFavoriteProducts.some((favoriteProduct) => String(favoriteProduct.id) === normalizedId)
+          ? [...localFavoriteProducts, product]
+          : localFavoriteProducts
+      localStorage.setItem(LOCAL_FAVORITES_KEY, JSON.stringify(nextFavorites))
+      localStorage.setItem(LOCAL_FAVORITE_PRODUCTS_KEY, JSON.stringify(nextFavoriteProducts))
+      setFavorites(nextFavorites)
+      setLocalFavoriteProducts(nextFavoriteProducts)
+      setFavoritesError('')
+      return
+    }
+
+    await requestCustomerJson(
+      isFavorite ? `/customer/favorites/${encodeURIComponent(normalizedId)}` : '/customer/favorites',
+      session.access_token,
+      isFavorite
+        ? { method: 'DELETE' }
+        : { method: 'POST', body: JSON.stringify({ productId: normalizedId }) },
+    )
+    setFavorites((current) => isFavorite
+      ? current.filter((id) => id !== normalizedId)
+      : current.includes(normalizedId) ? current : [...current, normalizedId])
+    setFavoritesError('')
+  }
+
+>>>>>>> Stashed changes
   const signUp = async ({ username, email, password }) => {
     const result = await requestJson('/auth/customer-register', {
       method: 'POST',
@@ -116,6 +229,15 @@ export function CustomerAuthProvider({ children }) {
       user: session?.user || null,
       accessToken: session?.access_token || null,
       profile,
+<<<<<<< Updated upstream
+=======
+      refreshProfile,
+      favorites,
+      localFavoriteProducts,
+      favoritesLoading,
+      favoritesError,
+      toggleFavorite,
+>>>>>>> Stashed changes
       signUp,
       signIn,
       signOut,

@@ -41,6 +41,28 @@ html {
   min-height: 100vh;
 }
 
+.animated-price-gradient {
+  background-size: 200% 100%;
+  animation: price-gradient-shift 6s ease-in-out infinite;
+}
+
+@keyframes price-gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-price-gradient {
+    animation: none;
+  }
+}
+
 button,
 input,
 select,

@@ -1,14 +1,6 @@
-import { ArrowRight, Boxes, Dog, Layers3, Pill, Shirt, ShoppingCart, Tv, Wrench } from 'lucide-react';
+import { ArrowRight, Boxes } from 'lucide-react';
+import { getCategoryIcon } from '../utils/categoryIcons.js';
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
-
-const CATEGORY_ICONS = {
-  ShoppingCart,
-  Pill,
-  Tv,
-  Wrench,
-  Shirt,
-  Dog,
-};
 
 export function CategorySelectionPage({ categories, selectedCategory, onSelectCategory }) {
   const allProductsSelected = selectedCategory === 'todos';
@@ -64,7 +56,7 @@ export function CategorySelectionPage({ categories, selectedCategory, onSelectCa
               </button>
 
               {categories.map((category) => {
-                const CategoryIcon = CATEGORY_ICONS[category.icon] || Layers3;
+                const CategoryIcon = getCategoryIcon(category);
                 const isSelected = String(selectedCategory) === String(category.id);
                 return (
                   <button

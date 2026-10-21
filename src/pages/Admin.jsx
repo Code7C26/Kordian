@@ -5,6 +5,7 @@ import CategoryBrandForm from '../components/CategoryBrandForm.jsx'
 import CsvUploader from '../components/CsvUploader.jsx'
 import Toast from '../components/Toast.jsx'
 import BusinessStoreAssignments from '../components/BusinessStoreAssignments.jsx'
+import RegisteredUserAccounts from '../components/RegisteredUserAccounts.jsx'
 import {
   BriefcaseBusiness,
   ChevronLeft,
@@ -4229,76 +4230,53 @@ export default function Admin() {
 
           {activePage ===
             'usuario' && (
-            <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
-              <h2 className="mb-3 text-lg font-bold">
-                Administradores
-              </h2>
+            <div className="space-y-6">
+              <RegisteredUserAccounts />
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <input
-                  className="rounded-lg border px-3 py-2"
-                  placeholder="Usuario"
-                  value={
-                    adminForm.username
-                  }
-                  onChange={(event) =>
-                    setAdminForm({
+              <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
+                <h2 className="mb-1 text-lg font-bold">Credenciales de acceso al panel</h2>
+                <p className="mb-4 text-sm text-stone-500 dark:text-stone-400">
+                  Las cuentas registradas con tipo Administrador también pueden ingresar usando su usuario y contraseña de AR-PRICE.
+                </p>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <input
+                    className="rounded-lg border px-3 py-2"
+                    placeholder="Usuario"
+                    value={adminForm.username}
+                    onChange={(event) => setAdminForm({
                       ...adminForm,
-                      username:
-                        event.target
-                          .value,
-                    })
-                  }
-                />
+                      username: event.target.value,
+                    })}
+                  />
 
-                <input
-                  type="password"
-                  className="rounded-lg border px-3 py-2"
-                  placeholder="Contraseña"
-                  value={
-                    adminForm.password
-                  }
-                  onChange={(event) =>
-                    setAdminForm({
+                  <input
+                    type="password"
+                    className="rounded-lg border px-3 py-2"
+                    placeholder="Contraseña"
+                    value={adminForm.password}
+                    onChange={(event) => setAdminForm({
                       ...adminForm,
-                      password:
-                        event.target
-                          .value,
-                    })
-                  }
-                />
-              </div>
+                      password: event.target.value,
+                    })}
+                  />
+                </div>
 
-              <div className="mt-4">
-                <button
-                  type="button"
-                  onClick={
-                    createAdmin
-                  }
-                  className="rounded-lg bg-sky-600 px-4 py-2 text-white"
-                >
-                  Crear admin
-                </button>
-              </div>
+                <div className="mt-4">
+                  <button type="button" onClick={createAdmin} className="rounded-lg bg-sky-600 px-4 py-2 text-white">
+                    Crear credencial independiente
+                  </button>
+                </div>
 
-              <div className="mt-4 space-y-2">
-                {admins.map(
-                  (admin) => (
-                    <div
-                      key={
-                        admin.id
-                      }
-                      className="rounded-lg bg-stone-50 px-3 py-2 dark:bg-stone-900"
-                    >
-                      👤{' '}
-                      {
-                        admin.username
-                      }
+                <div className="mt-4 space-y-2">
+                  {admins.map((admin) => (
+                    <div key={admin.id} className="rounded-lg bg-stone-50 px-3 py-2 dark:bg-stone-900">
+                      👤 {admin.username}
                     </div>
-                  ),
-                )}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </section>
+            </div>
           )}
         </div>
       </main>

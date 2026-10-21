@@ -3,7 +3,9 @@ import { ArrowLeft, Heart, Loader2, TrendingDown, Tag } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config/api.js';
 import { Header } from '../components/Header.jsx';
+import { CATEGORIES as MOCK_CATEGORIES } from '../data/mockProducts.js';
 import { useSelectedCity } from '../contexts/SelectedCityContext.jsx';
+<<<<<<< Updated upstream
 
 function readFavorites() {
   try {
@@ -13,11 +15,19 @@ function readFavorites() {
     return [];
   }
 }
+=======
+import { isLocalDevelopment, useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
+>>>>>>> Stashed changes
 
 export default function FavoritesPage() {
   const navigate = useNavigate();
   const { selectedCity } = useSelectedCity();
+<<<<<<< Updated upstream
+=======
+  const { user, loading: authLoading, favorites, localFavoriteProducts, favoritesLoading, toggleFavorite, favoritesError } = useCustomerAuth();
+>>>>>>> Stashed changes
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('arprice_theme') === 'dark');
+  const [categories, setCategories] = useState(MOCK_CATEGORIES);
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -31,6 +41,50 @@ export default function FavoritesPage() {
 
   useEffect(() => {
     let cancelled = false;
+<<<<<<< Updated upstream
+=======
+    async function loadCategories() {
+      try {
+        const response = await fetch(apiUrl('/categories'));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        if (!cancelled && Array.isArray(payload) && payload.length > 0) setCategories(payload);
+      } catch (loadError) {
+        console.error('Could not load categories for favorites header', loadError);
+      }
+    }
+    loadCategories();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (authLoading || favoritesLoading || (!user && !isLocalDevelopment) || !favoriteIdsKey) {
+      setProducts([]);
+      setIsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (
+      isLocalDevelopment &&
+      !user &&
+      favorites.every((id) => localFavoriteProducts.some((product) => String(product.id) === id))
+    ) {
+      setProducts(localFavoriteProducts);
+      setError('');
+      setIsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setIsLoading(true);
+    setError('');
+>>>>>>> Stashed changes
     const timeoutId = window.setTimeout(() => {
       if (!cancelled) {
         setError('La carga del catálogo tomó demasiado tiempo');
@@ -60,11 +114,20 @@ export default function FavoritesPage() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
+<<<<<<< Updated upstream
   }, []);
+=======
+  }, [authLoading, favoriteIdsKey, favorites, favoritesLoading, localFavoriteProducts, user]);
+>>>>>>> Stashed changes
 
   const favoriteProducts = useMemo(
-    () => products.filter((product) => favorites.includes(String(product.id))),
-    [favorites, products]
+    () => {
+      const productsById = new Map(
+        [...localFavoriteProducts, ...products].map((product) => [String(product.id), product])
+      )
+      return favorites.map((id) => productsById.get(String(id))).filter(Boolean)
+    },
+    [favorites, localFavoriteProducts, products]
   );
 
   const toggleFavorite = (productId) => {
@@ -85,6 +148,9 @@ export default function FavoritesPage() {
         onOpenBasket={() => navigate('/')}
         favoritesCount={favorites.length}
         onOpenFavorites={() => navigate('/favoritos', { replace: true })}
+        categories={categories}
+        selectedCategory="todos"
+        onSelectCategory={(category) => navigate(`/buscar?category=${encodeURIComponent(category)}`)}
         onResetView={() => navigate('/')}
       />
 
@@ -111,13 +177,29 @@ export default function FavoritesPage() {
           </div>
         </section>
 
+<<<<<<< Updated upstream
         {isLoading ? (
+=======
+        {authLoading ? (
+          <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status">Cargando cuenta…</section>
+        ) : !user && !isLocalDevelopment ? (
+          <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800">
+            <h2 className="text-xl font-bold">Inicia sesión para ver tus favoritos</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm text-stone-500 dark:text-stone-400">Tus productos favoritos se guardan en tu cuenta y no se comparten con otras cuentas.</p>
+            <Link to="/ingresar?next=%2Ffavoritos" className="mt-5 inline-flex rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">Iniciar sesión</Link>
+          </section>
+        ) : favoritesLoading || isLoading ? (
+>>>>>>> Stashed changes
           <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status" aria-live="polite">
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-sky-600" />
             <h2 className="mt-4 text-xl font-bold">Cargando favoritos</h2>
             <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">Recuperando tu lista de productos.</p>
           </section>
+<<<<<<< Updated upstream
         ) : error ? (
+=======
+        ) : (error || favoritesError) && favoriteProducts.length === 0 ? (
+>>>>>>> Stashed changes
           <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800">
             <h2 className="text-xl font-bold text-rose-600">No se pudo abrir la página</h2>
             <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">{error}</p>
@@ -133,22 +215,38 @@ export default function FavoritesPage() {
             <Link to="/" className="mt-5 inline-flex rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">Explorar productos</Link>
           </section>
         ) : (
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {favoriteProducts.map((product) => (
-              <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-stone-700 dark:bg-stone-800">
-                <div className="aspect-square bg-stone-100 p-4 dark:bg-stone-900">
-                  <img src={product.image || product.image_url || ''} alt={product.name || 'Producto'} className="h-full w-full object-contain" />
-                </div>
-                <div className="space-y-4 p-4">
-                  <div>
-                    <p className="text-xs font-bold text-sky-600 dark:text-sky-400">{product.brand || 'Marca no disponible'}</p>
-                    <h3 className="mt-1 line-clamp-2 text-sm font-bold">{product.name}</h3>
+          <>
+            {(error || favoritesError) && (
+              <section className="rounded-2xl bg-white p-4 text-sm text-rose-600 dark:bg-stone-800" role="alert">
+                {error || favoritesError}
+              </section>
+            )}
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {favoriteProducts.map((product) => (
+                <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-stone-700 dark:bg-stone-800">
+                  <div className="aspect-square bg-stone-100 p-4 dark:bg-stone-900">
+                    <img src={product.image || product.image_url || ''} alt={product.name || 'Producto'} className="h-full w-full object-contain" />
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-1 rounded-lg bg-sky-100 px-2 py-1 text-xs font-bold text-sky-800 dark:bg-sky-950 dark:text-sky-300">
-                      <Tag className="h-3.5 w-3.5" />
-                      {product.currentPrice ?? product.price ?? 0}
+                  <div className="space-y-4 p-4">
+                    <div>
+                      <p className="text-xs font-bold text-sky-600 dark:text-sky-400">{product.brand || 'Marca no disponible'}</p>
+                      <h3 className="mt-1 line-clamp-2 text-sm font-bold">{product.name}</h3>
                     </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1 rounded-lg bg-sky-100 px-2 py-1 text-xs font-bold text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                        <Tag className="h-3.5 w-3.5" />
+                        {product.currentPrice ?? product.price ?? 0}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeFavorite(product.id)}
+                        className="rounded-full bg-rose-50 p-2 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300"
+                        aria-label="Eliminar de favoritos"
+                      >
+                        <Heart className="h-4 w-4 fill-current" />
+                      </button>
+                    </div>
+<<<<<<< Updated upstream
                     <button
                       type="button"
                       onClick={() => toggleFavorite(product.id)}
@@ -157,11 +255,13 @@ export default function FavoritesPage() {
                     >
                       <Heart className="h-4 w-4 fill-current" />
                     </button>
+=======
+>>>>>>> Stashed changes
                   </div>
-                </div>
-              </article>
-            ))}
-          </section>
+                </article>
+              ))}
+            </section>
+          </>
         )}
         </div>
       </main>

@@ -31,6 +31,27 @@ Si la confirmación de correo está habilitada en Supabase Auth, cada usuario
 debe confirmar el correo recibido antes de iniciar sesión. Si está
 deshabilitada, el registro inicia la sesión inmediatamente.
 
+<<<<<<< Updated upstream
+=======
+## Favoritos por cuenta
+
+Ejecutar completo `20261021_customer_favorites.sql` en el SQL Editor de
+Supabase para crear la tabla de favoritos asociados al usuario autenticado.
+Los favoritos se consultan y modifican mediante el backend con la sesión del
+cliente; la tabla mantiene RLS habilitado y no guarda datos de favoritos en el
+navegador.
+
+## Tipos de cuenta de usuarios
+
+Ejecutar `20261022_customer_account_roles.sql` en el SQL Editor de Supabase
+para permitir los tipos `customer`, `administrator` y `business` en los
+perfiles. La cuenta nueva conserva `customer` como tipo predeterminado.
+Después de aplicar la migración, las cuentas se pueden buscar y clasificar
+desde la sección Usuarios del panel administrativo. Una cuenta clasificada
+como administrador puede iniciar sesión en el panel con su usuario y
+contraseña de AR-PRICE.
+
+>>>>>>> Stashed changes
 ## Estado de precio persistido
 
 Ejecutar en el SQL Editor de Supabase, en este orden:

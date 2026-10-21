@@ -6,22 +6,8 @@ import {
   Menu,
   MapPin, 
   ChevronDown,
-  Apple,
-  Baby,
-  BookOpen,
-  Dog,
-  Dumbbell,
-  Flower2,
-  House,
   LayoutGrid,
-  Package,
-  Pill,
   Settings,
-  Shirt,
-  ShoppingCart,
-  Sparkles,
-  Tv,
-  Wrench,
   Sun, 
   Moon, 
   ShoppingBag, 
@@ -38,31 +24,9 @@ import {
 import { adminFetch, apiFetch } from '../config/api.js';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 import { CITIES_LIST } from '../data/mockProducts.js'
+import { getCategoryIcon as resolveCategoryIcon } from '../utils/categoryIcons.js';
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
-
-function getCategoryIcon(category) {
-  const categoryName = `${category.id || ''} ${category.name || ''}`
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-
-  if (/farmacia|salud|medic|cuidado|belleza|perfumer/.test(categoryName)) return Pill
-  if (/electro|tecnolog|electron|tv|comput|celular/.test(categoryName)) return Tv
-  if (/ferreter|herramient|jardin|construccion/.test(categoryName)) return Wrench
-  if (/ropa|calzado|indument|vestir/.test(categoryName)) return Shirt
-  if (/mascota|animal|veterin/.test(categoryName)) return Dog
-  if (/bebe|infantil|juguet/.test(categoryName)) return Baby
-  if (/deport|fitness/.test(categoryName)) return Dumbbell
-  if (/libro|libreria|educacion/.test(categoryName)) return BookOpen
-  if (/hogar|mueble|decoracion/.test(categoryName)) return House
-  if (/jardin|planta|flor/.test(categoryName)) return Flower2
-  if (/supermerc|almacen|alimento|comida|bebida|verdura|fruta/.test(categoryName)) return Apple
-  if (/limpieza/.test(categoryName)) return Sparkles
-  if (/todos/.test(categoryName)) return LayoutGrid
-  if (/compra|mercado/.test(categoryName)) return ShoppingCart
-  return Package
-}
 
 export function Header({
   darkMode,
@@ -70,6 +34,7 @@ export function Header({
   selectedCity,
   setSelectedCity,
   basketCount,
+  favoritesCount = 0,
   onOpenBasket,
   onOpenFavorites,
   onResetView,
@@ -305,7 +270,7 @@ export function Header({
                 className="relative p-2 rounded-lg text-white dark:text-stone-300 hover:text-rose-200 dark:hover:text-rose-400 hover:bg-white/20 dark:hover:bg-stone-800 transition-colors cursor-pointer"
                 title="Ver Favoritos"
               >
-                <Heart className="w-5 h-5" />
+                <Heart className={`w-5 h-5 ${favoritesCount > 0 ? 'fill-current text-red-500' : ''}`} />
               </button>
 
               <button
@@ -443,7 +408,7 @@ export function Header({
             </button>
             {categories.map((category) => (
               (() => {
-                const CategoryIcon = getCategoryIcon(category)
+                const CategoryIcon = resolveCategoryIcon(category)
                 const isSelected = selectedCategory === category.id
                 return (
                   <button
