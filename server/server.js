@@ -17,6 +17,15 @@ const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
   : null
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
 const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
+const {
+  fetchPreview: fetchCarrefourPreview,
+  fetchProductById: fetchCarrefourProductById,
+  findCarrefourLocalMatch,
+  getCarrefourProductInvalidReason,
+  isValidCarrefourProduct,
+  normalizePostalCode,
+} = require('./services/carrefourImporter')
+const CARREFOUR_IMPORT_BATCH_LIMIT = 5
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
 const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
@@ -282,6 +291,428 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error fetching Mami preview', error)
     res.status(502).json({ error: error.message || 'No se pudo consultar Mami' })
+  }
+})
+
+app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
+  try {
+    const query = String(req.query.query || '').trim().slice(0, 100)
+    const postalCode = normalizePostalCode(req.query.postalCode)
+    if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
+
+    const [previewReport, localProductsResult, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
+      fetchCarrefourPreview({ query, postalCode }),
+      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price)'),
+      analysisWriter.from('categories').select('id, name'),
+      analysisWriter.from('subcategories').select('id, name, category_id'),
+    ])
+    const { data: localProducts, error: productsError } = localProductsResult
+    const catalogError = productsError || categoriesError || subcategoriesError
+    if (catalogError) {
+      console.error('Error loading catalog for Carrefour preview', catalogError)
+      return res.status(500).json({
+        error: 'No se pudo consultar el inventario local o el catálogo de categorías',
+        detail: catalogError.code === 'PGRST204' || catalogError.code === '42703'
+          ? 'Verifica las migraciones 20260826_external_catalog.sql y 20261023_carrefour_price_history.sql antes de consultar Carrefour.'
+          : catalogError.message || 'Error desconocido del catálogo',
+      })
+    }
+
+    const eanCounts = new Map()
+    for (const product of previewReport.products) {
+      const ean = String(product.ean || '')
+      eanCounts.set(ean, (eanCounts.get(ean) || 0) + 1)
+    }
+    const products = previewReport.products.map((product) => {
+      const match = findCarrefourLocalMatch(product, localProducts || [])
+      const suggestion = suggestCatalogMapping({
+        name: product.name,
+        brand: product.brand,
+        source_category: product.sourceCategory,
+      })
+      const proposedCategory = suggestion?.category || null
+      const proposedSubcategory = suggestion?.subcategory || null
+      const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
+      const subcategory = (subcategories || []).find((candidate) => (
+        candidate.name === proposedSubcategory
+        && String(candidate.category_id) === String(category?.id)
+      ))
+      const existingOffer = match.product?.offers?.find((offer) => offer.supermarket === 'Carrefour') || null
+      const mappingReady = Boolean(category && subcategory)
+      return {
+        ...product,
+        proposedCategory,
+        proposedSubcategory,
+        mappingStatus: mappingReady ? 'propuesta_automatica' : 'pendiente',
+        existingProduct: match.product
+          ? { id: match.product.id, name: match.product.name, matchedBy: match.matchedBy }
+          : null,
+        existingOffer: existingOffer
+          ? {
+            id: existingOffer.id,
+            cashPrice: Number(existingOffer.cash_price),
+            listPrice: Number(existingOffer.list_price) || null,
+          }
+          : null,
+        importBlockedReason: match.ambiguous
+          ? match.reason
+          : eanCounts.get(String(product.ean || '')) > 1
+            ? 'El GTIN aparece en más de un resultado de Carrefour'
+            : (!match.product && !mappingReady ? 'Falta mapeo de categoría y subcategoría' : null),
+      }
+    })
+
+    res.json({
+      source: 'carrefour',
+      query,
+      postalCode,
+      products,
+      discarded: previewReport.discarded,
+      resultLimit: previewReport.resultLimit,
+      dryRun: true,
+      writeSafety: {
+        productWritesAllowed: false,
+        priceHistoryWritesAllowed: false,
+        mutationSurface: 'preview_only',
+        reason: 'Carrefour preview only reads the regional catalog and local references; it does not write products or offers.',
+      },
+    })
+  } catch (error) {
+    console.error('Error fetching Carrefour preview', error)
+    res.status(502).json({ error: error.message || 'No se pudo consultar el catálogo de Carrefour' })
+  }
+})
+
+app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
+  const createdProductIds = []
+  const createdOfferIds = []
+  const createdHistoryIds = []
+  const createdBrandIds = []
+  const updatedOfferPrices = []
+  try {
+    const postalCode = normalizePostalCode(req.body?.postalCode)
+    const requestedIds = Array.isArray(req.body?.productIds) ? req.body.productIds : []
+    const productIds = [...new Set(requestedIds.map((id) => String(id || '').trim()))]
+    if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
+    if (!productIds.length) return res.status(400).json({ error: 'Seleccioná al menos un producto de Carrefour' })
+    if (productIds.length > CARREFOUR_IMPORT_BATCH_LIMIT) {
+      return res.status(400).json({ error: `La importación controlada permite hasta ${CARREFOUR_IMPORT_BATCH_LIMIT} productos por lote` })
+    }
+    if (productIds.some((id) => !/^\d{1,20}$/.test(id))) {
+      return res.status(400).json({ error: 'La selección contiene identificadores de Carrefour inválidos' })
+    }
+
+    const currentProducts = []
+    for (const productId of productIds) {
+      const product = await fetchCarrefourProductById(productId, { postalCode })
+      if (!product) {
+        return res.status(502).json({ error: `Carrefour no devolvió el producto ${productId}; no se realizaron escrituras` })
+      }
+      if (String(product.sourceProductId) !== productId || !isValidCarrefourProduct(product)) {
+        return res.status(409).json({
+          error: `El producto ${productId} dejó de cumplir las validaciones de importación`,
+          reason: getCarrefourProductInvalidReason(product) || 'Producto no válido',
+          noWrites: true,
+        })
+      }
+      currentProducts.push(product)
+    }
+
+    const selectedEanCounts = new Map()
+    for (const product of currentProducts) {
+      selectedEanCounts.set(product.ean, (selectedEanCounts.get(product.ean) || 0) + 1)
+    }
+    const repeatedGtins = [...selectedEanCounts]
+      .filter(([, count]) => count > 1)
+      .map(([ean]) => ean)
+    if (repeatedGtins.length) {
+      return res.status(409).json({
+        error: 'La selección incluye varios productos de Carrefour con el mismo GTIN; no se realizaron escrituras.',
+        repeatedGtins,
+        noWrites: true,
+      })
+    }
+
+    const [
+      { data: categories, error: categoriesError },
+      { data: subcategories, error: subcategoriesError },
+      { data: brands, error: brandsError },
+      existingProductsResult,
+    ] = await Promise.all([
+      analysisWriter.from('categories').select('id, name'),
+      analysisWriter.from('subcategories').select('id, name, category_id'),
+      readAllRowsForImport('brands', 'id, name'),
+      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price)'),
+    ])
+    const { data: existingProducts, error: productsError } = existingProductsResult
+    const catalogError = categoriesError || subcategoriesError || brandsError || productsError
+    if (catalogError) {
+      console.error('Error loading catalog for Carrefour import', catalogError)
+      return res.status(500).json({
+        error: 'No se pudo consultar el catálogo local',
+        detail: catalogError.code === 'PGRST204' || catalogError.code === '42703'
+          ? 'Verifica las migraciones 20260826_external_catalog.sql y 20261023_carrefour_price_history.sql antes de importar Carrefour.'
+          : catalogError.message,
+      })
+    }
+
+    const imported = []
+    const updated = []
+    const unchanged = []
+    const skipped = []
+    const brandCache = new Map()
+    const productCache = [...(existingProducts || [])]
+    const failImport = (message, detail) => {
+      const error = new Error(detail || message)
+      error.importFailure = true
+      error.publicMessage = message
+      throw error
+    }
+
+    for (const item of currentProducts) {
+      const sourceProductId = String(item.sourceProductId)
+      const match = findCarrefourLocalMatch(item, productCache)
+      if (match.ambiguous) {
+        skipped.push({ sourceProductId, reason: match.reason })
+        continue
+      }
+
+      const suggestion = suggestCatalogMapping({
+        name: item.name,
+        brand: item.brand,
+        source_category: item.sourceCategory,
+      })
+      const category = (categories || []).find((candidate) => candidate.name === suggestion?.category)
+      const subcategory = (subcategories || []).find((candidate) => (
+        candidate.name === suggestion?.subcategory
+        && String(candidate.category_id) === String(category?.id)
+      ))
+      if (!match.product && (!category || !subcategory)) {
+        skipped.push({ sourceProductId, reason: 'Falta mapeo de categoría y subcategoría' })
+        continue
+      }
+
+      if (match.product) {
+        const existingOffer = match.product.offers?.find((offer) => offer.supermarket === 'Carrefour')
+        if (existingOffer) {
+          const nextListPrice = Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null
+          const priceChanged = Number(existingOffer.cash_price) !== Number(item.price)
+          const listPriceChanged = (Number(existingOffer.list_price) || null) !== nextListPrice
+          if (priceChanged || listPriceChanged) {
+            const { error } = await analysisWriter.from('offers')
+              .update({ cash_price: item.price, list_price: nextListPrice })
+              .eq('id', existingOffer.id)
+            if (error) failImport('No se pudo actualizar la oferta de Carrefour', error.message)
+            updatedOfferPrices.push({
+              id: existingOffer.id,
+              cashPrice: existingOffer.cash_price,
+              listPrice: existingOffer.list_price,
+            })
+            if (priceChanged) {
+              const historyId = await recordPriceHistory({
+                productId: match.product.id,
+                offerId: existingOffer.id,
+                cashPrice: item.price,
+                source: 'carrefour_import',
+                scheduleStatusRefresh: false,
+                throwOnError: true,
+              })
+              if (historyId) createdHistoryIds.push(historyId)
+            } else {
+              invalidateCatalogPageCache()
+            }
+            existingOffer.cash_price = item.price
+            existingOffer.list_price = nextListPrice
+            updated.push({ productId: match.product.id, sourceProductId })
+          } else {
+            unchanged.push({ productId: match.product.id, sourceProductId })
+          }
+        } else {
+          const { data: offer, error } = await analysisWriter.from('offers')
+            .insert({
+              product_id: match.product.id,
+              supermarket: 'Carrefour',
+              cash_price: item.price,
+              list_price: Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null,
+            })
+            .select('id, supermarket, cash_price, list_price')
+            .single()
+          if (error) failImport('No se pudo crear la oferta de Carrefour', error.message)
+          createdOfferIds.push(offer.id)
+          match.product.offers = [...(match.product.offers || []), offer]
+          const historyId = await recordPriceHistory({
+            productId: match.product.id,
+            offerId: offer.id,
+            cashPrice: item.price,
+            source: 'carrefour_import',
+            scheduleStatusRefresh: false,
+            throwOnError: true,
+          })
+          if (historyId) createdHistoryIds.push(historyId)
+          updated.push({ productId: match.product.id, sourceProductId })
+        }
+        continue
+      }
+
+      const normalizedBrandName = normalizeBrandName(item.brand)
+      let brand = normalizedBrandName ? brandCache.get(normalizedBrandName) : null
+      if (!brand && normalizedBrandName) {
+        brand = (brands || []).find((candidate) => normalizeBrandName(candidate.name) === normalizedBrandName)
+      }
+      if (!brand && normalizedBrandName) {
+        const { data: createdBrand, error: brandError } = await analysisWriter.from('brands')
+          .insert({ name: normalizedBrandName })
+          .select('id, name')
+          .single()
+        if (brandError) {
+          if (brandError.code !== '23505') failImport('No se pudo crear la marca de Carrefour', brandError.message)
+          const { data: existingBrand, error: existingBrandError } = await analysisWriter.from('brands')
+            .select('id, name')
+            .eq('name', normalizedBrandName)
+            .maybeSingle()
+          if (existingBrandError || !existingBrand) {
+            failImport('No se pudo resolver la marca de Carrefour', existingBrandError?.message || brandError.message)
+          }
+          brand = existingBrand
+        } else {
+          brand = createdBrand
+          createdBrandIds.push(createdBrand.id)
+        }
+        brandCache.set(normalizedBrandName, brand)
+      }
+
+      const productPayload = {
+        name: item.name,
+        brand_id: brand?.id || null,
+        category_id: category.id,
+        subcategory_id: subcategory.id,
+        image: item.image,
+        classification_source: 'manual',
+        classification_confidence: 'manual',
+        source: 'carrefour',
+        source_product_id: sourceProductId,
+        source_sku: item.sourceSku,
+        ean: item.ean,
+        source_url: item.sourceUrl,
+        source_category: item.sourceCategory,
+        source_subcategory: suggestion.subcategory,
+      }
+      const { data: product, error: productError } = await analysisWriter.from('products')
+        .insert(productPayload)
+        .select('id, name, source, source_product_id, ean')
+        .single()
+      if (productError) {
+        if (productError.code === '42703' || productError.code === 'PGRST204') {
+          failImport('Falta aplicar la migración de metadatos del catálogo externo', productError.message)
+        }
+        failImport('No se pudo crear el producto de Carrefour', productError.message)
+      }
+      createdProductIds.push(product.id)
+
+      const { data: offer, error: offerError } = await analysisWriter.from('offers')
+        .insert({
+          product_id: product.id,
+          supermarket: 'Carrefour',
+          cash_price: item.price,
+          list_price: Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null,
+        })
+        .select('id, supermarket, cash_price, list_price')
+        .single()
+      if (offerError) failImport('No se pudo crear la oferta de Carrefour', offerError.message)
+      createdOfferIds.push(offer.id)
+      const historyId = await recordPriceHistory({
+        productId: product.id,
+        offerId: offer.id,
+        cashPrice: item.price,
+        source: 'carrefour_import',
+        scheduleStatusRefresh: false,
+        throwOnError: true,
+      })
+      if (historyId) createdHistoryIds.push(historyId)
+      imported.push({ productId: product.id, sourceProductId })
+      productCache.push({ ...product, offers: [offer] })
+    }
+
+    if (imported.length || updated.length || unchanged.length) {
+      const { error: supermarketError } = await analysisWriter.from('supermarkets')
+        .upsert({ name: 'Carrefour' }, { onConflict: 'name', ignoreDuplicates: true })
+      if (supermarketError) failImport('No se pudo habilitar Carrefour en los filtros del catálogo', supermarketError.message)
+    }
+
+    const { error: logError } = await analysisWriter.from('price_update_log').insert({
+      admin_username: req.admin,
+      filters: { source: 'carrefour_import', postal_code: postalCode },
+      percentage: 0,
+      products_updated: imported.length + updated.length,
+      changes: [
+        ...imported.map((entry) => ({ type: 'carrefour_import', status: 'imported', ...entry })),
+        ...updated.map((entry) => ({ type: 'carrefour_import', status: 'updated', ...entry })),
+        ...unchanged.map((entry) => ({ type: 'carrefour_import', status: 'unchanged', ...entry })),
+        ...skipped.map((entry) => ({ type: 'carrefour_import', status: 'skipped', ...entry })),
+      ],
+    })
+    if (logError) failImport('No se pudo registrar el lote de importación de Carrefour', logError.message)
+
+    invalidateAnalysisCache()
+    for (const productId of new Set([...imported, ...updated].map((entry) => String(entry.productId)))) {
+      scheduleRelatedPriceStatusRefresh(productId)
+    }
+
+    res.json({
+      source: 'carrefour',
+      postalCode,
+      imported,
+      updated,
+      unchanged,
+      skipped,
+      dryRun: false,
+      writeSafety: {
+        productWritesAllowed: true,
+        priceHistoryWritesAllowed: true,
+        mutationSurface: 'carrefour_manual_import',
+      },
+    })
+  } catch (error) {
+    if (error.importFailure) {
+      const rollbackResults = []
+      const runRollbackStage = async (operations) => {
+        rollbackResults.push(...await Promise.all(operations))
+      }
+      await runRollbackStage(
+        createdHistoryIds.map((id) => analysisWriter.from('price_history').delete().eq('id', id)),
+      )
+      await runRollbackStage(
+        updatedOfferPrices.map((offer) => analysisWriter.from('offers')
+          .update({ cash_price: offer.cashPrice, list_price: offer.listPrice })
+          .eq('id', offer.id)),
+      )
+      await runRollbackStage(
+        createdOfferIds.map((id) => analysisWriter.from('offers').delete().eq('id', id)),
+      )
+      await runRollbackStage(
+        createdProductIds.map((id) => analysisWriter.from('products').delete().eq('id', id)),
+      )
+      await runRollbackStage(
+        createdBrandIds.map((id) => analysisWriter.from('brands').delete().eq('id', id)),
+      )
+      const rollbackErrors = rollbackResults.filter((result) => result.error).map((result) => result.error.message)
+      if (rollbackErrors.length) {
+        console.error('Carrefour import rollback was incomplete', rollbackErrors)
+        return res.status(500).json({
+          error: error.publicMessage || 'No se pudo completar la importación de Carrefour',
+          detail: error.message,
+          rolledBack: false,
+          rollbackErrors,
+        })
+      }
+      return res.status(500).json({
+        error: error.publicMessage || 'No se pudo completar la importación de Carrefour',
+        detail: error.message,
+        rolledBack: true,
+      })
+    }
+    console.error('Error importing Carrefour products', error)
+    res.status(502).json({ error: error.message || 'No se pudo importar Carrefour' })
   }
 })
 
@@ -752,23 +1183,40 @@ function invalidateCatalogPageCache() {
   catalogPageCache.clear()
 }
 
-async function recordPriceHistory({ productId, offerId, cashPrice, source = 'admin', scheduleStatusRefresh = true }) {
+async function recordPriceHistory({
+  productId,
+  offerId,
+  cashPrice,
+  source = 'admin',
+  scheduleStatusRefresh = true,
+  throwOnError = false,
+}) {
   const price = Number(cashPrice)
-  if (!productId || !offerId) return
-  invalidateCatalogPageCache()
-  if (!Number.isFinite(price) || price <= 0) return
+  if (!productId || !offerId || !Number.isFinite(price) || price <= 0) {
+    const error = new TypeError('Price history requires a product, offer, and positive price')
+    if (throwOnError) throw error
+    console.error(error.message)
+    return null
+  }
 
-  const { data, error } = await analysisWriter.from('price_history').insert({
+  let historyInsert = analysisWriter.from('price_history').insert({
     product_id: productId,
     offer_id: offerId,
     cash_price: price,
     source,
   })
-  if (error) console.error('Error recording price history', error)
+  if (throwOnError) historyInsert = historyInsert.select('id').single()
+  const { data, error } = await historyInsert
+  if (error) {
+    console.error('Error recording price history', error)
+    if (throwOnError) throw error
+  }
   else {
+    invalidateCatalogPageCache()
     invalidateAnalysisCache()
     if (scheduleStatusRefresh) scheduleRelatedPriceStatusRefresh(productId)
   }
+  return data?.id || null
 }
 
 async function importDiscoSearchResults(search) {

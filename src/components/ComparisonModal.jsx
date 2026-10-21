@@ -188,10 +188,17 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                     </div>
                       <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-0 border-stone-200/60 dark:border-stone-800 pt-2 sm:pt-0">
                       {!isCheapest && <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold">+{formatCurrency(diffFromCheapest)}</span>}
-                      <div className="text-right flex items-center gap-3">
-                        <span className={`text-xl font-black ${isCheapest ? 'text-emerald-700 dark:text-emerald-400' : isMostExpensive ? 'text-rose-600 dark:text-rose-400' : 'text-stone-900 dark:text-white'}`}>
-                          {formatCurrency(store.price || 0)}
-                        </span>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          {Number(store.listPrice) > Number(store.price) && (
+                            <p className="text-xs text-stone-500 line-through">
+                              {formatCurrency(store.listPrice)}
+                            </p>
+                          )}
+                          <span className={`text-xl font-black ${isCheapest ? 'text-emerald-700 dark:text-emerald-400' : isMostExpensive ? 'text-rose-600 dark:text-rose-400' : 'text-stone-900 dark:text-white'}`}>
+                            {formatCurrency(store.price || 0)}
+                          </span>
+                        </div>
                         <button
                           onClick={() => {
                             try {

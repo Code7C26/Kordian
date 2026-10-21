@@ -110,6 +110,16 @@ export default function Admin() {
   const [mamiImportSkipped, setMamiImportSkipped] = useState([])
   const [selectedMamiProducts, setSelectedMamiProducts] = useState([])
 
+  // Carrefour
+  const [carrefourQuery, setCarrefourQuery] = useState('leche')
+  const [carrefourPostalCode, setCarrefourPostalCode] = useState('5186')
+  const [carrefourPreview, setCarrefourPreview] = useState([])
+  const [carrefourDiscarded, setCarrefourDiscarded] = useState([])
+  const [selectedCarrefourProducts, setSelectedCarrefourProducts] = useState([])
+  const [carrefourLoading, setCarrefourLoading] = useState(false)
+  const [carrefourError, setCarrefourError] = useState('')
+  const [carrefourImportSkipped, setCarrefourImportSkipped] = useState([])
+
   // Edición
   const [editingProduct, setEditingProduct] = useState(null)
   const [editingOfferId, setEditingOfferId] = useState(null)
@@ -1999,6 +2009,81 @@ export default function Admin() {
       }
     }
 
+  const previewCarrefourProducts =
+    async () => {
+      setCarrefourLoading(true)
+      setCarrefourError('')
+      setCarrefourPreview([])
+      setCarrefourDiscarded([])
+      setSelectedCarrefourProducts([])
+
+      try {
+        const params = new URLSearchParams({
+          query: carrefourQuery,
+          postalCode: carrefourPostalCode,
+        })
+        const response = await adminFetch(
+          `/admin/import/carrefour/preview?${params.toString()}`,
+        )
+        const data = await readApiResponse(
+          response,
+          'No se pudo consultar Carrefour',
+        )
+        setCarrefourPreview(data.products || [])
+        setCarrefourDiscarded(data.discarded || [])
+      } catch (error) {
+        setCarrefourError(error.message || 'No se pudo consultar Carrefour')
+      } finally {
+        setCarrefourLoading(false)
+      }
+    }
+
+  const importSelectedCarrefourProducts =
+    async () => {
+      const selectedIds = selectedCarrefourProducts.slice(0, 5)
+      if (!selectedIds.length) {
+        showToast('Seleccioná productos válidos de Carrefour', 'error')
+        return
+      }
+
+      setCarrefourLoading(true)
+      try {
+        const response = await adminFetch(
+          '/admin/import/carrefour/execute',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productIds: selectedIds,
+              postalCode: carrefourPostalCode,
+            }),
+          },
+        )
+        const result = await readApiResponse(
+          response,
+          'No se pudieron importar los productos de Carrefour',
+        )
+        setSelectedCarrefourProducts([])
+        setCarrefourImportSkipped(result.skipped || [])
+        await loadProducts()
+        await loadPriceUpdates()
+
+        const importedCount = result.imported?.length || 0
+        const updatedCount = result.updated?.length || 0
+        const unchangedCount = result.unchanged?.length || 0
+        const skippedCount = result.skipped?.length || 0
+        showToast(
+          `Carrefour: ${importedCount} nuevo(s), ${updatedCount} oferta(s) actualizada(s), ${unchangedCount} sin cambios, ${skippedCount} omitido(s).`,
+          importedCount || updatedCount || unchangedCount ? 'success' : 'error',
+        )
+        await previewCarrefourProducts()
+      } catch (error) {
+        showToast(error.message || 'No se pudieron importar productos de Carrefour', 'error')
+      } finally {
+        setCarrefourLoading(false)
+      }
+    }
+
   // =========================================================
   // LOAD INICIAL
   // =========================================================
@@ -2244,6 +2329,14 @@ export default function Admin() {
                   ?.source ===
                 'mami_import'
 
+              const isCarrefourImport =
+                update.filters
+                  ?.source ===
+                'carrefour_import'
+
+              const isManualImport =
+                isMamiImport || isCarrefourImport
+
               const changeLabel =
                 changeType ===
                 'classification_edit'
@@ -2291,13 +2384,14 @@ export default function Admin() {
               const updateLabel =
                 isProductEdit
                   ? changeLabel
-                  : isMamiImport
-                    ? `Importación Mami${
-                        update.filters
-                          ?.query
+                  : isManualImport
+                  ? `Importación ${isCarrefourImport ? 'Carrefour' : 'Mami'}${
+                      isCarrefourImport && update.filters?.postal_code
+                        ? ` (CP ${update.filters.postal_code})`
+                        : !isCarrefourImport && update.filters?.query
                           ? `: ${update.filters.query}`
                           : ''
-                      }`
+                    }`
                     : automatic
                       ? 'Sincronización de precios Disco'
                       : appliedFilters.length
@@ -2309,7 +2403,7 @@ export default function Admin() {
               const updateValue =
                 isProductEdit
                   ? linkedPriceLabel
-                  : isMamiImport
+                  : isManualImport
                     ? 'Importación'
                     : `${
                         percentage > 0
@@ -2340,7 +2434,7 @@ export default function Admin() {
                     className={`py-3 pr-4 font-bold ${
                       isProductEdit
                         ? 'text-sky-600'
-                        : isMamiImport
+                        : isManualImport
                           ? 'text-emerald-600'
                           : percentage >= 0
                             ? 'text-rose-600'
@@ -3906,6 +4000,177 @@ export default function Admin() {
                           </label>
                         ),
                       )}
+                    </div>
+                  </>
+                )}
+              </section>
+
+              {/* CARREFOUR */}
+
+              <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold">
+                      Importación controlada de Carrefour
+                    </h2>
+                    <p className="mt-1 max-w-3xl text-sm text-stone-500 dark:text-stone-400">
+                      Consulta el catálogo regional por el endpoint público de VTEX. La vista previa no escribe datos; cada lote vuelve a validar precio, stock e identificadores antes de importar.
+                    </p>
+                    <p className="mt-2 text-xs font-semibold text-sky-700 dark:text-sky-300">
+                      Zona de consulta: CP {carrefourPostalCode || 'sin definir'} · Predeterminado: Alta Gracia (5186) · Máximo 20 resultados por consulta y 5 productos por lote.
+                    </p>
+                  </div>
+
+                  <form
+                    className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem_auto]"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      previewCarrefourProducts()
+                    }}
+                  >
+                    <input
+                      className="min-w-0 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
+                      value={carrefourQuery}
+                      onChange={(event) => setCarrefourQuery(event.target.value)}
+                      placeholder="Buscar en Carrefour"
+                      aria-label="Buscar productos de Carrefour"
+                    />
+                    <input
+                      className="rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
+                      value={carrefourPostalCode}
+                      onChange={(event) => setCarrefourPostalCode(event.target.value)}
+                      placeholder="Código postal"
+                      aria-label="Código postal de Carrefour"
+                      maxLength={8}
+                    />
+                    <button
+                      type="submit"
+                      disabled={carrefourLoading}
+                      className="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
+                    >
+                      {carrefourLoading ? 'Consultando...' : 'Vista previa'}
+                    </button>
+                  </form>
+                </div>
+
+                {carrefourError && (
+                  <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                    {carrefourError}
+                  </p>
+                )}
+
+                {carrefourImportSkipped.length > 0 && (
+                  <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <summary className="cursor-pointer font-semibold">
+                      {carrefourImportSkipped.length} producto(s) omitido(s) en el último lote
+                    </summary>
+                    <div className="mt-3 space-y-1 text-xs">
+                      {carrefourImportSkipped.map((item, index) => (
+                        <p key={`${item.sourceProductId || 'sin-id'}-${index}`}>
+                          <strong>{item.sourceProductId || 'Sin ID'}</strong>: {item.reason}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {carrefourDiscarded.length > 0 && (
+                  <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <summary className="cursor-pointer font-semibold">
+                      {carrefourDiscarded.length} producto(s) fuera de la importación segura
+                    </summary>
+                    <div className="mt-3 space-y-1 text-xs">
+                      {carrefourDiscarded.map((item, index) => (
+                        <p key={`${item.sourceProductId || 'sin-id'}-${index}`}>
+                          <strong>{item.sourceProductId || 'Sin ID'}</strong>: {item.reason}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {carrefourPreview.length > 0 && (
+                  <>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs text-stone-500">
+                        Seleccionados: {selectedCarrefourProducts.length}/5. Los productos sin GTIN válido, con variantes ambiguas o sin categoría compatible no se pueden importar.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={importSelectedCarrefourProducts}
+                        disabled={carrefourLoading || !selectedCarrefourProducts.length}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
+                      >
+                        {carrefourLoading ? 'Importando...' : 'Importar lote seleccionado'}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      {carrefourPreview.map((product) => {
+                        const selected = selectedCarrefourProducts.includes(product.sourceProductId)
+                        const blocked = Boolean(product.importBlockedReason)
+                        const batchFull = selectedCarrefourProducts.length >= 5 && !selected
+                        return (
+                          <label
+                            key={product.sourceProductId}
+                            className="flex gap-3 rounded-xl border border-stone-200 p-3 dark:border-stone-700"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              disabled={blocked || batchFull || carrefourLoading}
+                              checked={selected}
+                              onChange={(event) => setSelectedCarrefourProducts((current) => (
+                                event.target.checked
+                                  ? [...current, product.sourceProductId]
+                                  : current.filter((id) => id !== product.sourceProductId)
+                              ))}
+                            />
+                            <ProductImage
+                              src={product.image}
+                              alt={product.name}
+                              productName={product.name}
+                              productCategory={product.sourceCategory}
+                              className="h-20 w-20 rounded-lg"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold">{product.name}</p>
+                              <p className="text-xs text-stone-500">
+                                {product.brand || 'Marca no informada'} · EAN {product.ean} · SKU {product.sourceSku}
+                              </p>
+                              <p className="mt-1 font-black text-emerald-700">
+                                Carrefour: {formatCurrency(product.price)}
+                                {Number(product.listPrice) > Number(product.price) && (
+                                  <span className="ml-2 text-xs font-medium text-stone-500 line-through">
+                                    {formatCurrency(product.listPrice)}
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-xs text-stone-500">
+                                Stock informado: {product.stock}
+                              </p>
+                              {product.existingProduct && (
+                                <p className="mt-1 text-xs text-sky-700">
+                                  Se asociará a “{product.existingProduct.name}” por {product.existingProduct.matchedBy === 'ean' ? 'EAN exacto' : 'ID exacto de Carrefour'}.
+                                  {product.existingOffer && ` Actualizará la oferta existente (${formatCurrency(product.existingOffer.cashPrice)}).`}
+                                </p>
+                              )}
+                              {!product.existingProduct && (
+                                <p className="mt-1 text-xs text-stone-500">
+                                  {product.proposedCategory && product.proposedSubcategory
+                                    ? `${product.proposedCategory} > ${product.proposedSubcategory}`
+                                    : 'Mapeo pendiente'}
+                                </p>
+                              )}
+                              {blocked && (
+                                <p className="mt-1 text-xs font-semibold text-rose-700">
+                                  No importable: {product.importBlockedReason}
+                                </p>
+                              )}
+                            </div>
+                          </label>
+                        )
+                      })}
                     </div>
                   </>
                 )}
