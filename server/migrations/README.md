@@ -31,8 +31,6 @@ Si la confirmación de correo está habilitada en Supabase Auth, cada usuario
 debe confirmar el correo recibido antes de iniciar sesión. Si está
 deshabilitada, el registro inicia la sesión inmediatamente.
 
-<<<<<<< Updated upstream
-=======
 ## Favoritos por cuenta
 
 Ejecutar completo `20261021_customer_favorites.sql` en el SQL Editor de
@@ -51,7 +49,6 @@ desde la sección Usuarios del panel administrativo. Una cuenta clasificada
 como administrador puede iniciar sesión en el panel con su usuario y
 contraseña de AR-PRICE.
 
->>>>>>> Stashed changes
 ## Estado de precio persistido
 
 Ejecutar en el SQL Editor de Supabase, en este orden:
