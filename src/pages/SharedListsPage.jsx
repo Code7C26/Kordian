@@ -321,6 +321,18 @@ export default function SharedListsPage() {
                     <Share2 className="h-4 w-4" aria-hidden="true" /> Invitar
                   </button>
                 </div>
+                <section className="mt-4 rounded-xl bg-stone-50 p-3 dark:bg-stone-950/60" aria-label="Participantes de la lista">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Participantes</h3>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(selectedList.members || []).map((member) => (
+                      <span key={member.user_id} className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm font-semibold dark:border-stone-700 dark:bg-stone-900">
+                        <Users className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                        {member.username}
+                        {member.role === 'owner' && <span className="text-xs font-normal text-stone-500 dark:text-stone-400">· Creador</span>}
+                      </span>
+                    ))}
+                  </div>
+                </section>
                 <form onSubmit={addItem} className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_96px_auto]">
                   <label className="sr-only" htmlFor="shared-list-item-name">Artículo</label>
                   <input id="shared-list-item-name" className={inputClass} maxLength={160} value={itemName} onChange={(event) => setItemName(event.target.value)} placeholder="Agregar artículo" />

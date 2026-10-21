@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { ArrowLeft, LogOut, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
@@ -11,8 +12,27 @@ const pageContent = {
 }
 
 export default function CustomerAccountPage({ section = 'profile' }) {
-  const { loading, user, profile, signOut } = useCustomerAuth()
+  const { loading, user, profile, refreshProfile, signOut } = useCustomerAuth()
+  const [profileError, setProfileError] = useState('')
+  const [isRefreshingProfile, setIsRefreshingProfile] = useState(false)
   const content = pageContent[section] || pageContent.profile
+
+  useEffect(() => {
+    if (loading || !user || section !== 'profile') return undefined
+    let active = true
+    setIsRefreshingProfile(true)
+    setProfileError('')
+    refreshProfile()
+      .catch((error) => {
+        if (active) setProfileError(error.message || 'No se pudo actualizar el tipo de cuenta.')
+      })
+      .finally(() => {
+        if (active) setIsRefreshingProfile(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [loading, refreshProfile, section, user])
 
   if (loading) return <main className="min-h-screen bg-stone-100 p-8 dark:bg-stone-950" role="status">Cargando cuenta…</main>
   if (!user && section !== 'profile') return <Navigate to="/ingresar" replace />
@@ -83,11 +103,20 @@ export default function CustomerAccountPage({ section = 'profile' }) {
           </div>
 
           {section === 'profile' && (
-            <dl className="mt-7 divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-800 dark:border-stone-800">
-              <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-4"><dt className="text-sm font-semibold text-stone-500">Usuario</dt><dd className="text-sm font-bold">{username}</dd></div>
-              <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-4"><dt className="text-sm font-semibold text-stone-500">Email</dt><dd className="text-sm font-bold">{profile?.email || user.email}</dd></div>
-              <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-4"><dt className="text-sm font-semibold text-stone-500">Tipo de cuenta</dt><dd className="text-sm font-bold">{profile?.role === 'business' ? 'Comercial' : 'Cliente'}</dd></div>
-            </dl>
+            <>
+              {profileError && <p className="mt-5 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-200" role="alert">{profileError}</p>}
+              <dl className="mt-7 divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-800 dark:border-stone-800">
+                <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-4"><dt className="text-sm font-semibold text-stone-500">Usuario</dt><dd className="text-sm font-bold">{username}</dd></div>
+                <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-4"><dt className="text-sm font-semibold text-stone-500">Email</dt><dd className="text-sm font-bold">{profile?.email || user.email}</dd></div>
+                <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-4">
+                  <dt className="text-sm font-semibold text-stone-500">Tipo de cuenta</dt>
+                  <dd className="text-sm font-bold">
+                    {profile?.role === 'administrator' ? 'Administrador' : profile?.role === 'business' ? 'Comercio' : 'Cliente'}
+                    {isRefreshingProfile && <span className="ml-2 font-normal text-stone-500">Actualizando…</span>}
+                  </dd>
+                </div>
+              </dl>
+            </>
           )}
 
           {section === 'alerts' && (

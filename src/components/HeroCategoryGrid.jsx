@@ -1,15 +1,8 @@
 // Component for hero category grid
 import { useState } from 'react';
 import {
-  ShoppingCart,
-  Pill,
-  Tv,
-  Wrench,
-  Shirt,
-  Dog,
   Grid,
   Search,
-  Sparkles,
   TrendingDown,
   ShieldCheck,
   Store,
@@ -18,6 +11,7 @@ import {
   Clock3,
   X,
 } from 'lucide-react';
+import { getCategoryIcon } from '../utils/categoryIcons.js';
 
 const QUICK_SEARCH_TAGS = [
   'Chocolate',        // Alimentos Frescos y Refrigerados
@@ -27,25 +21,6 @@ const QUICK_SEARCH_TAGS = [
   'Desodorante',      // Limpieza e Higiene
   'Zapatillas',       // Ropa y Calzado
 ];
-
-const getIcon = (iconName) => {
-  switch (iconName) {
-    case 'ShoppingCart':
-      return <ShoppingCart className="w-6 h-6" />;
-    case 'Pill':
-      return <Pill className="w-6 h-6" />;
-    case 'Tv':
-      return <Tv className="w-6 h-6" />;
-    case 'Wrench':
-      return <Wrench className="w-6 h-6" />;
-    case 'Shirt':
-      return <Shirt className="w-6 h-6" />;
-    case 'Dog':
-      return <Dog className="w-6 h-6" />;
-    default:
-      return <ShoppingCart className="w-6 h-6" />;
-  }
-};
 
 export function HeroCategoryGrid({
   categories,
@@ -68,7 +43,7 @@ export function HeroCategoryGrid({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="text-center max-w-3xl mx-auto space-y-4">
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-stone-900 dark:text-white tracking-tight leading-tight">
-            Encuentra el <span className="bg-gradient-to-r from-sky-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">precio justo</span> en un solo lugar
+            Encuentra el <span className="animated-price-gradient bg-gradient-to-r from-sky-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">precio justo</span> en un solo lugar
           </h1>
 
           <p className="text-sm sm:text-base text-stone-600 dark:text-stone-300 leading-relaxed font-normal max-w-2xl mx-auto">
@@ -157,6 +132,7 @@ export function HeroCategoryGrid({
         <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
           {categories.map((cat) => {
             const isSelected = selectedCategory === cat.id;
+            const CategoryIcon = getCategoryIcon(cat);
             return (
               <button
                 type="button"
@@ -174,7 +150,7 @@ export function HeroCategoryGrid({
                       ? 'bg-white/20 text-white'
                       : 'bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 group-hover:bg-sky-100 dark:group-hover:bg-sky-900/60'
                   }`}>
-                    {getIcon(cat.icon)}
+                    <CategoryIcon className="w-6 h-6" />
                   </div>
                 </div>
                 <div>

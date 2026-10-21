@@ -32,6 +32,14 @@ const { analyzeProduct, createAnalysisContext } = require('./services/priceAnaly
 const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
+const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
+const {
+  clearReviewDecisions,
+  listReviewDecisions,
+  normalizePairKey,
+  summarizeReviewDecisions,
+  upsertReviewDecision,
+} = require('./services/reviewDecisionStore')
 const {
   PRICE_STATUS_RULES_VERSION,
   createPriceStatusRefreshQueue,
@@ -2087,23 +2095,53 @@ app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body || {}
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
-    const { data, error } = await supabase.from('admins').select('username, password').eq('username', username).single()
-    const isBcryptHash = data?.password?.startsWith('$2')
-    const validPassword = data && (isBcryptHash
-      ? await bcrypt.compare(password, data.password)
-      : data.password === password)
-    const isEmptyAdminTable = error?.code === 'PGRST116'
+    const normalizedUsername = String(username).trim()
+    const { data, error } = await supabase.from('admins').select('username, password').eq('username', normalizedUsername).maybeSingle()
+    if (error) {
+      console.error('Error looking up admin during login', error)
+      return res.status(500).json({ error: 'Unable to verify admin credentials' })
+    }
+    const isEmptyAdminTable = !data
     const isLocalDefaultLogin = process.env.NODE_ENV !== 'production'
       && isEmptyAdminTable
-      && username === (process.env.ADMIN_DEV_USERNAME || 'admin')
+      && normalizedUsername === (process.env.ADMIN_DEV_USERNAME || 'admin')
       && password === (process.env.ADMIN_DEV_PASSWORD || '1234')
-    if (!isLocalDefaultLogin && (!data || !validPassword)) {
-      return res.status(401).json({ error: 'Invalid credentials' })
+    let authenticatedAdmin = data?.username || (isLocalDefaultLogin ? normalizedUsername : '')
+    if (data) {
+      const isBcryptHash = data.password?.startsWith('$2')
+      const validPassword = isBcryptHash
+        ? await bcrypt.compare(password, data.password)
+        : data.password === password
+      if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' })
+      if (!isBcryptHash) {
+        await supabase.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', normalizedUsername)
+      }
+    } else if (!isLocalDefaultLogin) {
+      if (!supabaseAdmin) {
+        return res.status(503).json({ error: 'Admin account login requires SUPABASE_SERVICE_ROLE_KEY' })
+      }
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from('customer_profiles')
+        .select('user_id, username, email, role')
+        .eq('username', normalizedUsername.toLowerCase())
+        .maybeSingle()
+      if (profileError) {
+        console.error('Error checking registered admin account', profileError)
+        return res.status(500).json({ error: 'Unable to verify admin credentials' })
+      }
+      if (profile?.role !== 'administrator') {
+        return res.status(401).json({ error: 'Invalid credentials' })
+      }
+      const { data: authData, error: authError } = await createCustomerAuthClient().auth.signInWithPassword({
+        email: profile.email,
+        password,
+      })
+      if (authError || !authData.session) {
+        return res.status(401).json({ error: 'Invalid credentials' })
+      }
+      authenticatedAdmin = profile.username
     }
-    if (data && !isBcryptHash) {
-      await supabase.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', username)
-    }
-    const token = createAdminToken(data?.username || username)
+    const token = createAdminToken(authenticatedAdmin)
     if (!token) return res.status(503).json({ error: 'ADMIN_SESSION_SECRET is not configured' })
     res.json({ success: true, token })
   } catch (e) {
@@ -2396,6 +2434,73 @@ app.get('/admin/business-accounts', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Business account listing failed', error)
     return res.status(503).json({ error: 'No se pudieron cargar las cuentas. Verifica la migración del catálogo comercial.' })
+  }
+})
+
+app.get('/admin/customer-accounts', requireAdmin, async (req, res) => {
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'La administración de cuentas requiere SUPABASE_SERVICE_ROLE_KEY en el backend.' })
+  }
+
+  const search = String(req.query.search || '').trim().slice(0, 100).replace(/[%_*(),\\]/g, '')
+  const requestedPage = Number(req.query.page || 1)
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0
+    ? Math.min(requestedPage, 1000000)
+    : 1
+  const pageSize = 50
+
+  try {
+    let query = supabaseAdmin
+      .from('customer_profiles')
+      .select('user_id, username, email, role, created_at', { count: 'exact' })
+      .order('username', { ascending: true })
+      .range((page - 1) * pageSize, page * pageSize - 1)
+    if (search) {
+      query = query.or(`username.ilike.%${search}%,email.ilike.%${search}%`)
+    }
+    const { data, error, count } = await query
+    if (error) throw error
+    return res.json({
+      accounts: data || [],
+      total: count || 0,
+      page,
+      pageSize,
+    })
+  } catch (error) {
+    console.error('Registered customer account listing failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar las cuentas registradas.' })
+  }
+})
+
+app.put('/admin/customer-accounts/:userId', requireAdmin, async (req, res) => {
+  const userId = String(req.params.userId || '')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+    return res.status(400).json({ error: 'La cuenta seleccionada no es válida.' })
+  }
+
+  const role = String(req.body?.role || '')
+  if (!['customer', 'administrator', 'business'].includes(role)) {
+    return res.status(400).json({ error: 'El tipo de cuenta no es válido.' })
+  }
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'La administración de cuentas requiere SUPABASE_SERVICE_ROLE_KEY en el backend.' })
+  }
+
+  try {
+    const updates = { role }
+    if (role !== 'business') updates.supermarket_id = null
+    const { data, error } = await supabaseAdmin
+      .from('customer_profiles')
+      .update(updates)
+      .eq('user_id', userId)
+      .select('user_id, username, email, role, created_at')
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'No se encontró la cuenta seleccionada.' })
+    return res.json(data)
+  } catch (error) {
+    console.error('Registered customer account role update failed', error)
+    return res.status(503).json({ error: 'No se pudo actualizar el tipo de cuenta. Verifica que la migración de roles esté aplicada.' })
   }
 })
 
@@ -2736,7 +2841,7 @@ app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, c
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
 
-    const [{ data: list, error: listError }, { data: items, error: itemsError }, { count: memberCount, error: countError }] = await Promise.all([
+    const [{ data: list, error: listError }, { data: items, error: itemsError }, { data: members, error: membersError }] = await Promise.all([
       analysisWriter
         .from('shared_shopping_lists')
         .select('id, name, owner_user_id, invite_code, created_at, updated_at')
@@ -2749,18 +2854,35 @@ app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, c
         .order('created_at', { ascending: true }),
       analysisWriter
         .from('shared_shopping_list_members')
-        .select('user_id', { count: 'exact', head: true })
-        .eq('list_id', req.params.listId),
+        .select('user_id, role, joined_at')
+        .eq('list_id', req.params.listId)
+        .order('joined_at', { ascending: true }),
     ])
     if (listError) throw listError
     if (itemsError) throw itemsError
-    if (countError) throw countError
+    if (membersError) throw membersError
     if (!list) return res.status(404).json({ error: 'No se encontró la lista.' })
+
+    const memberUserIds = (members || []).map((member) => member.user_id)
+    const { data: profiles, error: profilesError } = memberUserIds.length
+      ? await analysisWriter
+        .from('customer_profiles')
+        .select('user_id, username')
+        .in('user_id', memberUserIds)
+      : { data: [], error: null }
+    if (profilesError) throw profilesError
+    const usernameByUserId = new Map((profiles || []).map((profile) => [profile.user_id, profile.username]))
 
     return res.json({
       ...list,
       role: membership.role,
-      memberCount: memberCount || 1,
+      memberCount: members?.length || 1,
+      members: (members || []).map((member) => ({
+        user_id: member.user_id,
+        username: usernameByUserId.get(member.user_id) || 'Usuario',
+        role: member.role,
+        joined_at: member.joined_at,
+      })),
       items: items || [],
     })
   } catch (error) {
