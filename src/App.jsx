@@ -1,6 +1,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
+import { useCustomerAuth } from './contexts/CustomerAuthContext.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
 import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
@@ -92,6 +93,8 @@ export default function App() {
   });
 
   const { selectedCity, setSelectedCity } = useSelectedCity();
+  const { user, favorites, favoritesLoading, favoritesError, toggleFavorite: updateFavorite } = useCustomerAuth();
+  const [favoriteNotice, setFavoriteNotice] = useState('');
   const [categories, setCategories] = useState(MOCK_CATEGORIES)
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
@@ -179,14 +182,6 @@ export default function App() {
     }
   }, [location.pathname, location.search]);
 
-  const [favorites, setFavorites] = useState(() => {
-    try {
-      const saved = localStorage.getItem('arprice_favorites');
-      return saved ? JSON.parse(saved) : ['prod-1', 'prod-4'];
-    } catch {
-      return ['prod-1', 'prod-4'];
-    }
-  });
   const favoriteIdsKey = favoritesOnlyView ? favorites.join(',') : ''
 
   const [basket, setBasket] = useState(() => {
@@ -273,10 +268,6 @@ export default function App() {
     document.body.classList.toggle('dark', darkMode);
     localStorage.setItem('arprice_theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
-
-  useEffect(() => {
-    localStorage.setItem('arprice_favorites', JSON.stringify(favorites));
-  }, [favorites]);
 
   useEffect(() => {
     localStorage.setItem('arprice_basket', JSON.stringify(basket));
@@ -366,6 +357,7 @@ export default function App() {
             primaryStore: primary
               ? { name: primary.supermarket, id: primary.id }
               : { name: '', id: null },
+            primaryOffer: primary,
             avgMarketPrice,
             percentageDiff: avgMarketPrice
               ? ((avgMarketPrice - currentPrice) / avgMarketPrice) * 100
@@ -465,11 +457,22 @@ export default function App() {
     }
   }, [filters, productsPage, productsPageSize, selectedCity, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView])
 
-  const toggleFavorite = (product) => {
-    setFavorites((prev) =>
-      prev.includes(product.id) ? prev.filter((id) => id !== product.id) : [...prev, product.id]
-    );
-    if (favoritesOnlyView) setProductsPage(1)
+  const toggleFavorite = async (product) => {
+    if (!user) {
+      setFavoriteNotice('Inicia sesión para guardar favoritos en tu cuenta.')
+      return
+    }
+    if (favoritesLoading) {
+      setFavoriteNotice('Espera a que se carguen tus favoritos y vuelve a intentarlo.')
+      return
+    }
+    setFavoriteNotice('')
+    try {
+      await updateFavorite(product.id)
+      if (favoritesOnlyView) setProductsPage(1)
+    } catch (error) {
+      setFavoriteNotice(error.message || 'No se pudo actualizar el favorito.')
+    }
   };
 
   const addToBasket = (product, selectedOffer = null) => {
@@ -621,6 +624,22 @@ export default function App() {
         isAdminPage={false}
       />
 
+      {favoriteNotice && (
+        <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto flex max-w-lg items-center justify-between gap-3 rounded-xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white shadow-xl" role="status">
+          <span>{favoriteNotice}</span>
+          {!user && (
+            <button
+              type="button"
+              onClick={() => navigate(`/ingresar?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`)}
+              className="shrink-0 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold hover:bg-sky-500"
+            >
+              Iniciar sesión
+            </button>
+          )}
+          <button type="button" onClick={() => setFavoriteNotice('')} className="shrink-0 rounded px-1 text-white/70 hover:text-white" aria-label="Cerrar aviso">×</button>
+        </div>
+      )}
+
       {viewMode === 'favorites' ? (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
           <div className="bg-white dark:bg-stone-800 rounded-3xl border border-rose-200/80 dark:border-rose-900/80 p-5 shadow-xs sm:p-6">
@@ -647,7 +666,16 @@ export default function App() {
             </div>
           </div>
 
-          {favoriteProducts.length === 0 ? (
+          {favoritesLoading ? (
+            <div className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status">Cargando favoritos…</div>
+          ) : favoritesError ? (
+            <div className="rounded-3xl bg-white p-12 text-center text-sm text-rose-600 dark:bg-stone-800" role="alert">{favoritesError}</div>
+          ) : !user ? (
+            <div className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800">
+              <h2 className="text-xl font-bold">Inicia sesión para ver tus favoritos</h2>
+              <button type="button" onClick={() => navigate('/ingresar?next=%2Ffavoritos')} className="mt-5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">Iniciar sesión</button>
+            </div>
+          ) : favoriteProducts.length === 0 ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-stone-200/80 dark:border-stone-700/80 space-y-4">
               <div className="w-16 h-16 bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-300 rounded-2xl flex items-center justify-center mx-auto">
                 <Heart className="w-8 h-8" />
@@ -663,7 +691,7 @@ export default function App() {
                   product={product}
                   onCompare={(p) => setSelectedProductForComparison(p)}
                   onToggleFavorite={toggleFavorite}
-                  isFavorite={favorites.includes(product.id)}
+                  isFavorite={favorites.includes(String(product.id))}
                   onAddToBasket={addToBasket}
                   isInBasket={basket.some((item) => item.product.id === product.id)}
                 />
@@ -968,7 +996,7 @@ export default function App() {
                     onCompare={(p) => setSelectedProductForComparison(p)}
                     onExplain={(p) => setSelectedProductForExplanation(p)}
                     onToggleFavorite={toggleFavorite}
-                    isFavorite={favorites.includes(product.id)}
+                    isFavorite={favorites.includes(String(product.id))}
                     onAddToBasket={addToBasket}
                     isInBasket={basket.some((i) => i.product.id === product.id)}
                   />

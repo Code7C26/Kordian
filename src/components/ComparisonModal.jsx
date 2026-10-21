@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { X, TrendingDown, Store, Calendar, Info } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
+import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
 
 export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, onExplain }) {
   const [added, setAdded] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   if (!product) return null;
-  const sortedStores = Array.isArray(product.otherStores) ? [...product.otherStores].sort((a, b) => (a.price || 0) - (b.price || 0)) : [];
+  const sortedStores = getProductOffers(product);
   const cheapestStore = sortedStores[0] || { price: 0, supermarket: '' };
   const mostExpensiveStore = sortedStores[sortedStores.length - 1] || { price: 0, supermarket: '' };
   const maxSavings = (mostExpensiveStore.price || 0) - (cheapestStore.price || 0);
@@ -98,7 +99,9 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                 <span>{product.subcategory}</span>
               </div>
               <h2 className="text-xl font-bold text-stone-900 dark:text-white leading-tight">{product.name}</h2>
-              <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">Comparativa de precios en tiempo real entre {sortedStores.length} comercios</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                Precios disponibles en {sortedStores.length} {sortedStores.length === 1 ? 'comercio' : 'comercios'}
+              </p>
             </div>
           </div>
 
@@ -114,8 +117,16 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                 <TrendingDown className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Brecha Máxima de Ahorro</p>
-                <p className="text-lg font-black text-stone-900 dark:text-white">Ahorra {formatCurrency(maxSavings)} ({savingsPercentage}%) comprando en {cheapestStore.supermarket || cheapestStore.storeName || '—'}</p>
+                <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                  {sortedStores.length > 1 ? 'Brecha Máxima de Ahorro' : 'Precio disponible'}
+                </p>
+                <p className="text-lg font-black text-stone-900 dark:text-white">
+                  {sortedStores.length > 1
+                    ? `Ahorra ${formatCurrency(maxSavings)} (${savingsPercentage}%) comprando en ${cheapestStore.supermarket || cheapestStore.storeName || '—'}`
+                    : sortedStores.length === 1
+                      ? `${formatCurrency(cheapestStore.price)} en ${cheapestStore.supermarket || cheapestStore.storeName}`
+                      : 'No hay precios disponibles para comparar.'}
+                </p>
               </div>
             </div>
 
@@ -129,6 +140,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                 setAdded(true);
                 setTimeout(() => setAdded(false), 2500);
               }}
+              disabled={!sortedStores.length}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-colors shrink-0"
             >
               {isInBasket ? 'Agregado a Canasta ✓' : 'Agregar a Canasta Ahorro'}

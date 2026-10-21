@@ -7,16 +7,27 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const {
+  customerRegisterIpRateLimit,
+  customerLoginIpRateLimit,
+  customerRefreshIpRateLimit,
+  customerSessionIpRateLimit,
+  customerIpReadRateLimit,
+  customerIpWriteRateLimit,
+  sharedListJoinIpRateLimit,
   customerReadRateLimit,
   customerWriteRateLimit,
   sharedListJoinRateLimit,
 } = require('./rateLimiters')
 const app = express()
 
+app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false)
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
 
 const supabase = require('./supabase')
+const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
+  ? require('./supabaseAdmin')
+  : null
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
 const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
 const { syncDiscoPrices } = require('./services/discoPriceSync')
@@ -2126,8 +2137,25 @@ function sendCustomerAuthUnavailable(res, error) {
   return res.status(503).json({ error: 'La autenticación de clientes no está lista. Aplica la migración de perfiles en Supabase.' })
 }
 
-app.post('/auth/customer-register', async (req, res) => {
+function requireCustomerAuthStorage(res) {
+  if (supabaseAdmin) return true
+  res.status(503).json({ error: 'La autenticación de clientes requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+  return false
+}
+
+app.post('/auth/customer-register', customerRegisterIpRateLimit, async (req, res) => {
   try {
+    if (!requireCustomerAuthStorage(res)) return
+    const requestOrigin = req.get('origin')
+    let emailRedirectTo
+    try {
+      const origin = new URL(requestOrigin)
+      if (!['http:', 'https:'].includes(origin.protocol)) throw new Error('Invalid origin protocol')
+      emailRedirectTo = new URL('/ingresar?confirmation=success', origin.origin).toString()
+    } catch {
+      return res.status(400).json({ error: 'No se pudo determinar la dirección de retorno para confirmar el correo.' })
+    }
+
     const username = String(req.body?.username || '').trim().toLowerCase()
     const email = String(req.body?.email || '').trim().toLowerCase()
     const password = String(req.body?.password || '')
@@ -2159,7 +2187,7 @@ app.post('/auth/customer-register', async (req, res) => {
     const { data, error } = await authClient.auth.signUp({
       email,
       password,
-      options: { data: { username } },
+      options: { data: { username }, emailRedirectTo },
     })
     if (error) {
       const normalizedMessage = String(error.message || '').toLowerCase()
@@ -2183,8 +2211,9 @@ app.post('/auth/customer-register', async (req, res) => {
   }
 })
 
-app.post('/auth/customer-login', async (req, res) => {
+app.post('/auth/customer-login', customerLoginIpRateLimit, async (req, res) => {
   try {
+    if (!requireCustomerAuthStorage(res)) return
     const identifier = String(req.body?.identifier || '').trim()
     const password = String(req.body?.password || '')
     if (!identifier || !password) return res.status(400).json({ error: 'Ingresa tus credenciales.' })
@@ -2216,8 +2245,9 @@ app.post('/auth/customer-login', async (req, res) => {
   }
 })
 
-app.post('/auth/customer-refresh', async (req, res) => {
+app.post('/auth/customer-refresh', customerRefreshIpRateLimit, async (req, res) => {
   try {
+    if (!requireCustomerAuthStorage(res)) return
     const refreshToken = String(req.body?.refreshToken || '')
     if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' })
     const { data, error } = await createCustomerAuthClient().auth.refreshSession({ refresh_token: refreshToken })
@@ -2228,8 +2258,9 @@ app.post('/auth/customer-refresh', async (req, res) => {
   }
 })
 
-app.get('/auth/customer-session', async (req, res) => {
+app.get('/auth/customer-session', customerSessionIpRateLimit, async (req, res) => {
   try {
+    if (!requireCustomerAuthStorage(res)) return
     const accessToken = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     if (!accessToken) return res.status(401).json({ error: 'Authentication required' })
     const { data, error } = await createCustomerAuthClient().auth.getUser(accessToken)
@@ -2257,6 +2288,62 @@ async function requireCustomerAuth(req, res, next) {
     return res.status(503).json({ error: 'No se pudo verificar la sesión. Inténtalo nuevamente.' })
   }
 }
+
+app.get('/customer/favorites', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
+  try {
+    const { data, error } = await analysisWriter
+      .from('customer_favorites')
+      .select('product_id')
+      .eq('user_id', req.customerUser.id)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return res.json({ ids: (data || []).map((favorite) => String(favorite.product_id)) })
+  } catch (error) {
+    console.error('Customer favorites fetch failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar los favoritos. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
+
+app.post('/customer/favorites', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
+  const productId = String(req.body?.productId || '')
+  if (!/^[1-9]\d*$/.test(productId)) {
+    return res.status(400).json({ error: 'El identificador del producto no es válido.' })
+  }
+
+  try {
+    const { error } = await analysisWriter
+      .from('customer_favorites')
+      .upsert(
+        { user_id: req.customerUser.id, product_id: productId },
+        { onConflict: 'user_id,product_id', ignoreDuplicates: true },
+      )
+    if (error) throw error
+    return res.status(201).json({ success: true })
+  } catch (error) {
+    console.error('Customer favorite save failed', error)
+    return res.status(503).json({ error: 'No se pudo guardar el favorito. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
+
+app.delete('/customer/favorites/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
+  const productId = String(req.params.productId || '')
+  if (!/^[1-9]\d*$/.test(productId)) {
+    return res.status(400).json({ error: 'El identificador del producto no es válido.' })
+  }
+
+  try {
+    const { error } = await analysisWriter
+      .from('customer_favorites')
+      .delete()
+      .eq('user_id', req.customerUser.id)
+      .eq('product_id', productId)
+    if (error) throw error
+    return res.json({ success: true })
+  } catch (error) {
+    console.error('Customer favorite removal failed', error)
+    return res.status(503).json({ error: 'No se pudo quitar el favorito. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
 
 async function requireBusinessStore(req, res, next) {
   try {
@@ -2357,6 +2444,7 @@ app.put('/admin/business-accounts/:userId', requireAdmin, async (req, res) => {
 })
 
 app.get('/business/catalog', requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
+app.get('/business/catalog', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
   const search = String(req.query.search || '').trim()
   const requestedPage = Number(req.query.page || 1)
   if (search.length > 120) return res.status(400).json({ error: 'La búsqueda no puede superar 120 caracteres.' })
@@ -2444,6 +2532,7 @@ app.get('/business/catalog', requireCustomerAuth, customerReadRateLimit, require
 })
 
 app.put('/business/catalog/:productId', requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, async (req, res) => {
+app.put('/business/catalog/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, async (req, res) => {
   const productId = Number(req.params.productId)
   const available = req.body?.available
   if (!Number.isSafeInteger(productId) || productId <= 0) {
@@ -2550,6 +2639,7 @@ async function isSharedListMember(listId, userId) {
 }
 
 app.get('/shared-lists', requireCustomerAuth, customerReadRateLimit, async (req, res) => {
+app.get('/shared-lists', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data: memberships, error: membershipError } = await analysisWriter
       .from('shared_shopping_list_members')
@@ -2580,6 +2670,7 @@ app.get('/shared-lists', requireCustomerAuth, customerReadRateLimit, async (req,
 })
 
 app.post('/shared-lists', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
+app.post('/shared-lists', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name || name.length > 80) {
     return res.status(400).json({ error: 'El nombre debe tener entre 1 y 80 caracteres.' })
@@ -2616,6 +2707,7 @@ app.post('/shared-lists', requireCustomerAuth, customerWriteRateLimit, async (re
 })
 
 app.post('/shared-lists/join', requireCustomerAuth, sharedListJoinRateLimit, async (req, res) => {
+app.post('/shared-lists/join', sharedListJoinIpRateLimit, requireCustomerAuth, sharedListJoinRateLimit, async (req, res) => {
   const inviteCode = String(req.body?.inviteCode || '').trim()
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(inviteCode)) {
     return res.status(400).json({ error: 'El enlace o código de invitación no es válido.' })
@@ -2645,6 +2737,7 @@ app.post('/shared-lists/join', requireCustomerAuth, sharedListJoinRateLimit, asy
 })
 
 app.get('/shared-lists/:listId', requireCustomerAuth, customerReadRateLimit, async (req, res) => {
+app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -2683,6 +2776,7 @@ app.get('/shared-lists/:listId', requireCustomerAuth, customerReadRateLimit, asy
 })
 
 app.post('/shared-lists/:listId/items', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
+app.post('/shared-lists/:listId/items', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const itemName = String(req.body?.itemName || '').trim()
   const quantity = Number(req.body?.quantity ?? 1)
   if (!itemName || itemName.length > 160 || !Number.isFinite(quantity) || quantity <= 0 || quantity > 999) {
@@ -2711,6 +2805,7 @@ app.post('/shared-lists/:listId/items', requireCustomerAuth, customerWriteRateLi
 })
 
 app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
+app.patch('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const changes = {}
   if (typeof req.body?.isChecked === 'boolean') changes.is_checked = req.body.isChecked
   if (req.body?.quantity !== undefined) {
@@ -2749,6 +2844,7 @@ app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, customerWr
 })
 
 app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
+app.delete('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })

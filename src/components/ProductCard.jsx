@@ -6,6 +6,7 @@ import {
   Store,
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
+import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
 
 export function ProductCard({
@@ -25,9 +26,7 @@ export function ProductCard({
       ? 'Inflado'
       : 'En precio';
 
-  const sortedStores = Array.isArray(product.otherStores)
-    ? [...product.otherStores].sort((a, b) => (a.price || 0) - (b.price || 0))
-    : [];
+  const sortedStores = getProductOffers(product);
 
   const defaultOfferId = sortedStores[0]?.id || null;
 
@@ -96,7 +95,7 @@ export function ProductCard({
           <div className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span>{product.unit}</span>
-              <span className="text-sky-600 dark:text-sky-400">{(product.otherStores || []).length} {(product.otherStores || []).length === 1 ? 'Opción' : 'Opciones'}</span>
+              <span className="text-sky-600 dark:text-sky-400">{sortedStores.length} {sortedStores.length === 1 ? 'Opción' : 'Opciones'}</span>
             </div>
           </div>
 

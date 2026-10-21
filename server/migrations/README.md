@@ -1,5 +1,44 @@
 # Migraciones de AR-PRICE
 
+## Registro e inicio de sesión de clientes
+
+Antes de habilitar el registro en la aplicación, abrir el SQL Editor del
+proyecto Supabase y ejecutar completo `20261006_customer_auth.sql`. Esta
+migración crea `public.customer_profiles`, aplica RLS y agrega un trigger que
+guarda automáticamente el nombre de usuario y el correo cuando Supabase Auth
+crea una cuenta. La cuenta y su contraseña quedan administradas por Supabase
+Auth; la contraseña no se guarda en `customer_profiles`.
+
+Verificar que la tabla y el trigger estén instalados:
+
+```sql
+select to_regclass('public.customer_profiles') as customer_profiles,
+       exists (
+         select 1
+         from pg_trigger
+         where tgname = 'on_auth_user_created_customer_profile'
+           and not tgisinternal
+       ) as profile_trigger_installed;
+```
+
+El resultado debe mostrar `public.customer_profiles` y `true`. El backend
+también necesita estas variables configuradas en Render: `SUPABASE_URL`,
+`SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY`. La clave service role debe
+permanecer únicamente en el backend; nunca configurarla como `VITE_*` ni
+incluirla en el frontend.
+
+Si la confirmación de correo está habilitada en Supabase Auth, cada usuario
+debe confirmar el correo recibido antes de iniciar sesión. Si está
+deshabilitada, el registro inicia la sesión inmediatamente.
+
+## Favoritos por cuenta
+
+Ejecutar completo `20261021_customer_favorites.sql` en el SQL Editor de
+Supabase para crear la tabla de favoritos asociados al usuario autenticado.
+Los favoritos se consultan y modifican mediante el backend con la sesión del
+cliente; la tabla mantiene RLS habilitado y no guarda datos de favoritos en el
+navegador.
+
 ## Estado de precio persistido
 
 Ejecutar en el SQL Editor de Supabase, en este orden:

@@ -5,7 +5,7 @@ import BusinessCatalogPanel from './BusinessCatalogPanel.jsx'
 import BusinessPortalPage from './BusinessPortalPage.jsx'
 
 const pageContent = {
-  profile: { title: 'Mi perfil', description: 'Datos de tu cuenta de Ar-Price.' },
+  profile: { title: 'Mi cuenta', description: 'Datos de tu cuenta de Ar-Price.' },
   alerts: { title: 'Mis alertas', description: 'Aquí se mostrarán las alertas de precios asociadas a tu cuenta.' },
   business: { title: 'Panel de gestión para comercio', description: 'Administra el catálogo y revisa la actividad de tu comercio.' },
 }
@@ -15,9 +15,47 @@ export default function CustomerAccountPage({ section = 'profile' }) {
   const content = pageContent[section] || pageContent.profile
 
   if (loading) return <main className="min-h-screen bg-stone-100 p-8 dark:bg-stone-950" role="status">Cargando cuenta…</main>
-  if (!user) return <Navigate to="/ingresar" replace />
+  if (!user && section !== 'profile') return <Navigate to="/ingresar" replace />
   if (section === 'business' && profile?.role !== 'business') {
-    return <Navigate to="/perfil" replace />
+    return <Navigate to="/mi-cuenta" replace />
+  }
+
+  if (!user) {
+    return (
+      <main className="min-h-screen bg-stone-100 px-4 py-6 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
+        <div className="mx-auto max-w-4xl">
+          <header className="border-b border-stone-300 pb-4 dark:border-stone-800">
+            <Link to="/" className="text-lg font-black text-sky-800 dark:text-sky-300">AR-PRICE</Link>
+          </header>
+          <section className="py-8">
+            <Link to="/" className="inline-flex items-center gap-2 text-sm font-semibold text-sky-700 dark:text-sky-300">
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Volver a productos
+            </Link>
+            <div className="mx-auto mt-12 max-w-lg rounded-2xl border border-stone-200 bg-white p-6 text-center shadow-sm dark:border-stone-800 dark:bg-stone-900 sm:p-8">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                <UserRound className="h-6 w-6" aria-hidden="true" />
+              </span>
+              <h1 className="mt-4 text-2xl font-black">Mi cuenta</h1>
+              <p className="mt-2 text-sm leading-6 text-stone-600 dark:text-stone-400">
+                Debes iniciar sesión en tu cuenta para acceder a este menú.
+              </p>
+              <Link
+                to="/ingresar?next=%2Fmi-cuenta"
+                className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-sky-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-800 sm:w-auto"
+              >
+                Iniciar sesión
+              </Link>
+              <p className="mt-4 text-sm text-stone-600 dark:text-stone-400">
+                ¿Todavía no tienes cuenta?{' '}
+                <Link to="/registro?next=%2Fmi-cuenta" className="font-bold text-sky-700 underline underline-offset-4 dark:text-sky-300">
+                  Registrarse
+                </Link>
+              </p>
+            </div>
+          </section>
+        </div>
+      </main>
+    )
   }
 
   const username = profile?.username || user.user_metadata?.username || 'Cliente'
