@@ -28,6 +28,10 @@ const {
   upsertReviewDecision,
 } = require('./services/reviewDecisionStore')
 const {
+  customerPasswordResetIpRateLimit,
+  customerPriceReportIpRateLimit,
+} = require('./rateLimiters')
+const {
   PRICE_STATUS_RULES_VERSION,
   createPriceStatusRefreshQueue,
   enqueueIncompletePriceStatuses,
@@ -2068,30 +2072,8 @@ app.post('/login', async (req, res) => {
     const { username, password } = req.body || {}
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
     const normalizedUsername = String(username).trim()
-    const { data, error } = await supabase.from('admins').select('username, password').eq('username', normalizedUsername).maybeSingle()
-    if (error) {
-      console.error('Error looking up admin during login', error)
-      return res.status(500).json({ error: 'Unable to verify admin credentials' })
-    }
-    const isEmptyAdminTable = !data
-    const isLocalDefaultLogin = process.env.NODE_ENV !== 'production'
-      && isEmptyAdminTable
-      && normalizedUsername === (process.env.ADMIN_DEV_USERNAME || 'admin')
-      && password === (process.env.ADMIN_DEV_PASSWORD || '1234')
-    let authenticatedAdmin = data?.username || (isLocalDefaultLogin ? normalizedUsername : '')
-    if (data) {
-      const isBcryptHash = data.password?.startsWith('$2')
-      const validPassword = isBcryptHash
-        ? await bcrypt.compare(password, data.password)
-        : data.password === password
-      if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' })
-      if (!isBcryptHash) {
-        await supabase.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', normalizedUsername)
-      }
-    } else if (!isLocalDefaultLogin) {
-      if (!supabaseAdmin) {
-        return res.status(503).json({ error: 'Admin account login requires SUPABASE_SERVICE_ROLE_KEY' })
-      }
+    let adminProfile = null
+    if (supabaseAdmin) {
       const { data: profile, error: profileError } = await supabaseAdmin
         .from('customer_profiles')
         .select('user_id, username, email, role')
@@ -2101,17 +2083,49 @@ app.post('/login', async (req, res) => {
         console.error('Error checking registered admin account', profileError)
         return res.status(500).json({ error: 'Unable to verify admin credentials' })
       }
-      if (profile?.role !== 'administrator') {
+      adminProfile = profile
+    }
+
+    let authenticatedAdmin = ''
+    if (adminProfile) {
+      if (adminProfile.role !== 'administrator') {
         return res.status(401).json({ error: 'Invalid credentials' })
       }
       const { data: authData, error: authError } = await createCustomerAuthClient().auth.signInWithPassword({
-        email: profile.email,
+        email: adminProfile.email,
         password,
       })
       if (authError || !authData.session) {
         return res.status(401).json({ error: 'Invalid credentials' })
       }
-      authenticatedAdmin = profile.username
+      authenticatedAdmin = adminProfile.username
+    } else {
+      const { data, error } = await supabase.from('admins').select('username, password').eq('username', normalizedUsername).maybeSingle()
+      if (error) {
+        console.error('Error looking up admin during login', error)
+        return res.status(500).json({ error: 'Unable to verify admin credentials' })
+      }
+      const isEmptyAdminTable = !data
+      const isLocalDefaultLogin = process.env.NODE_ENV !== 'production'
+        && isEmptyAdminTable
+        && normalizedUsername === (process.env.ADMIN_DEV_USERNAME || 'admin')
+        && password === (process.env.ADMIN_DEV_PASSWORD || '1234')
+      authenticatedAdmin = data?.username || (isLocalDefaultLogin ? normalizedUsername : '')
+      if (data) {
+        const isBcryptHash = data.password?.startsWith('$2')
+        const validPassword = isBcryptHash
+          ? await bcrypt.compare(password, data.password)
+          : data.password === password
+        if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' })
+        if (!isBcryptHash) {
+          await supabase.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', normalizedUsername)
+        }
+      } else if (!isLocalDefaultLogin) {
+        if (!supabaseAdmin) {
+          return res.status(503).json({ error: 'Admin account login requires SUPABASE_SERVICE_ROLE_KEY' })
+        }
+        return res.status(401).json({ error: 'Invalid credentials' })
+      }
     }
     const token = createAdminToken(authenticatedAdmin)
     if (!token) return res.status(503).json({ error: 'ADMIN_SESSION_SECRET is not configured' })
@@ -2152,6 +2166,111 @@ function requireCustomerAuthStorage(res) {
   res.status(503).json({ error: 'La autenticación de clientes requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
   return false
 }
+
+function getPasswordRecoveryRedirectUrl(accountType) {
+  const frontendUrl = process.env.FRONTEND_URL || (
+    process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : ''
+  )
+  if (!frontendUrl) throw new Error('FRONTEND_URL is required for password recovery')
+  const redirectUrl = new URL('/restablecer-contrasena', frontendUrl)
+  redirectUrl.searchParams.set('account', accountType)
+  return redirectUrl.toString()
+}
+
+app.post('/auth/customer-password-reset', customerPasswordResetIpRateLimit, async (req, res) => {
+  try {
+    if (!requireCustomerAuthStorage(res)) return
+    const identifier = String(req.body?.identifier || '').trim()
+    if (!identifier) return res.status(400).json({ error: 'Ingresa tu correo o nombre de usuario.' })
+
+    let email = identifier.toLowerCase()
+    if (!email.includes('@')) {
+      const { data: profile, error } = await supabaseAdmin
+        .from('customer_profiles')
+        .select('email')
+        .eq('username', email)
+        .maybeSingle()
+      if (error) {
+        console.error('Customer password recovery lookup failed', error)
+        return res.status(500).json({ error: 'No se pudo procesar la solicitud.' })
+      }
+      email = profile?.email || ''
+    }
+
+    if (email) {
+      const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(email, {
+        redirectTo: getPasswordRecoveryRedirectUrl('customer'),
+      })
+      if (error) {
+        console.error('Customer password recovery email failed', error)
+        return res.status(503).json({ error: 'No se pudo enviar el correo de recuperación.' })
+      }
+    }
+    res.json({ message: 'Si existe una cuenta asociada, recibirás un correo con instrucciones para recuperar tu contraseña.' })
+  } catch (error) {
+    console.error('Customer password recovery failed', error)
+    res.status(500).json({ error: 'No se pudo procesar la solicitud.' })
+  }
+})
+
+app.post('/auth/admin-password-reset', customerPasswordResetIpRateLimit, async (req, res) => {
+  try {
+    if (!requireCustomerAuthStorage(res)) return
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    if (!email) return res.status(400).json({ error: 'Ingresa el correo asociado a la cuenta administradora.' })
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('customer_profiles')
+      .select('email')
+      .eq('email', email)
+      .eq('role', 'administrator')
+      .maybeSingle()
+    if (profileError) {
+      console.error('Admin password recovery lookup failed', profileError)
+      return res.status(500).json({ error: 'No se pudo procesar la solicitud.' })
+    }
+
+    if (profile?.email) {
+      const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(profile.email, {
+        redirectTo: getPasswordRecoveryRedirectUrl('admin'),
+      })
+      if (error) {
+        console.error('Admin password recovery email failed', error)
+        return res.status(503).json({ error: 'No se pudo enviar el correo de recuperación.' })
+      }
+    }
+    res.json({ message: 'Si el correo corresponde a una cuenta administradora, recibirás un mensaje con instrucciones.' })
+  } catch (error) {
+    console.error('Admin password recovery failed', error)
+    res.status(500).json({ error: 'No se pudo procesar la solicitud.' })
+  }
+})
+
+app.post('/auth/password-update', customerPasswordResetIpRateLimit, async (req, res) => {
+  try {
+    if (!requireCustomerAuthStorage(res)) return
+    const accessToken = String(req.body?.accessToken || '')
+    const password = String(req.body?.password || '')
+    if (!accessToken) return res.status(400).json({ error: 'El enlace de recuperación no es válido.' })
+    if (!/^[a-zA-Z0-9]{4,}$/.test(password)) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres alfanuméricos.' })
+    }
+
+    const authClient = createCustomerAuthClient()
+    const { data: authData, error: authError } = await authClient.auth.getUser(accessToken)
+    if (authError || !authData.user) return res.status(401).json({ error: 'El enlace venció o ya no es válido. Solicita uno nuevo.' })
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(authData.user.id, { password })
+    if (error) {
+      console.error('Password update failed', error)
+      return res.status(503).json({ error: 'No se pudo actualizar la contraseña.' })
+    }
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Password update failed', error)
+    res.status(500).json({ error: 'No se pudo actualizar la contraseña.' })
+  }
+})
 
 app.post('/auth/customer-register', async (req, res) => {
   try {
@@ -2301,6 +2420,77 @@ app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
   } catch (error) {
     console.error('Customer favorites fetch failed', error)
     return res.status(503).json({ error: 'No se pudieron cargar los favoritos. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
+
+app.post('/customer/price-reports', customerPriceReportIpRateLimit, requireCustomerAuth, async (req, res) => {
+  const reportType = String(req.body?.reportType || '')
+  const productName = String(req.body?.productName || '').trim()
+  const storeName = String(req.body?.storeName || '').trim()
+  const reportedPrice = Number(req.body?.reportedPrice)
+  const city = String(req.body?.city || '').trim()
+  const comments = String(req.body?.comments || '').trim()
+  const validReportTypes = new Set(['oferta', 'sobreprecio', 'actualizacion'])
+
+  if (!validReportTypes.has(reportType)) {
+    return res.status(400).json({ error: 'Selecciona un tipo de reporte válido.' })
+  }
+  if (!productName || productName.length > 160) {
+    return res.status(400).json({ error: 'El producto debe tener entre 1 y 160 caracteres.' })
+  }
+  if (!storeName || storeName.length > 120) {
+    return res.status(400).json({ error: 'El comercio debe tener entre 1 y 120 caracteres.' })
+  }
+  if (!Number.isFinite(reportedPrice) || reportedPrice <= 0 || reportedPrice > 1000000000) {
+    return res.status(400).json({ error: 'Ingresa un precio válido mayor que cero.' })
+  }
+  if (!city || city.length > 100 || comments.length > 1000) {
+    return res.status(400).json({ error: 'La localidad o los detalles adicionales no son válidos.' })
+  }
+
+  try {
+    const profile = await getCustomerProfile(req.customerUser)
+    const reporterUsername = String(profile.username || req.customerUser.user_metadata?.username || '').trim()
+    const reporterEmail = String(profile.email || req.customerUser.email || '').trim()
+    const { data, error } = await supabaseAdmin
+      .from('price_reports')
+      .insert({
+        reporter_user_id: req.customerUser.id,
+        reporter_username: reporterUsername || reporterEmail || 'Usuario',
+        reporter_email: reporterEmail,
+        report_type: reportType,
+        product_name: productName,
+        store_name: storeName,
+        reported_price: reportedPrice,
+        city,
+        comments,
+      })
+      .select('id, created_at')
+      .single()
+    if (error) throw error
+    return res.status(201).json({ report: data })
+  } catch (error) {
+    console.error('Price report submission failed', error)
+    return res.status(503).json({ error: 'No se pudo guardar el reporte. Verifica que la migración de reportes esté aplicada.' })
+  }
+})
+
+app.get('/admin/price-reports', requireAdmin, async (req, res) => {
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'La consulta de reportes requiere SUPABASE_SERVICE_ROLE_KEY.' })
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('price_reports')
+      .select('id, reporter_user_id, reporter_username, reporter_email, report_type, product_name, store_name, reported_price, city, comments, status, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500)
+    if (error) throw error
+    return res.json(data || [])
+  } catch (error) {
+    console.error('Admin price reports fetch failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar los reportes. Verifica que la migración de reportes esté aplicada.' })
   }
 })
 

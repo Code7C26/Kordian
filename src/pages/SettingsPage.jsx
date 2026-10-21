@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, MapPin, Moon, Sun } from 'lucide-react'
+import { ArrowLeft, BriefcaseBusiness, MapPin, Moon, ShieldCheck, Sun, UserRound } from 'lucide-react'
 import { useSelectedCity } from '../contexts/SelectedCityContext.jsx'
+import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { CITIES_LIST } from '../data/mockProducts.js'
 
 export default function SettingsPage() {
   const { selectedCity, setSelectedCity } = useSelectedCity()
+  const { loading: authLoading, profile, user } = useCustomerAuth()
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('arprice_theme') === 'dark')
   const [city, setCity] = useState(selectedCity)
   const [saved, setSaved] = useState(false)
@@ -94,6 +96,51 @@ export default function SettingsPage() {
               {saved && <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400" role="status">Ubicación guardada.</p>}
               <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">El catálogo todavía no filtra productos por ubicación.</p>
             </section>
+
+            {!authLoading && user && (
+              <section className="py-5">
+                <Link
+                  to="/mi-cuenta"
+                  className="flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-white dark:hover:bg-stone-900"
+                >
+                  <UserRound className="h-5 w-5 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                  <span>
+                    <span className="block text-sm font-bold">Mi cuenta</span>
+                    <span className="mt-1 block text-xs text-stone-500 dark:text-stone-400">Consulta los datos de tu cuenta.</span>
+                  </span>
+                </Link>
+              </section>
+            )}
+
+            {!authLoading && profile?.role === 'business' && (
+              <section className="py-5">
+                <Link
+                  to="/panel-gestion"
+                  className="flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-white dark:hover:bg-stone-900"
+                >
+                  <BriefcaseBusiness className="h-5 w-5 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                  <span>
+                    <span className="block text-sm font-bold">Panel de gestión para comercio</span>
+                    <span className="mt-1 block text-xs text-stone-500 dark:text-stone-400">Administra el catálogo de tu comercio.</span>
+                  </span>
+                </Link>
+              </section>
+            )}
+
+            {!authLoading && profile?.role === 'administrator' && (
+              <section className="py-5">
+                <Link
+                  to="/admin"
+                  className="flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-white dark:hover:bg-stone-900"
+                >
+                  <ShieldCheck className="h-5 w-5 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                  <span>
+                    <span className="block text-sm font-bold">Panel de administrador</span>
+                    <span className="mt-1 block text-xs text-stone-500 dark:text-stone-400">Accede a las herramientas de administración.</span>
+                  </span>
+                </Link>
+              </section>
+            )}
           </div>
         </section>
       </div>

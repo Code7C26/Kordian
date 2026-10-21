@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Heart, Loader2, TrendingDown, Tag } from 'lucide-react';
+import { ArrowLeft, Heart, Loader2, TrendingDown } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config/api.js';
 import { buildProductsQuery } from '../utils/catalogQuery.js';
@@ -185,14 +185,10 @@ export default function FavoritesPage() {
                     <h3 className="mt-1 line-clamp-2 text-sm font-bold">{product.name}</h3>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-1 rounded-lg bg-sky-100 px-2 py-1 text-xs font-bold text-sky-800 dark:bg-sky-950 dark:text-sky-300">
-                      <Tag className="h-3.5 w-3.5" />
-                      {product.currentPrice ?? product.price ?? 0}
-                    </div>
                     <button
                       type="button"
                       onClick={() => removeFavorite(product.id)}
-                      className="rounded-full bg-rose-50 p-2 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300"
+                      className="ml-auto rounded-full bg-rose-50 p-2 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300"
                       aria-label="Eliminar de favoritos"
                     >
                       <Heart className="h-4 w-4 fill-current" />

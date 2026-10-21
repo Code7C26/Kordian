@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { 
-  BriefcaseBusiness,
   ChartNoAxesCombined,
   CircleHelp,
   Menu,
@@ -17,7 +16,6 @@ import {
   LogIn,
   LogOut,
   UserPlus,
-  UserRound,
   UsersRound,
   TicketPercent,
   X,
@@ -320,18 +318,10 @@ export function Header({
                       <TicketPercent className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       Cupones y descuentos
                     </Link>
-                    <Link role="menuitem" to="/panel-gestion" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
-                      <BriefcaseBusiness className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
-                      Panel de gestión para comercio
-                    </Link>
                     <div className="my-2 border-t border-stone-200 dark:border-stone-700" />
                     <Link role="menuitem" to="/configuracion" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <Settings className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       Configuración
-                    </Link>
-                    <Link role="menuitem" to="/mi-cuenta" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
-                      <UserRound className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
-                      Mi cuenta
                     </Link>
                     <Link role="menuitem" to="/faq" onClick={() => setShowAccountMenu(false)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <CircleHelp className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />

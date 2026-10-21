@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  Flag,
   FolderTree,
   GitMerge,
   History,
@@ -32,6 +33,7 @@ const ADMIN_PAGES = [
   { id: 'acciones', label: 'Acciones', icon: Zap },
   { id: 'producto', label: 'Producto', icon: Package },
   { id: 'registro', label: 'Registro de actualizaciones', icon: History },
+  { id: 'reportes', label: 'Reportes de precios', icon: Flag },
   { id: 'vista-previa', label: 'Vista previa', icon: Eye },
   { id: 'agrupacion', label: 'Agrupación', icon: GitMerge },
   { id: 'usuario', label: 'Usuario', icon: Users },
@@ -67,6 +69,9 @@ export default function Admin() {
   const [taxonomy, setTaxonomy] = useState([])
 
   const [priceUpdates, setPriceUpdates] = useState([])
+  const [priceReports, setPriceReports] = useState([])
+  const [priceReportsLoading, setPriceReportsLoading] = useState(false)
+  const [priceReportsError, setPriceReportsError] = useState('')
 
   // Revisión Mami / Disco
   const [reviewSummary, setReviewSummary] = useState(null)
@@ -1192,6 +1197,21 @@ export default function Admin() {
     }
   }
 
+  const loadPriceReports = async () => {
+    setPriceReportsLoading(true)
+    setPriceReportsError('')
+    try {
+      const response = await adminFetch('/admin/price-reports')
+      const reports = await readApiResponse(response, 'No se pudieron cargar los reportes de precios.')
+      setPriceReports(reports)
+    } catch (error) {
+      console.error('Price reports could not be loaded', error)
+      setPriceReportsError(error.message || 'No se pudieron cargar los reportes de precios.')
+    } finally {
+      setPriceReportsLoading(false)
+    }
+  }
+
   const deletePriceUpdate = async (
     id,
   ) => {
@@ -1982,6 +2002,10 @@ export default function Admin() {
   // =========================================================
   // LOAD INICIAL
   // =========================================================
+
+  useEffect(() => {
+    if (activePage === 'reportes') loadPriceReports()
+  }, [activePage])
 
   useEffect(() => {
     loadProducts(productPage)
@@ -3338,6 +3362,82 @@ export default function Admin() {
                 discoPriceUpdates,
                 'Todavía no hay sincronizaciones automáticas registradas.',
                 true,
+              )}
+            </section>
+          )}
+
+          {activePage === 'reportes' && (
+            <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold">Reportes de precios</h2>
+                  <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
+                    Reportes enviados por la comunidad, con los datos de la cuenta que los presentó.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadPriceReports}
+                  disabled={priceReportsLoading}
+                  className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold hover:bg-stone-100 disabled:opacity-50 dark:border-stone-600 dark:hover:bg-stone-700"
+                >
+                  {priceReportsLoading ? 'Actualizando…' : 'Actualizar'}
+                </button>
+              </div>
+
+              {priceReportsError && (
+                <p className="mb-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200" role="alert">
+                  {priceReportsError}
+                </p>
+              )}
+              {priceReportsLoading && priceReports.length === 0 ? (
+                <p className="py-8 text-center text-sm text-stone-500" role="status">Cargando reportes…</p>
+              ) : priceReports.length === 0 ? (
+                <p className="py-8 text-center text-sm text-stone-500">Todavía no hay reportes de precios.</p>
+              ) : (
+                <div className="space-y-4">
+                  {priceReports.map((report) => (
+                    <article key={report.id} className="rounded-xl border border-stone-200 p-4 dark:border-stone-700">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-base font-bold">{report.product_name}</h3>
+                          <p className="mt-1 text-sm text-stone-600 dark:text-stone-300">
+                            {report.store_name} · {report.city}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold capitalize text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                          {report.status || 'pendiente'}
+                        </span>
+                      </div>
+                      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                        <div>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">Tipo de reporte</dt>
+                          <dd className="mt-1 font-semibold capitalize">{report.report_type}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">Precio observado</dt>
+                          <dd className="mt-1 font-semibold">{formatCurrency(Number(report.reported_price))}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">Reportado por</dt>
+                          <dd className="mt-1 font-semibold">{report.reporter_username}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">Email de la cuenta</dt>
+                          <dd className="mt-1 break-all font-semibold">{report.reporter_email || 'No disponible'}</dd>
+                        </div>
+                      </dl>
+                      {report.comments && (
+                        <p className="mt-4 whitespace-pre-wrap rounded-lg bg-stone-50 p-3 text-sm text-stone-700 dark:bg-stone-900 dark:text-stone-300">
+                          <strong>Detalles:</strong> {report.comments}
+                        </p>
+                      )}
+                      <p className="mt-3 text-xs text-stone-500 dark:text-stone-400">
+                        Enviado el {new Date(report.created_at).toLocaleString('es-AR')}
+                      </p>
+                    </article>
+                  ))}
+                </div>
               )}
             </section>
           )}
