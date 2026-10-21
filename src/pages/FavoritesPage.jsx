@@ -13,9 +13,30 @@ export default function FavoritesPage() {
   const { user, loading: authLoading, favorites, favoritesLoading, toggleFavorite, favoritesError } = useCustomerAuth();
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('arprice_theme') === 'dark');
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const favoriteIdsKey = favorites.join(',');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(apiUrl('/categories'))
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((result) => {
+        if (!cancelled) setCategories(Array.isArray(result) ? result : []);
+      })
+      .catch((categoryError) => {
+        console.error('Categories could not be loaded on the favorites page', categoryError);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -92,6 +113,11 @@ export default function FavoritesPage() {
         favoritesCount={favorites.length}
         onOpenFavorites={() => navigate('/favoritos', { replace: true })}
         onResetView={() => navigate('/')}
+        categories={categories}
+        selectedCategory="todos"
+        onSelectCategory={(categoryId) => {
+          navigate(categoryId === 'todos' ? '/buscar' : `/buscar?category=${encodeURIComponent(categoryId)}`);
+        }}
       />
 
       <main className="px-4 py-6 sm:px-6 lg:px-8">
