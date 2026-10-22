@@ -17,7 +17,6 @@ export function ReportPriceModal({
   const { user, accessToken, loading: authLoading } = useCustomerAuth();
   const [storeName, setStoreName] = useState(reportedStoreName || product?.primaryStore?.name || '');
   const { t } = useLanguage();
-  const [storeName, setStoreName] = useState('');
   const availableStores = [...new Map(
     stores
       .filter((store) => store?.name?.trim())
@@ -196,9 +195,6 @@ export function ReportPriceModal({
                   max="1000000000"
                   value={observedPrice}
                   onChange={(e) => setObservedPrice(e.target.value)}
-                  placeholder="Ej: 3850"
-                  value={reportedPrice}
-                  onChange={(e) => setReportedPrice(e.target.value)}
                   placeholder={t('Ej: 3850')}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
