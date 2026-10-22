@@ -5,8 +5,17 @@ import { apiUrl } from '../config/api.js';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 import { useLanguage } from '../contexts/LanguageContext.jsx';
 
-export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoading = false }) {
+export function ReportPriceModal({
+  onClose,
+  selectedCity,
+  stores = [],
+  storesLoading = false,
+  product = null,
+  reportedStoreName = '',
+  reportedPrice = null,
+}) {
   const { user, accessToken, loading: authLoading } = useCustomerAuth();
+  const [storeName, setStoreName] = useState(reportedStoreName || product?.primaryStore?.name || '');
   const { t } = useLanguage();
   const [storeName, setStoreName] = useState('');
   const availableStores = [...new Map(
@@ -17,9 +26,9 @@ export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoa
   const selectedStoreName = availableStores.some((store) => store.name === storeName)
     ? storeName
     : availableStores[0]?.name || '';
-  const [productName, setProductName] = useState('');
-  const [reportedPrice, setReportedPrice] = useState('');
-  const [reportType, setReportType] = useState('oferta');
+  const [productName, setProductName] = useState(product?.name || '');
+  const [observedPrice, setObservedPrice] = useState(reportedPrice ?? (product?.currentPrice ? String(product.currentPrice) : ''));
+  const [reportType, setReportType] = useState(product ? 'sobreprecio' : 'oferta');
   const [comments, setComments] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,7 +50,7 @@ export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoa
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ productName, storeName: selectedStoreName, reportedPrice, reportType, comments, city: selectedCity }),
+        body: JSON.stringify({ productName, storeName: selectedStoreName, reportedPrice: observedPrice, reportType, comments, city: selectedCity }),
       });
       const payload = await response.json().catch(() => ({}));
       if (response.status === 404) {
@@ -185,6 +194,9 @@ export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoa
                   min="0.01"
                   step="0.01"
                   max="1000000000"
+                  value={observedPrice}
+                  onChange={(e) => setObservedPrice(e.target.value)}
+                  placeholder="Ej: 3850"
                   value={reportedPrice}
                   onChange={(e) => setReportedPrice(e.target.value)}
                   placeholder={t('Ej: 3850')}

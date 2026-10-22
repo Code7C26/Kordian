@@ -27,6 +27,7 @@ export function HeroCategoryGrid({
   onSearchSubmit,
   onQuickSearch,
   searchHistory = [],
+  registeredMerchantCount,
   onSelectSearch,
   onRemoveSearch,
   onClearSearch,
@@ -188,6 +189,48 @@ export function HeroCategoryGrid({
           </button>
         </div>
 
+        <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3 bg-white dark:bg-stone-800/60 p-3 sm:p-4 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs">
+          <div className="flex items-center gap-3 p-2">
+            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
+              <TrendingDown className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-extrabold text-stone-900 dark:text-white">Ahorro Promedio 24%</p>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">En compras comparadas</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-2">
+            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
+              <Store className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-extrabold text-stone-900 dark:text-white">
+                {Number.isInteger(registeredMerchantCount)
+                  ? `${registeredMerchantCount} ${registeredMerchantCount === 1 ? 'Comercio registrado' : 'Comercios registrados'}`
+                  : 'Comercios registrados'}
+              </p>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">Supermercados y tiendas</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-2">
+            <div className="p-2 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-extrabold text-stone-900 dark:text-white">Alertas de Inflado</p>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">Notifica sobreprecios</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-2">
+            <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-extrabold text-stone-900 dark:text-white">Precios Auditados</p>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">Actualización diaria</p>
+            </div>
+          </div>
+        </div>
         <p className="mt-3 text-right text-[10px] text-stone-400 dark:text-stone-500">
           Íconos por <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-400" href="https://www.flaticon.es/autores/magnific" target="_blank" rel="noreferrer">Magnific</a> en <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-400" href="https://www.flaticon.es" target="_blank" rel="noreferrer">Flaticon</a>
         </p>

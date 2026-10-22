@@ -32,7 +32,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Routes>
             {/* HOME */}
             <Route path="/" element={<App />} />
-            <Route path="/seleccionar-categorias" element={<App />} />
             <Route path="/buscar" element={<App />} />
             <Route path="/favoritos" element={<FavoritesPage />} />
             <Route path="/ingresar" element={<CustomerAuthPage mode="login" />} />

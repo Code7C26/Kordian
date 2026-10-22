@@ -23,6 +23,14 @@ export default function SharedListsPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
+  useEffect(() => {
+    setLists([])
+    setSelectedListId('')
+    setSelectedList(null)
+    setError('')
+    setNotice('')
+  }, [user?.id])
+
   const request = useCallback(async (path, options = {}) => {
     const response = await fetch(apiUrl(path), {
       ...options,

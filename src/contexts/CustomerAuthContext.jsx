@@ -5,8 +5,24 @@ const CustomerAuthContext = createContext(null)
 const CUSTOMER_SESSION_KEY = 'arprice_customer_session'
 
 function readStoredSession() {
+  const currentSession = sessionStorage.getItem(CUSTOMER_SESSION_KEY)
+  if (currentSession) {
+    try {
+      return JSON.parse(currentSession)
+    } catch {
+      sessionStorage.removeItem(CUSTOMER_SESSION_KEY)
+      return null
+    }
+  }
+
+  const legacySession = localStorage.getItem(CUSTOMER_SESSION_KEY)
+  if (!legacySession) return null
+
   try {
-    return JSON.parse(localStorage.getItem(CUSTOMER_SESSION_KEY) || 'null')
+    const parsedSession = JSON.parse(legacySession)
+    sessionStorage.setItem(CUSTOMER_SESSION_KEY, legacySession)
+    localStorage.removeItem(CUSTOMER_SESSION_KEY)
+    return parsedSession
   } catch {
     localStorage.removeItem(CUSTOMER_SESSION_KEY)
     return null
@@ -43,6 +59,7 @@ export function CustomerAuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [favorites, setFavorites] = useState([])
+  const [favoritesAccountId, setFavoritesAccountId] = useState(session?.user?.id || null)
   const [favoritesLoading, setFavoritesLoading] = useState(false)
   const [favoritesError, setFavoritesError] = useState('')
 
@@ -81,7 +98,7 @@ export function CustomerAuthProvider({ children }) {
             body: JSON.stringify({ refreshToken: storedSession.refresh_token }),
           })
           if (active) {
-            localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(refreshed.session))
+            sessionStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(refreshed.session))
             setSession(refreshed.session)
             setProfile(refreshed.profile)
           }
@@ -106,22 +123,28 @@ export function CustomerAuthProvider({ children }) {
   useEffect(() => {
     if (!session?.access_token) {
       setFavorites([])
+      setFavoritesAccountId(null)
       setFavoritesError('')
       setFavoritesLoading(false)
       return undefined
     }
 
     let active = true
+    const accountId = session.user?.id || null
     setFavoritesLoading(true)
     setFavoritesError('')
     requestCustomerJson('/customer/favorites', session.access_token)
       .then((result) => {
-        if (active) setFavorites(result.ids.map(String))
+        if (active) {
+          setFavorites(result.ids.map(String))
+          setFavoritesAccountId(accountId)
+        }
       })
       .catch((error) => {
         console.error('Customer favorites could not be loaded', error)
         if (active) {
           setFavorites([])
+          setFavoritesAccountId(accountId)
           setFavoritesError(error.message || 'No se pudieron cargar los favoritos.')
         }
       })
@@ -132,13 +155,14 @@ export function CustomerAuthProvider({ children }) {
     return () => {
       active = false
     }
-  }, [session?.access_token])
+  }, [session?.access_token, session?.user?.id])
 
   const toggleFavorite = async (productId) => {
     const normalizedId = String(productId)
     if (!session?.access_token) throw new Error('Inicia sesión para guardar favoritos en tu cuenta.')
 
-    const isFavorite = favorites.includes(normalizedId)
+    const accountFavorites = favoritesAccountId === session.user?.id ? favorites : []
+    const isFavorite = accountFavorites.includes(normalizedId)
     await requestCustomerJson(
       isFavorite ? `/customer/favorites/${encodeURIComponent(normalizedId)}` : '/customer/favorites',
       session.access_token,
@@ -149,6 +173,7 @@ export function CustomerAuthProvider({ children }) {
     setFavorites((current) => isFavorite
       ? current.filter((id) => id !== normalizedId)
       : current.includes(normalizedId) ? current : [...current, normalizedId])
+    setFavoritesAccountId(session.user?.id || null)
     setFavoritesError('')
   }
 
@@ -159,7 +184,7 @@ export function CustomerAuthProvider({ children }) {
       body: JSON.stringify({ username: username.trim(), email: email.trim(), password }),
     })
     if (result.session) {
-      localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(result.session))
+      sessionStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(result.session))
       setSession(result.session)
       setProfile({
         username: result.user?.user_metadata?.username || username.trim(),
@@ -176,7 +201,7 @@ export function CustomerAuthProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier: identifier.trim(), password }),
     })
-    localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(result.session))
+    sessionStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(result.session))
     setSession(result.session)
     setProfile(result.profile)
     return result
@@ -201,9 +226,11 @@ export function CustomerAuthProvider({ children }) {
   })
 
   const signOut = async () => {
-    localStorage.removeItem(CUSTOMER_SESSION_KEY)
+    sessionStorage.removeItem(CUSTOMER_SESSION_KEY)
     setSession(null)
     setProfile(null)
+    setFavorites([])
+    setFavoritesAccountId(null)
   }
 
   return (
@@ -214,7 +241,7 @@ export function CustomerAuthProvider({ children }) {
       accessToken: session?.access_token || null,
       profile,
       refreshProfile,
-      favorites,
+      favorites: favoritesAccountId === (session?.user?.id || null) ? favorites : [],
       favoritesLoading,
       favoritesError,
       toggleFavorite,
