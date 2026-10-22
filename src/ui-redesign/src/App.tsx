@@ -17,6 +17,8 @@ import {
 
 import { CATEGORIES, MOCK_PRODUCTS, STORES_LIST } from './data/mockProducts';
 import { Product, FilterState, BasketItem } from './types';
+import brandLogo from '../../../assents/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../../../assents/Ar-Price/Logo_final_Negativo.svg';
 import { 
   Search, 
   Filter, 
@@ -29,7 +31,6 @@ import {
   Sparkles,
   Heart,
   ShoppingBag,
-  TrendingDown,
   ArrowLeft,
   Grid
 } from 'lucide-react';
@@ -547,17 +548,17 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
           
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-stone-100 dark:border-stone-800 pb-8">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white">
-                  <TrendingDown className="w-4 h-4" />
-                </div>
-                <span className="text-xl font-black bg-gradient-to-r from-sky-600 to-emerald-600 bg-clip-text text-transparent">
-                  AR-PRICE
-                </span>
-              </div>
-              <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">
-                Plataforma colaborativa e independiente para la comparación de precios en tiempo real.
+            <div className="flex items-center gap-4 sm:gap-5">
+              <img
+                src={darkMode ? brandLogoDark : brandLogo}
+                alt="AR-PRICE"
+                className={`h-16 w-auto max-w-[160px] shrink-0 object-contain transition-transform duration-200 hover:scale-[1.03] ${
+                  darkMode ? 'mix-blend-screen' : ''
+                }`}
+              />
+              <span className="h-12 w-px shrink-0 bg-stone-200 dark:bg-stone-700" aria-hidden="true" />
+              <p className="max-w-md text-sm leading-relaxed text-stone-600 dark:text-stone-300">
+                Plataforma colaborativa e independiente para comparar precios y encontrar mejores opciones.
               </p>
             </div>
 

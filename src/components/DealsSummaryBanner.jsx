@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Percent, TrendingUp } from 'lucide-react';
 import { formatCurrency, formatPercentage } from '../utils/formatters';
 import { ProductImage } from './ProductImage';
+import { useLanguage } from '../contexts/LanguageContext.jsx';
 
 const cleanProductName = (name) => (name || 'Producto')
   .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
@@ -9,6 +10,7 @@ const cleanProductName = (name) => (name || 'Producto')
 
 export function DealsSummaryBanner({ products, onSelectProduct }) {
   const [activeTab, setActiveTab] = useState('ofertas');
+  const { t } = useLanguage();
 
   const topDeals = [...products]
     .filter((p) => p.status === 'OFERTA' || p.status === 'PRECIO_NORMAL')
@@ -36,7 +38,7 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
             }`}
           >
             <Percent className="w-4 h-4" aria-hidden="true" />
-            <span>Mayores Descuentos</span>
+            <span>{t('Mayores Descuentos')}</span>
           </button>
           <button
             type="button"
@@ -48,11 +50,11 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
             }`}
           >
             <TrendingUp className="w-4 h-4" aria-hidden="true" />
-            <span>Alertas Infladas</span>
+            <span>{t('Alertas Infladas')}</span>
           </button>
         </div>
         <span className="text-xs text-stone-400 font-medium hidden sm:inline">
-          Monitoreo en tiempo real de cadenas
+          {t('Monitoreo en tiempo real de cadenas')}
         </span>
       </div>
 
