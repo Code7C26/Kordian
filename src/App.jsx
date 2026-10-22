@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
 import { useCustomerAuth } from './contexts/CustomerAuthContext.jsx';
+import { useLanguage } from './contexts/LanguageContext.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
@@ -15,7 +16,9 @@ import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
-import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+import brandLogo from '../assents/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
 
 const SORT_OPTIONS = [
   { value: 'discount-desc', label: 'Mayor ahorro', icon: Percent },
@@ -26,6 +29,7 @@ const SORT_OPTIONS = [
 
 function SortMenu({ value, onChange }) {
   const [open, setOpen] = useState(false);
+  const { t } = useLanguage();
   const selectedOption = SORT_OPTIONS.find((option) => option.value === value) || SORT_OPTIONS[0];
   const SelectedIcon = selectedOption.icon;
 
@@ -45,7 +49,7 @@ function SortMenu({ value, onChange }) {
         <ChevronDown className={`h-4 w-4 shrink-0 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-xl dark:border-stone-700 dark:bg-stone-800" role="listbox" aria-label="Ordenar lista por">
+        <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-xl dark:border-stone-700 dark:bg-stone-800" role="listbox" aria-label={t('Ordenar lista por')}>
           {SORT_OPTIONS.map((option) => {
             const OptionIcon = option.icon;
             const isSelected = option.value === value;
@@ -62,7 +66,7 @@ function SortMenu({ value, onChange }) {
                 className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors ${isSelected ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300' : 'text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-stone-700'}`}
               >
                 <OptionIcon className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
-                <span>{option.label}</span>
+                <span>{t(option.label)}</span>
               </button>
             );
           })}
@@ -86,6 +90,7 @@ function readBasket(storageKey) {
 }
 
 export default function App() {
+  const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
   const initialViewMode = location.pathname === '/favoritos'
@@ -344,17 +349,29 @@ export default function App() {
           : Number(pagePayload?.total ?? pageData.length)
         const validProducts = pageData.filter((product) => isValidCatalogProduct(product))
         const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
-        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+        const normalizeSupermarketName = (name) => String(name || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase()
+        const supermarketImages = new Map((supermarkets || []).map((supermarket) => [
+          normalizeSupermarketName(supermarket.name),
+          supermarket.image || '',
+        ]))
         const analysisByProduct = new Map((analysisCache.current || []).map((item) => [String(item.product?.id), item]))
 
         const enriched = validProducts.map((product) => {
           const offers = (product.offers || [])
-            .map((offer) => ({
-              ...offer,
-              price: Number(offer.cash_price ?? offer.cashPrice ?? offer.price ?? 0),
-              listPrice: Number(offer.list_price ?? offer.listPrice ?? 0),
-              supermarket: offer.supermarket || offer.supermarket_name || offer.storeName || '',
-            }))
+            .map((offer) => {
+              const supermarket = offer.supermarket || offer.supermarket_name || offer.storeName || ''
+              return {
+                ...offer,
+                price: Number(offer.cash_price ?? offer.cashPrice ?? offer.price ?? 0),
+                listPrice: Number(offer.list_price ?? offer.listPrice ?? 0),
+                supermarket,
+                image: offer.image || supermarketImages.get(normalizeSupermarketName(supermarket)) || '',
+              }
+            })
             .filter((offer) => Number.isFinite(offer.price) && offer.price > 0)
           const primary = offers.reduce(
             (lowest, offer) => (!lowest || offer.price < lowest.price ? offer : lowest),
@@ -372,7 +389,7 @@ export default function App() {
             subcategory: product.subcategory || product.subcategories?.name || '',
             currentPrice,
             primaryStore: primary
-              ? { name: primary.supermarket, id: primary.id, listPrice: primary.listPrice }
+              ? { name: primary.supermarket, id: primary.id, listPrice: primary.listPrice, image: primary.image }
               : { name: '', id: null, listPrice: 0 },
             primaryOffer: primary,
             avgMarketPrice,
@@ -628,14 +645,14 @@ export default function App() {
 
       {favoriteNotice && (
         <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto flex max-w-lg items-center justify-between gap-3 rounded-xl bg-stone-900 px-4 py-3 text-sm font-semibold text-white shadow-xl" role="status">
-          <span>{favoriteNotice}</span>
+          <span>{t(favoriteNotice)}</span>
           {!user && (
             <button
               type="button"
               onClick={() => navigate(`/ingresar?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`)}
               className="shrink-0 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold hover:bg-sky-500"
             >
-              Iniciar sesión
+              {t('Iniciar sesión')}
             </button>
           )}
           <button type="button" onClick={() => setFavoriteNotice('')} className="shrink-0 rounded px-1 text-white/70 hover:text-white" aria-label="Cerrar aviso">×</button>
@@ -651,8 +668,8 @@ export default function App() {
                   <Heart className="w-6 h-6 fill-current" />
                 </div>
                 <div>
-                  <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-400">Tu selección</p>
-                  <h1 className="mt-1 text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">Favoritos</h1>
+                  <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-400">{t('Tu selección')}</p>
+                  <h1 className="mt-1 text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">{t('Favoritos')}</h1>
                 </div>
               </div>
               <button
@@ -663,27 +680,27 @@ export default function App() {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" />
-                Volver a Categorías
+                {t('Volver a Categorías')}
               </button>
             </div>
           </div>
 
           {favoritesLoading ? (
-            <div className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status">Cargando favoritos…</div>
+            <div className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status">{t('Cargando favoritos…')}</div>
           ) : favoritesError ? (
             <div className="rounded-3xl bg-white p-12 text-center text-sm text-rose-600 dark:bg-stone-800" role="alert">{favoritesError}</div>
           ) : !user ? (
             <div className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800">
-              <h2 className="text-xl font-bold">Inicia sesión para ver tus favoritos</h2>
-              <button type="button" onClick={() => navigate('/ingresar?next=%2Ffavoritos')} className="mt-5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">Iniciar sesión</button>
+              <h2 className="text-xl font-bold">{t('Inicia sesión para ver tus favoritos')}</h2>
+              <button type="button" onClick={() => navigate('/ingresar?next=%2Ffavoritos')} className="mt-5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">{t('Iniciar sesión')}</button>
             </div>
           ) : favoriteProducts.length === 0 ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-stone-200/80 dark:border-stone-700/80 space-y-4">
               <div className="w-16 h-16 bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-300 rounded-2xl flex items-center justify-center mx-auto">
                 <Heart className="w-8 h-8" />
               </div>
-              <h2 className="text-xl font-bold text-stone-900 dark:text-white">no hay favoritos agregados</h2>
-              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Agrega productos a tu lista de favoritos para verlos aquí.</p>
+              <h2 className="text-xl font-bold text-stone-900 dark:text-white">{t('no hay favoritos agregados')}</h2>
+              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">{t('Agrega productos a tu lista de favoritos para verlos aquí.')}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
@@ -718,6 +735,30 @@ export default function App() {
             onClearSearch={() => setSearchHistory([])}
           />
 
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-[0.24em] text-sky-600 font-bold">{t('Novedades y ofertas')}</p>
+                <h2 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">{t('Ofertas destacadas y alertas de precios inflados')}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReportModalOpen(true)}
+                className="px-4 py-2 rounded-xl bg-sky-600 text-white font-semibold text-sm hover:bg-sky-500 transition-colors"
+              >
+                {t('Reportar un precio')}
+              </button>
+            </div>
+
+            <DealsSummaryBanner
+              products={products}
+              onSelectProduct={(product) => {
+                setSelectedProductForComparison(product);
+                setViewMode('products');
+                navigate('/buscar');
+              }}
+            />
+          </div>
         </>
       ) : (
         <main id="products-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -731,12 +772,12 @@ export default function App() {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/80 text-sky-700 dark:text-sky-300 font-bold text-xs sm:text-sm border border-sky-200/80 dark:border-sky-800 transition-all cursor-pointer w-fit"
               >
                 <ArrowLeft className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                <span>Volver a Categorías</span>
+                <span>{t('Volver a Categorías')}</span>
               </button>
               <div className="flex items-center gap-2 text-xs font-semibold text-stone-500 dark:text-stone-400">
-                <span className="text-stone-400">Categoría activa:</span>
+                <span className="text-stone-400">{t('Categoría activa:')}</span>
                 <span className="px-3 py-1.5 rounded-full bg-sky-600 text-white font-extrabold text-xs">
-                  {favoritesOnlyView ? '❤️ Favoritos' : currentCategoryName}
+                  {favoritesOnlyView ? `❤️ ${t('Favoritos')}` : currentCategoryName}
                 </span>
               </div>
             </div>
@@ -745,10 +786,10 @@ export default function App() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-stone-800 p-4 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs">
             <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-stone-500 dark:text-stone-400">
               <button onClick={resetFilters} className="hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer">
-                Inicio
+                {t('Inicio')}
               </button>
               <ChevronRight className="w-4 h-4 text-stone-400" />
-              <span className="text-stone-900 dark:text-white font-bold">{favoritesOnlyView ? '❤️ Mis Favoritos' : currentCategoryName}</span>
+              <span className="text-stone-900 dark:text-white font-bold">{favoritesOnlyView ? `❤️ ${t('Mis Favoritos')}` : currentCategoryName}</span>
               {filters.searchQuery && (
                 <>
                   <ChevronRight className="w-4 h-4 text-stone-400" />
@@ -758,7 +799,7 @@ export default function App() {
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="font-semibold text-stone-600 dark:text-stone-300">
-                Mostrando <strong className="text-sky-600 dark:text-sky-400 font-extrabold">{paginatedProducts.length}</strong> productos · Página {productsPage} de {totalPages}
+                {t('Mostrando ')}<strong className="text-sky-600 dark:text-sky-400 font-extrabold">{paginatedProducts.length}</strong>{t(' productos · Página ')}{productsPage}{t(' de ')}{totalPages}
               </span>
               {(filters.category !== 'todos' || filters.subcategory !== 'todos' || filters.searchQuery || filters.store !== 'todos' || favoritesOnlyView) && (
                 <button
@@ -777,7 +818,7 @@ export default function App() {
                   className="flex items-center gap-1 text-rose-500 hover:underline font-bold cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Limpiar Filtros</span>
+                  <span>{t('Limpiar Filtros')}</span>
                 </button>
               )}
             </div>
@@ -786,8 +827,8 @@ export default function App() {
           <section className="rounded-3xl border border-sky-300 bg-sky-50/70 p-4 shadow-sm dark:border-sky-700 dark:bg-sky-950/30 sm:p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-sky-600 dark:text-sky-400">Explorar por rubro</p>
-                <h2 className="mt-1 text-lg font-black text-stone-900 dark:text-white">Categorías principales</h2>
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-sky-600 dark:text-sky-400">{t('Explorar por rubro')}</p>
+                <h2 className="mt-1 text-lg font-black text-stone-900 dark:text-white">{t('Categorías principales')}</h2>
               </div>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory">
@@ -796,7 +837,7 @@ export default function App() {
                 onClick={() => handleSelectCategory('todos')}
                 className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${filters.category === 'todos' && !favoritesOnlyView ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}
               >
-                <span className="block text-sm font-black leading-tight">Todos</span>
+                <span className="block text-sm font-black leading-tight">{t('Todos')}</span>
               </button>
               {categories.map((category) => {
                 const isSelected = filters.category === category.id && !favoritesOnlyView
@@ -813,21 +854,21 @@ export default function App() {
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-stone-700/60">
               <h3 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                <span>Panel de Búsqueda y Filtros</span>
+                <span>{t('Panel de Búsqueda y Filtros')}</span>
               </h3>
-              <div className="text-xs font-semibold text-stone-400">Ubicación: {selectedCity}</div>
+              <div className="text-xs font-semibold text-stone-400">{t('Ubicación:')} {selectedCity}</div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Buscar Producto o Marca</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Buscar Producto o Marca')}</label>
 
                 <div className="relative">
                   <input
                     type="text"
                     value={filters.searchQuery}
                     onChange={(e) => updateFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
-                    placeholder="Ej: Leche, Playadito, TV..."
+                    placeholder={t('Ej: Leche, Playadito, TV...')}
                     className="w-full pl-9 pr-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                   />
                   <Search className="w-4 h-4 text-stone-400 absolute left-3 top-3" />
@@ -835,13 +876,13 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Filtrar por Comercio</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Filtrar por Comercio')}</label>
                 <select
                   value={filters.store}
                   onChange={(e) => updateFilters((prev) => ({ ...prev, store: e.target.value }))}
                   className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                 >
-                  <option value="todos">Todos los comercios</option>
+                  <option value="todos">{t('Todos los comercios')}</option>
                   {storesList.map((store) => (
                     <option key={store.id} value={store.id}>
                       {store.name}
@@ -851,14 +892,14 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Subcategoría</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Subcategoría')}</label>
                 <select
                   value={filters.subcategory}
                   onChange={(e) => updateFilters((prev) => ({ ...prev, subcategory: e.target.value }))}
                   disabled={filters.category === 'todos'}
                   className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-bold disabled:opacity-60"
                 >
-                  <option value="todos">Todas las subcategorías</option>
+                  <option value="todos">{t('Todas las subcategorías')}</option>
                   {availableSubcategories.map((subcategory) => (
                     <option key={subcategory.id} value={subcategory.id}>{subcategory.name} ({subcategory.productCount || 0})</option>
                   ))}
@@ -866,7 +907,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Ordenar Lista Por</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Ordenar Lista Por')}</label>
                 <SortMenu
                   value={filters.sortBy}
                   onChange={(sortBy) => updateFilters((prev) => ({ ...prev, sortBy }))}
@@ -876,14 +917,14 @@ export default function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-stone-100 dark:border-stone-700/50">
-              <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider">Filtros rápidos:</span>
+              <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider">{t('Filtros rápidos:')}</span>
               <button
                 type="button"
                  onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'todos' }))}
                  aria-pressed={filters.priceStatus === 'todos'}
                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'todos' ? 'bg-stone-700 text-white dark:bg-stone-200 dark:text-stone-900' : 'bg-stone-100 text-stone-700 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700'}`}
                >
-                 Todos
+                 {t('Todos')}
                </button>
                <button
                  type="button"
@@ -892,7 +933,7 @@ export default function App() {
                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'OFERTA' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900'}`}
               >
                 <Tag className="h-3.5 w-3.5" aria-hidden="true" />
-                En oferta
+                {t('En oferta')}
               </button>
               <button
                 type="button"
@@ -901,7 +942,7 @@ export default function App() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'EN_PRECIO' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-900'}`}
               >
                 <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
-                En precio
+                {t('En precio')}
               </button>
               <button
                 type="button"
@@ -910,7 +951,7 @@ export default function App() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'INFLADO' ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900'}`}
               >
                 <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                Inflado
+                {t('Inflado')}
               </button>
             </div>
           </div>
@@ -918,15 +959,15 @@ export default function App() {
           {catalogLoadError && isMockCatalog && (
             <div className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between" role="alert">
               <div>
-                <p className="font-bold">No se pudo conectar con la base de datos.</p>
-                <p className="mt-1 text-sm">Se muestran productos de demostración; los precios no son datos actuales.</p>
+                <p className="font-bold">{t('No se pudo conectar con la base de datos.')}</p>
+                <p className="mt-1 text-sm">{t('Se muestran productos de demostración; los precios no son datos actuales.')}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setCatalogRefreshKey((key) => key + 1)}
                 className="shrink-0 rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
               >
-                Reintentar conexión
+                {t('Reintentar conexión')}
               </button>
             </div>
           )}
@@ -936,8 +977,8 @@ export default function App() {
               <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
                 <Loader2 className="w-8 h-8 animate-spin" aria-hidden="true" />
               </div>
-              <h3 className="text-xl font-bold text-stone-900 dark:text-white">Cargando productos</h3>
-              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Estamos actualizando los productos de esta categoría.</p>
+              <h3 className="text-xl font-bold text-stone-900 dark:text-white">{t('Cargando productos')}</h3>
+              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">{t('Estamos actualizando los productos de esta categoría.')}</p>
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-stone-200/80 dark:border-stone-700/80 space-y-4">
@@ -945,9 +986,9 @@ export default function App() {
                 <Search className="w-8 h-8" />
               </div>
               <h3 className="text-xl font-bold text-stone-900 dark:text-white">
-                {favoritesOnlyView ? 'no hay favoritos agregados' : 'No encontramos productos con los filtros seleccionados'}
+                {favoritesOnlyView ? t('no hay favoritos agregados') : t('No encontramos productos con los filtros seleccionados')}
               </h3>
-              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.</p>
+              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">{t('Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.')}</p>
               <button
                 onClick={() => {
                   updateFilters({
@@ -962,7 +1003,7 @@ export default function App() {
                 }}
                 className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
               >
-                Restablecer Filtros
+                {t('Restablecer Filtros')}
               </button>
             </div>
           ) : (
@@ -990,7 +1031,7 @@ export default function App() {
                     disabled={productsPage === 1}
                     className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
                   >
-                    Anterior
+                    {t('Anterior')}
                   </button>
                   {visiblePages.map((page) => (
                     <button
@@ -1008,7 +1049,7 @@ export default function App() {
                     disabled={productsPage === totalPages}
                     className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
                   >
-                    Siguiente
+                    {t('Siguiente')}
                   </button>
                 </div>
               )}
@@ -1020,27 +1061,33 @@ export default function App() {
       <footer className="mt-16 bg-white dark:bg-stone-900 border-t border-stone-200/80 dark:border-stone-800 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-stone-100 dark:border-stone-800 pb-8">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white">
-                  <TrendingDown className="w-4 h-4" />
-                </div>
-                <span className="text-xl font-black text-stone-900 dark:text-white">Ar-Price</span>
-              </div>
-              <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">Plataforma colaborativa e independiente para la comparación de precios en tiempo real.</p>
+            <div className="flex items-center gap-4 sm:gap-5">
+              <img
+                src={darkMode ? brandLogoDark : brandLogo}
+                alt="AR-PRICE"
+                className={`h-16 w-auto max-w-[160px] shrink-0 object-contain transition-transform duration-200 hover:scale-[1.03] ${
+                  darkMode ? 'mix-blend-screen' : ''
+                }`}
+              />
+              <span className="h-12 w-px shrink-0 bg-stone-200 dark:bg-stone-700" aria-hidden="true" />
+              <p className="max-w-md text-sm leading-relaxed text-stone-600 dark:text-stone-300">
+                {t('Plataforma colaborativa e independiente para comparar precios y encontrar mejores opciones.')}
+              </p>
             </div>
             <div className="flex flex-wrap gap-3">
               <button onClick={() => openPriceReport()} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
                 Reportar precio
+              <button onClick={() => setReportModalOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
+                {t('Reportar precio')}
               </button>
               <button onClick={() => setBasketOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
-                Ver Mi Canasta Ahorro
+                {t('Ver Mi Canasta Ahorro')}
               </button>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400 font-medium">
             <p>© {new Date().getFullYear()} Ar-Price Argentina</p>
-            <p>Ubicación activa: <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
+            <p>{t('Ubicación activa:')} <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
           </div>
         </div>
       </footer>

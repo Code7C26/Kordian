@@ -1,17 +1,13 @@
 // Component for hero category grid
 import { useState } from 'react';
 import {
-  Grid,
   Search,
-  TrendingDown,
-  ShieldCheck,
-  Store,
-  Zap,
   ArrowRight,
   Clock3,
   X,
 } from 'lucide-react';
-import { getCategoryIcon } from '../utils/categoryIcons.js';
+import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
+import { useLanguage } from '../contexts/LanguageContext.jsx';
 
 const QUICK_SEARCH_TAGS = [
   'Chocolate',        // Alimentos Frescos y Refrigerados
@@ -37,19 +33,18 @@ export function HeroCategoryGrid({
   onClearSearch,
 }) {
   const [searchFocused, setSearchFocused] = useState(false);
+  const { t } = useLanguage();
 
   return (
-    <div className="relative overflow-hidden bg-gradient-to-b from-sky-50/80 via-white to-stone-50/50 dark:from-stone-900 dark:via-stone-900 dark:to-stone-950 pb-12 pt-8 sm:pt-12 border-b border-stone-200/60 dark:border-stone-800">
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-tr from-sky-400/10 via-blue-400/5 to-purple-400/10 blur-3xl pointer-events-none rounded-full" />
+    <div className="relative overflow-hidden bg-stone-50 pb-12 pt-8 sm:pt-12 border-b border-stone-200 dark:bg-stone-950 dark:border-stone-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        <div className="text-center max-w-3xl mx-auto space-y-4">
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-stone-900 dark:text-white tracking-tight leading-tight">
-            Encuentra el <span className="animated-price-gradient bg-gradient-to-r from-sky-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">precio justo</span> en un solo lugar
+        <div className="text-center max-w-5xl mx-auto space-y-5">
+          <h1 className="hero-title-font mx-auto max-w-5xl text-balance text-4xl font-black leading-[1.08] tracking-[-0.04em] text-stone-950 dark:text-white sm:text-5xl md:text-6xl">
+            {t('Encontrá el ')}<span className="animated-price-gradient bg-gradient-to-r from-sky-500 via-blue-600 to-cyan-500 bg-clip-text text-transparent">{t('precio justo')}</span>{t(' para cada compra')}
           </h1>
 
           <p className="text-sm sm:text-base text-stone-600 dark:text-stone-300 leading-relaxed font-normal max-w-2xl mx-auto">
-            Compara precios en tiempo real entre negocios de distinto rubro.
-            Detectamos ofertas reales e identificamos sobreprecios al instante.
+            {t('Explorá productos, compará precios y encontrá ofertas en comercios de tu zona.')}
           </p>
 
           <div className="pt-2 max-w-2xl mx-auto">
@@ -70,36 +65,36 @@ export function HeroCategoryGrid({
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
-                placeholder="Busca por producto, marca o categoría (ej: Yerba, TV, Leche)..."
+                placeholder={t('Busca por producto, marca o categoría (ej: Yerba, TV, Leche)...')}
                 className="w-full px-3 py-2.5 text-stone-900 dark:text-white placeholder-stone-400 bg-transparent text-sm sm:text-base focus:outline-none"
               />
               {searchFocused && searchHistory.length > 0 && (
                 <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-sky-200 bg-white text-left shadow-xl dark:border-sky-900 dark:bg-stone-800">
                   <div className="flex items-center justify-between border-b border-stone-100 px-3 py-2 dark:border-stone-700">
-                    <span className="flex items-center gap-2 text-xs font-bold text-stone-500 dark:text-stone-300"><Clock3 className="h-3.5 w-3.5 text-sky-500" /> Búsquedas recientes</span>
-                    <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={onClearSearch} className="text-[11px] font-semibold text-sky-600 hover:text-sky-800 dark:text-sky-300">Borrar historial</button>
+                    <span className="flex items-center gap-2 text-xs font-bold text-stone-500 dark:text-stone-300"><Clock3 className="h-3.5 w-3.5 text-sky-500" /> {t('Búsquedas recientes')}</span>
+                    <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={onClearSearch} className="text-[11px] font-semibold text-sky-600 hover:text-sky-800 dark:text-sky-300">{t('Borrar historial')}</button>
                   </div>
                   {searchHistory.map((query) => (
                     <div key={query} className="flex items-center gap-2 px-3 py-2 hover:bg-sky-50 dark:hover:bg-sky-950/40">
                       <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onSelectSearch(query); setSearchFocused(false) }} className="flex min-w-0 flex-1 items-center gap-2 text-sm text-stone-700 dark:text-stone-200">
                         <Clock3 className="h-4 w-4 shrink-0 text-sky-500" /><span className="truncate">{query}</span>
                       </button>
-                      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onRemoveSearch(query)} className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-700 dark:hover:bg-stone-700" aria-label={`Eliminar búsqueda ${query}`}><X className="h-3.5 w-3.5" /></button>
+                      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onRemoveSearch(query)} className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-700 dark:hover:bg-stone-700" aria-label={`${t('Eliminar búsqueda')} ${query}`}><X className="h-3.5 w-3.5" /></button>
                     </div>
                   ))}
                 </div>
               )}
               <button
                 type="submit"
-                className="px-5 py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-semibold text-sm rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
+                className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
               >
-                <span>Buscar</span>
+                <span>{t('Buscar')}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
 
-            <div className="flex items-center justify-center flex-wrap gap-1.5 mt-3 text-xs text-stone-500 dark:text-stone-400">
-              <span className="font-semibold text-stone-400">Popular:</span>
+            <div aria-label={t('Búsquedas populares')} className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
+              <span className="mr-1 font-semibold text-stone-500 dark:text-stone-400">{t('Búsquedas populares')}</span>
               {QUICK_SEARCH_TAGS.map((tag) => (
                 <button
                   key={tag}
@@ -112,7 +107,7 @@ export function HeroCategoryGrid({
                       onSearchSubmit();
                     }
                   }}
-                  className="px-2.5 py-1 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-sky-100 dark:hover:bg-sky-950/60 hover:text-sky-700 dark:hover:text-sky-300 text-stone-600 dark:text-stone-300 transition-colors border border-stone-200/60 dark:border-stone-700/60"
+                  className="rounded-full border border-sky-600 bg-sky-600 px-3 py-1.5 font-semibold text-white transition-colors hover:border-sky-700 hover:bg-sky-700 dark:border-sky-500 dark:bg-sky-600 dark:hover:border-sky-400 dark:hover:bg-sky-500"
                 >
                   {tag}
                 </button>
@@ -124,16 +119,16 @@ export function HeroCategoryGrid({
         <div className="mt-12 mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-stone-900 dark:text-white flex items-center gap-2">
-              <span>Categorías Principales</span>
+              <span>{t('Categorías Principales')}</span>
             </h2>
-            <p className="text-xs text-stone-500 dark:text-stone-400">Selecciona una categoría para explorar productos y ofertas</p>
+            <p className="text-xs text-stone-500 dark:text-stone-400">{t('Selecciona una categoría para explorar productos y ofertas')}</p>
           </div>
         </div>
 
         <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
           {categories.map((cat) => {
             const isSelected = selectedCategory === cat.id;
-            const CategoryIcon = getCategoryIcon(cat);
+            const categoryIcon = getCategoryIconAsset(cat);
             return (
               <button
                 type="button"
@@ -145,13 +140,13 @@ export function HeroCategoryGrid({
                     : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 text-stone-800 dark:text-stone-100 hover:border-sky-300 dark:hover:border-sky-700 shadow-xs hover:shadow-md'
                 }`}
               >
-                <div className="flex items-start justify-between w-full">
-                  <div className={`p-2.5 rounded-xl transition-colors ${
+                <div className="flex w-full items-start justify-between">
+                  <div className={`flex h-14 w-14 items-center justify-center rounded-xl transition-colors ${
                     isSelected
                       ? 'bg-white/20 text-white'
                       : 'bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 group-hover:bg-sky-100 dark:group-hover:bg-sky-900/60'
                   }`}>
-                    <CategoryIcon className="w-6 h-6" />
+                    <CategoryIconImage src={categoryIcon} className="h-9 w-9" />
                   </div>
                 </div>
                 <div>
@@ -178,8 +173,10 @@ export function HeroCategoryGrid({
                 : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 text-stone-800 dark:text-stone-100 hover:border-sky-300 dark:hover:border-sky-700 shadow-xs hover:shadow-md'
             }`}
           >
-            <div className={`p-2.5 rounded-xl w-fit ${selectedCategory === 'todos' ? 'bg-white/20 text-white' : 'bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400'}`}>
-              <Grid className="w-6 h-6" />
+            <div className="flex w-full items-start justify-between">
+              <div className={`flex h-14 w-14 items-center justify-center rounded-xl ${selectedCategory === 'todos' ? 'bg-white/20 text-white' : 'bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400'}`}>
+                <CategoryIconImage src={getCategoryIconAsset({ id: 'todos' })} className="h-9 w-9" />
+              </div>
             </div>
             <div>
               <h3 className={`font-bold text-sm leading-tight ${selectedCategory === 'todos' ? 'text-white' : 'text-stone-900 dark:text-white'}`}>
@@ -234,6 +231,9 @@ export function HeroCategoryGrid({
             </div>
           </div>
         </div>
+        <p className="mt-3 text-right text-[10px] text-stone-400 dark:text-stone-500">
+          Íconos por <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-400" href="https://www.flaticon.es/autores/magnific" target="_blank" rel="noreferrer">Magnific</a> en <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-400" href="https://www.flaticon.es" target="_blank" rel="noreferrer">Flaticon</a>
+        </p>
       </div>
     </div>
   );

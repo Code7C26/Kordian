@@ -3,10 +3,13 @@ import { X, TrendingDown, Store, Calendar, Info, TriangleAlert } from 'lucide-re
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
+import { useLanguage } from '../contexts/LanguageContext.jsx';
 
 export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, onExplain, onReportPriceInflated }) {
   const [added, setAdded] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
+  const { language, t } = useLanguage();
+  const dateLocale = language === 'en' ? 'en-US' : 'es-AR';
   if (!product) return null;
   const sortedStores = getProductOffers(product);
   const cheapestStore = sortedStores[0] || { price: 0, supermarket: '' };
@@ -60,7 +63,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
   const evolutionAvailable = visiblePeriods.length >= 2;
   const maxHistPrice = hasHistoryReferences ? Math.max(...visiblePeriods.map((point) => point.avgPrice || 0)) : 1;
   const isInflated = product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO';
-  const statusLabel = product.status === 'OFERTA' ? 'En oferta' : isInflated ? 'Inflado' : 'En precio';
+  const statusLabel = t(product.status === 'OFERTA' ? 'En oferta' : isInflated ? 'Inflado' : 'En precio');
   const selectedPeriodRecords = selectedPeriod
     ? history
       .map((record) => ({ ...record, timestamp: new Date(record.date).getTime(), price: Number(record.avgPrice || record.minPrice || 0) }))
@@ -100,7 +103,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
               </div>
               <h2 className="text-xl font-bold text-stone-900 dark:text-white leading-tight">{product.name}</h2>
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-                Precios disponibles en {sortedStores.length} {sortedStores.length === 1 ? 'comercio' : 'comercios'}
+                {t('Precios disponibles en ')}{sortedStores.length} {t(sortedStores.length === 1 ? 'comercio' : 'comercios')}
               </p>
             </div>
           </div>
@@ -118,14 +121,14 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
               </div>
               <div>
                 <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-                  {sortedStores.length > 1 ? 'Brecha Máxima de Ahorro' : 'Precio disponible'}
+                  {t(sortedStores.length > 1 ? 'Brecha Máxima de Ahorro' : 'Precio disponible')}
                 </p>
                 <p className="text-lg font-black text-stone-900 dark:text-white">
                   {sortedStores.length > 1
-                    ? `Ahorra ${formatCurrency(maxSavings)} (${savingsPercentage}%) comprando en ${cheapestStore.supermarket || cheapestStore.storeName || '—'}`
+                    ? `${t('Ahorra')} ${formatCurrency(maxSavings)} (${savingsPercentage}%) ${t('comprando en')} ${cheapestStore.supermarket || cheapestStore.storeName || '—'}`
                     : sortedStores.length === 1
-                      ? `${formatCurrency(cheapestStore.price)} en ${cheapestStore.supermarket || cheapestStore.storeName}`
-                      : 'No hay precios disponibles para comparar.'}
+                      ? `${formatCurrency(cheapestStore.price)} ${t('disponible en')} ${cheapestStore.supermarket || cheapestStore.storeName}`
+                      : t('No hay precios disponibles para comparar.')}
                 </p>
               </div>
             </div>
@@ -143,17 +146,17 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
               disabled={!sortedStores.length}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-colors shrink-0"
             >
-              {isInBasket ? 'Agregado a Canasta ✓' : 'Agregar a Canasta Ahorro'}
+              {t(isInBasket ? 'Agregado a Canasta ✓' : 'Agregar a Canasta Ahorro')}
             </button>
             {added && (
-              <div className="absolute top-6 right-6 bg-emerald-600 text-white px-3 py-1.5 rounded-md shadow-md text-sm">Agregado a la canasta</div>
+              <div className="absolute top-6 right-6 bg-emerald-600 text-white px-3 py-1.5 rounded-md shadow-md text-sm">{t('Agregado a la canasta')}</div>
             )}
           </div>
 
           <div>
             <h3 className="text-sm font-bold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
               <Store className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-              <span>Comparador de Precios por Tienda</span>
+              <span>{t('Comparador de Precios por Tienda')}</span>
             </h3>
             <div className="space-y-2.5">
               {sortedStores.map((store, index) => {
@@ -180,9 +183,9 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                       )}
                       <div className="flex-1 text-center">
                         <div className="flex items-center justify-center gap-2 flex-wrap">
-                          <span className="font-bold text-stone-900 dark:text-white text-sm">{store.supermarket || store.storeName || 'Sin nombre'}</span>
-                          {isCheapest && <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-extrabold text-[10px]">MÁS BARATO</span>}
-                          {isMostExpensive && <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-extrabold text-[10px]">MÁS CARO</span>}
+                          <span className="font-bold text-stone-900 dark:text-white text-sm">{store.supermarket || store.storeName || t('Sin nombre')}</span>
+                          {isCheapest && <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-extrabold text-[10px]">{t('MÁS BARATO')}</span>}
+                          {isMostExpensive && <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-extrabold text-[10px]">{t('MÁS CARO')}</span>}
                         </div>
                       </div>
                     </div>
@@ -206,7 +209,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                             } catch { /* Optional basket handler. */ }
                           }}
                           className="ml-2 px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded-md text-sm font-bold"
-                          title="Agregar esta oferta a la canasta"
+                          title={t('Agregar esta oferta a la canasta')}
                         >
                           +
                         </button>
@@ -232,11 +235,11 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
           <div className="bg-stone-50 dark:bg-stone-900/70 p-5 rounded-2xl border border-stone-200/80 dark:border-stone-800 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="font-bold text-sm text-stone-900 dark:text-white flex items-center gap-2"><Calendar className="w-4 h-4 text-sky-600 dark:text-sky-400" /> <span>Historial de Precios (Hasta 90 días)</span></h4>
-                <p className="text-xs text-stone-500 dark:text-stone-400">Evolución del precio promedio y mejor precio encontrado</p>
+                <h4 className="font-bold text-sm text-stone-900 dark:text-white flex items-center gap-2"><Calendar className="w-4 h-4 text-sky-600 dark:text-sky-400" /> <span>{t('Historial de Precios (Hasta 90 días)')}</span></h4>
+                <p className="text-xs text-stone-500 dark:text-stone-400">{t('Evolución del precio promedio y mejor precio encontrado')}</p>
               </div>
               <div className="flex flex-col items-end gap-1">
-                <span className="text-xs font-semibold px-2.5 py-1 bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 rounded-lg">Ref. Promedio: {formatCurrency(product.avgMarketPrice || 0)}</span>
+                <span className="text-xs font-semibold px-2.5 py-1 bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 rounded-lg">{t('Ref. Promedio:')} {formatCurrency(product.avgMarketPrice || 0)}</span>
                 <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-extrabold ${
                   product.status === 'OFERTA'
                     ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800'
@@ -246,7 +249,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                 }`}>
                   <span>{statusLabel}</span>
                   {onExplain && (
-                    <button type="button" onClick={() => onExplain(product)} className="inline-flex h-4 w-4 items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10" aria-label={`Ver explicación de ${statusLabel}`} title="Ver explicación del análisis">
+                    <button type="button" onClick={() => onExplain(product)} className="inline-flex h-4 w-4 items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10" aria-label={`${t('Ver explicación de')} ${statusLabel}`} title={t('Ver explicación del análisis')}>
                       <Info className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -258,7 +261,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                 const heightAvg = Math.max(20, Math.min(100, ((point.avgPrice || 0) / maxHistPrice) * 100));
                 const heightMin = Math.max(20, Math.min(100, ((point.minPrice || 0) / maxHistPrice) * 100));
                 return (
-                  <div key={idx} className="flex min-w-0 flex-col items-center space-y-2 cursor-pointer" onClick={() => setSelectedPeriod(point)} title="Ver registros de este período" role="button" tabIndex="0" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedPeriod(point); }}>
+                  <div key={idx} className="flex min-w-0 flex-col items-center space-y-2 cursor-pointer" onClick={() => setSelectedPeriod(point)} title={t('Ver registros de este período')} role="button" tabIndex="0" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedPeriod(point); }}>
                     <div className="flex min-h-10 w-full flex-wrap items-center justify-center gap-x-2 gap-y-1.5 text-center text-xs font-extrabold leading-snug text-stone-800 dark:text-stone-100">
                       <span>{formatCurrency(point.avgPrice || point.minPrice)}</span>
                       {point.changePercent !== null && point.avgPrice > 0 && evolutionAvailable && (
@@ -273,18 +276,18 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                       <div className="pointer-events-none absolute inset-x-0 top-1 z-20 flex justify-center opacity-0 transition-opacity group-hover:opacity-100"><span className="rounded-md bg-emerald-700 px-2 py-1 text-[11px] font-black text-white shadow-md">{formatCurrency(point.minPrice)}</span></div>
                     </div>
                     <div className="text-center text-[10px] font-semibold text-stone-500 dark:text-stone-400">
-                      {new Date(point.periodStart).toLocaleDateString('es-AR')} - {new Date(point.periodEnd).toLocaleDateString('es-AR')}
+                      {new Date(point.periodStart).toLocaleDateString(dateLocale)} - {new Date(point.periodEnd).toLocaleDateString(dateLocale)}
                     </div>
                   </div>
                 );
               }) : (
-                <div className="text-sm text-stone-500">No hay referencias</div>
+                <div className="text-sm text-stone-500">{t('No hay referencias')}</div>
               )}
             </div>
             {hasHistoryReferences && (
               <div className="flex items-center justify-center gap-6 text-xs text-stone-500 dark:text-stone-400 pt-2 border-t border-stone-200/60 dark:border-stone-800">
-                <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500" /> <span>Precio Mínimo Encontrado</span></div>
-                <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-sky-200 dark:bg-sky-950" /> <span>Precio Promedio General</span></div>
+                <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500" /> <span>{t('Precio Mínimo Encontrado')}</span></div>
+                <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-sky-200 dark:bg-sky-950" /> <span>{t('Precio Promedio General')}</span></div>
               </div>
             )}
           </div>
@@ -293,8 +296,8 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
       {selectedPeriod && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/60 p-4" onClick={() => setSelectedPeriod(null)}>
           <div className="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-5 shadow-2xl dark:border-stone-700 dark:bg-stone-800" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-4 flex items-start justify-between gap-4"><div><h3 className="text-base font-bold text-stone-900 dark:text-white">Registros del período</h3><p className="text-xs text-stone-500 dark:text-stone-400">{new Date(selectedPeriod.periodStart).toLocaleDateString('es-AR')} - {new Date(selectedPeriod.periodEnd).toLocaleDateString('es-AR')}</p></div><button type="button" onClick={() => setSelectedPeriod(null)} aria-label="Cerrar registros" className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700"><X className="h-5 w-5" /></button></div>
-            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">{selectedPeriodRecords.map((record, index) => { const store = sortedStores.find((candidate) => String(candidate.id) === String(record.offerId)); return <div key={`${record.timestamp}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 dark:border-stone-700 dark:bg-stone-900/70"><div className="flex min-w-0 items-center gap-2">{store?.image && <img src={store.image} alt="" className="h-7 w-7 shrink-0 rounded-lg bg-white object-contain" />}<div className="min-w-0"><span className="block truncate text-xs font-bold text-stone-700 dark:text-stone-200">{store?.supermarket || 'Supermercado'}</span><span className="block text-[11px] font-semibold text-stone-500 dark:text-stone-400">{new Date(record.timestamp).toLocaleDateString('es-AR')}</span></div></div><span className="font-bold text-stone-900 dark:text-white">{formatCurrency(record.price)}</span><span className={`min-w-16 text-right text-xs font-bold ${record.isNewPrice ? 'text-sky-600 dark:text-sky-400' : record.changePercent > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{record.isNewPrice ? 'Nuevo precio' : `${record.changePercent > 0 ? '+' : ''}${record.changePercent.toFixed(1)}%`}</span></div> })}</div>
+            <div className="mb-4 flex items-start justify-between gap-4"><div><h3 className="text-base font-bold text-stone-900 dark:text-white">{t('Registros del período')}</h3><p className="text-xs text-stone-500 dark:text-stone-400">{new Date(selectedPeriod.periodStart).toLocaleDateString(dateLocale)} - {new Date(selectedPeriod.periodEnd).toLocaleDateString(dateLocale)}</p></div><button type="button" onClick={() => setSelectedPeriod(null)} aria-label={t('Cerrar registros')} className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700"><X className="h-5 w-5" /></button></div>
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">{selectedPeriodRecords.map((record, index) => { const store = sortedStores.find((candidate) => String(candidate.id) === String(record.offerId)); return <div key={`${record.timestamp}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 dark:border-stone-700 dark:bg-stone-900/70"><div className="flex min-w-0 items-center gap-2">{store?.image && <img src={store.image} alt="" className="h-7 w-7 shrink-0 rounded-lg bg-white object-contain" />}<div className="min-w-0"><span className="block truncate text-xs font-bold text-stone-700 dark:text-stone-200">{store?.supermarket || t('Supermercado')}</span><span className="block text-[11px] font-semibold text-stone-500 dark:text-stone-400">{new Date(record.timestamp).toLocaleDateString(dateLocale)}</span></div></div><span className="font-bold text-stone-900 dark:text-white">{formatCurrency(record.price)}</span><span className={`min-w-16 text-right text-xs font-bold ${record.isNewPrice ? 'text-sky-600 dark:text-sky-400' : record.changePercent > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{record.isNewPrice ? t('Nuevo precio') : `${record.changePercent > 0 ? '+' : ''}${record.changePercent.toFixed(1)}%`}</span></div> })}</div>
           </div>
         </div>
       )}

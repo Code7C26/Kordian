@@ -21,13 +21,15 @@ import PriceInflationPage from './pages/PriceInflationPage.jsx'
 import CouponsPage from './pages/CouponsPage.jsx'
 import SettingsPage from './pages/SettingsPage.jsx'
 import PasswordRecoveryPage from './pages/PasswordRecoveryPage.jsx'
+import { LanguageProvider } from './contexts/LanguageContext.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <CustomerAuthProvider>
-      <SelectedCityProvider>
-        <BrowserRouter>
-          <Routes>
+    <LanguageProvider>
+      <CustomerAuthProvider>
+        <SelectedCityProvider>
+          <BrowserRouter>
+            <Routes>
             {/* HOME */}
             <Route path="/" element={<App />} />
             <Route path="/buscar" element={<App />} />
@@ -57,9 +59,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 </ProtectedRoute>
               }
             />
-          </Routes>
-        </BrowserRouter>
-      </SelectedCityProvider>
-    </CustomerAuthProvider>
+            </Routes>
+          </BrowserRouter>
+        </SelectedCityProvider>
+      </CustomerAuthProvider>
+    </LanguageProvider>
   </React.StrictMode>
 )
