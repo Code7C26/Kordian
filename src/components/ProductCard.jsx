@@ -8,6 +8,7 @@ import {
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
+import { useLanguage } from '../contexts/LanguageContext.jsx';
 
 export function ProductCard({
   product,
@@ -18,13 +19,14 @@ export function ProductCard({
   isInBasket,
 }) {
   const [justAdded, setJustAdded] = useState(false);
+  const { t } = useLanguage();
   const [selectedOfferId, setSelectedOfferId] = useState(null);
   const isInflated = product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO';
   const statusLabel = product.status === 'OFERTA'
-    ? 'En oferta'
+    ? t('En oferta')
     : isInflated
-      ? 'Inflado'
-      : 'En precio';
+      ? t('Inflado')
+      : t('En precio');
 
   const sortedStores = getProductOffers(product);
 
@@ -79,7 +81,7 @@ export function ProductCard({
               ? 'bg-rose-500 text-white'
               : 'bg-stone-100/90 dark:bg-stone-800/90 text-stone-600 dark:text-stone-300 hover:text-rose-500 hover:bg-white'
           }`}
-          title={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+          title={t(isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos')}
         >
           <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
         </button>
@@ -95,7 +97,7 @@ export function ProductCard({
           <div className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span>{product.unit}</span>
-              <span className="text-sky-600 dark:text-sky-400">{sortedStores.length} {sortedStores.length === 1 ? 'Opción' : 'Opciones'}</span>
+              <span className="text-sky-600 dark:text-sky-400">{sortedStores.length} {t(sortedStores.length === 1 ? 'Opción' : 'Opciones')}</span>
             </div>
           </div>
 
@@ -103,14 +105,14 @@ export function ProductCard({
             {product.name}
           </h3>
           <p className="text-xs font-semibold text-stone-500 dark:text-stone-400 truncate">
-            {product.brand || 'Marca no disponible'}
+            {product.brand || t('Marca no disponible')}
           </p>
         </div>
 
         <div className="bg-stone-50 dark:bg-stone-900/60 p-3 rounded-xl border border-stone-200/50 dark:border-stone-800/80 space-y-1">
           {Number(product.primaryStore?.listPrice) > Number(product.currentPrice) && (
             <p className="text-xs text-stone-500 line-through">
-              Precio regular: {formatCurrency(product.primaryStore.listPrice)}
+              {t('Precio regular:')} {formatCurrency(product.primaryStore.listPrice)}
             </p>
           )}
           <div className="flex items-baseline justify-between">
@@ -118,7 +120,7 @@ export function ProductCard({
               {formatCurrency(product.currentPrice)}
             </span>
             <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-700 shadow-xs max-w-[52%] truncate">
-              {product.primaryStore?.name || 'Sin supermercado'}
+              {product.primaryStore?.name || t('Sin supermercado')}
             </span>
           </div>
         </div>
@@ -129,7 +131,7 @@ export function ProductCard({
             className="w-full h-11 min-w-0 flex items-center justify-center gap-1 px-2 bg-stone-100 dark:bg-stone-700/80 hover:bg-sky-50 dark:hover:bg-sky-950/60 text-stone-800 dark:text-stone-200 hover:text-sky-700 dark:hover:text-sky-300 rounded-xl text-xs font-bold transition-colors border border-stone-200/80 dark:border-stone-600 cursor-pointer whitespace-nowrap"
           >
             <BarChart3 className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-            <span>Comparar</span>
+            <span>{t('Comparar')}</span>
           </button>
 
           <div className="relative min-w-0">
@@ -144,7 +146,7 @@ export function ProductCard({
               }`}
             >
               <ShoppingBag className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isInBasket ? 'scale-105' : ''}`} />
-              <span>{isInBasket ? 'Agregado ✓' : '+ Canasta'}</span>
+              <span>{t(isInBasket ? 'Agregado ✓' : '+ Canasta')}</span>
             </button>
           </div>
         </div>
