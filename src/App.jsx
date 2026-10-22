@@ -4,9 +4,7 @@ import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
 import { useCustomerAuth } from './contexts/CustomerAuthContext.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
-import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
-import { DealsSummaryBanner } from './components/DealsSummaryBanner.jsx';
 import { ReportPriceModal } from './components/ReportPriceModal.jsx';
 import { ProductCard } from './components/ProductCard.jsx';
 import { ComparisonModal } from './components/ComparisonModal.jsx';
@@ -18,8 +16,6 @@ import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
-
-const CATEGORY_ONBOARDING_KEY = 'arprice_category_onboarding_complete';
 
 const SORT_OPTIONS = [
   { value: 'discount-desc', label: 'Mayor ahorro', icon: Percent },
@@ -76,6 +72,19 @@ function SortMenu({ value, onChange }) {
   );
 }
 
+function getBasketStorageKey(accountId) {
+  return `arprice_basket_${accountId || 'guest'}`
+}
+
+function readBasket(storageKey) {
+  try {
+    const saved = localStorage.getItem(storageKey)
+    return saved ? JSON.parse(saved) : []
+  } catch {
+    return []
+  }
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -103,9 +112,6 @@ export default function App() {
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
   const [catalogLoadError, setCatalogLoadError] = useState(false)
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
-  const [selectedCategory, setSelectedCategory] = useState(
-    () => localStorage.getItem('arprice_selected_category'),
-  )
   const catalogReferenceCache = useRef(null)
   const analysisCache = useRef(null)
   const [productsPage, setProductsPage] = useState(1)
@@ -120,6 +126,7 @@ export default function App() {
     }
   })
   const [storesList, setStoresList] = useState([])
+  const [registeredMerchantCount, setRegisteredMerchantCount] = useState(null)
   const [filters, setFilters] = useState({
     category: 'todos',
     searchQuery: initialSearchParams.get('q') || '',
@@ -131,6 +138,16 @@ export default function App() {
   });
   const sortBy = filters.sortBy
   const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportingTarget, setReportingTarget] = useState(null)
+
+  const openPriceReport = (product = null, store = null) => {
+    setReportingTarget(product ? {
+      product,
+      storeName: store?.supermarket || store?.storeName || product.primaryStore?.name || '',
+      reportedPrice: store?.price ?? product.currentPrice ?? null,
+    } : null)
+    setReportModalOpen(true)
+  }
 
   const [selectedProductForComparison, setSelectedProductForComparison] = useState(null);
   const [selectedProductForExplanation, setSelectedProductForExplanation] = useState(null);
@@ -160,22 +177,11 @@ export default function App() {
         subcategory: 'todos',
         priceStatus: params.get('deals') === '1' ? 'OFERTA' : 'todos',
       }));
-    } else if (
-      location.pathname === '/'
-      && localStorage.getItem(CATEGORY_ONBOARDING_KEY) === 'true'
-    ) {
-      setFilters((previous) => ({
-        ...previous,
-        searchQuery: '',
-        category: localStorage.getItem('arprice_selected_category') || 'todos',
-        subcategory: 'todos',
-        priceStatus: 'todos',
-      }));
     } else {
       setFilters((previous) => ({
         ...previous,
         searchQuery: '',
-        category: 'todos',
+        category: localStorage.getItem('arprice_selected_category') || 'todos',
         subcategory: 'todos',
         priceStatus: 'todos',
       }));
@@ -184,20 +190,21 @@ export default function App() {
 
   const favoriteIdsKey = favoritesOnlyView ? favorites.join(',') : ''
 
-  const [basket, setBasket] = useState(() => {
-    try {
-      const saved = localStorage.getItem('arprice_basket');
-      return saved
-        ? JSON.parse(saved)
-        : [];
-    } catch {
-      return [];
+  const basketStorageKey = getBasketStorageKey(user?.id)
+  const [basketState, setBasketState] = useState(() => ({
+    storageKey: basketStorageKey,
+    items: readBasket(basketStorageKey),
+  }))
+  const basket = basketState.storageKey === basketStorageKey ? basketState.items : []
+
+  useEffect(() => {
+    if (basketState.storageKey !== basketStorageKey) {
+      setBasketState({ storageKey: basketStorageKey, items: readBasket(basketStorageKey) })
     }
-  });
+  }, [basketState.storageKey, basketStorageKey])
 
   const handleSelectCategory = (category) => {
     const selectedCategoryId = String(category)
-    setSelectedCategory(selectedCategoryId)
     localStorage.setItem('arprice_selected_category', selectedCategoryId)
     updateFilters((previous) => ({
       ...previous,
@@ -209,11 +216,6 @@ export default function App() {
     setViewMode('products');
     navigate(`/buscar?category=${encodeURIComponent(category)}`);
   };
-
-  const handleOnboardingCategorySelect = (category) => {
-    localStorage.setItem(CATEGORY_ONBOARDING_KEY, 'true')
-    handleSelectCategory(category)
-  }
 
   const navigateToSearch = () => {
     const query = filters.searchQuery.trim()
@@ -270,8 +272,19 @@ export default function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    localStorage.setItem('arprice_basket', JSON.stringify(basket));
-  }, [basket]);
+    if (basketState.storageKey === basketStorageKey) {
+      localStorage.setItem(basketStorageKey, JSON.stringify(basketState.items))
+    }
+  }, [basketState, basketStorageKey])
+
+  const updateBasket = (updater) => {
+    setBasketState((current) => {
+      const currentItems = current.storageKey === basketStorageKey
+        ? current.items
+        : readBasket(basketStorageKey)
+      return { storageKey: basketStorageKey, items: updater(currentItems) }
+    })
+  }
 
   // Keep the result index keyed by query and fetch only the requested page.
   useEffect(() => {
@@ -305,10 +318,12 @@ export default function App() {
             fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
             fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
           ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
+            const supermarkets = supermarketsResponse.ok ? await supermarketsResponse.json() : []
             const references = {
               categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
               taxonomy: taxonomyResponse.ok ? await taxonomyResponse.json() : [],
-              supermarkets: supermarketsResponse.ok ? await supermarketsResponse.json() : [],
+              supermarkets,
+              registeredMerchantCount: supermarketsResponse.ok ? supermarkets.length : null,
             }
             catalogReferenceCache.current = references
             return references
@@ -319,6 +334,7 @@ export default function App() {
         ])
 
         if (!mounted) return
+        setRegisteredMerchantCount(references.registeredMerchantCount)
         if (!productsResponse.ok) throw new Error('Backend returned non-ok response')
 
         const pagePayload = await productsResponse.json()
@@ -492,7 +508,7 @@ export default function App() {
 
     const itemId = `${product.id}-${offer.storeId}-${offer.price}`;
 
-    setBasket((prev) => {
+    updateBasket((prev) => {
       const existing = prev.find((item) => item.id === itemId);
       if (existing) {
         return prev.map((item) =>
@@ -504,7 +520,7 @@ export default function App() {
   };
 
   const updateBasketQuantity = (itemId, delta) => {
-    setBasket((prev) =>
+    updateBasket((prev) =>
       prev
         .map((item) => {
           if (item.id === itemId) {
@@ -518,11 +534,11 @@ export default function App() {
   };
 
   const removeFromBasket = (itemId) => {
-    setBasket((prev) => prev.filter((item) => item.id !== itemId));
+    updateBasket((prev) => prev.filter((item) => item.id !== itemId));
   };
 
   const clearBasket = () => {
-    setBasket([]);
+    updateBasket(() => []);
   };
 
   const filteredProducts = useMemo(() => {
@@ -586,21 +602,6 @@ export default function App() {
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
   const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
   const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
-  const isCategoryOnboarding = location.pathname === '/seleccionar-categorias'
-    || (
-      location.pathname === '/'
-      && localStorage.getItem(CATEGORY_ONBOARDING_KEY) !== 'true'
-    );
-
-  if (isCategoryOnboarding) {
-    return (
-      <CategorySelectionPage
-        categories={categories}
-        selectedCategory={selectedCategory}
-        onSelectCategory={handleOnboardingCategorySelect}
-      />
-    );
-  }
 
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
@@ -711,35 +712,12 @@ export default function App() {
             onSearchSubmit={navigateToSearch}
             onQuickSearch={handleQuickSearch}
             searchHistory={searchHistory}
+            registeredMerchantCount={registeredMerchantCount}
             onSelectSearch={handleQuickSearch}
             onRemoveSearch={(query) => setSearchHistory((previous) => previous.filter((item) => item !== query))}
             onClearSearch={() => setSearchHistory([])}
           />
 
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-[0.24em] text-sky-600 font-bold">Novedades y ofertas</p>
-                <h2 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">Ofertas destacadas y alertas de precios inflados</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReportModalOpen(true)}
-                className="px-4 py-2 rounded-xl bg-sky-600 text-white font-semibold text-sm hover:bg-sky-500 transition-colors"
-              >
-                Reportar un precio
-              </button>
-            </div>
-
-            <DealsSummaryBanner
-              products={products}
-              onSelectProduct={(product) => {
-                setSelectedProductForComparison(product);
-                setViewMode('products');
-                navigate('/buscar');
-              }}
-            />
-          </div>
         </>
       ) : (
         <main id="products-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -1052,7 +1030,7 @@ export default function App() {
               <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">Plataforma colaborativa e independiente para la comparación de precios en tiempo real.</p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <button onClick={() => setReportModalOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
+              <button onClick={() => openPriceReport()} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
                 Reportar precio
               </button>
               <button onClick={() => setBasketOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
@@ -1074,6 +1052,7 @@ export default function App() {
           onAddToBasket={addToBasket}
           isInBasket={basket.some((i) => i.product.id === selectedProductForComparison.id)}
           onExplain={(p) => setSelectedProductForExplanation(p)}
+          onReportPriceInflated={openPriceReport}
         />
       )}
 
@@ -1094,10 +1073,16 @@ export default function App() {
 
       {reportModalOpen && (
         <ReportPriceModal
-          onClose={() => setReportModalOpen(false)}
+          onClose={() => {
+            setReportModalOpen(false)
+            setReportingTarget(null)
+          }}
           selectedCity={selectedCity}
           stores={storesList}
           storesLoading={isLoadingProducts && !storesList.length}
+          product={reportingTarget?.product || null}
+          reportedStoreName={reportingTarget?.storeName || ''}
+          reportedPrice={reportingTarget?.reportedPrice ?? null}
         />
       )}
     </div>

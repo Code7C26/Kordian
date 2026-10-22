@@ -4,9 +4,17 @@ import { X, Send, AlertTriangle, CheckCircle, LoaderCircle } from 'lucide-react'
 import { apiUrl } from '../config/api.js';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 
-export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoading = false }) {
+export function ReportPriceModal({
+  onClose,
+  selectedCity,
+  stores = [],
+  storesLoading = false,
+  product = null,
+  reportedStoreName = '',
+  reportedPrice = null,
+}) {
   const { user, accessToken, loading: authLoading } = useCustomerAuth();
-  const [storeName, setStoreName] = useState('');
+  const [storeName, setStoreName] = useState(reportedStoreName || product?.primaryStore?.name || '');
   const availableStores = [...new Map(
     stores
       .filter((store) => store?.name?.trim())
@@ -15,9 +23,9 @@ export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoa
   const selectedStoreName = availableStores.some((store) => store.name === storeName)
     ? storeName
     : availableStores[0]?.name || '';
-  const [productName, setProductName] = useState('');
-  const [reportedPrice, setReportedPrice] = useState('');
-  const [reportType, setReportType] = useState('oferta');
+  const [productName, setProductName] = useState(product?.name || '');
+  const [observedPrice, setObservedPrice] = useState(reportedPrice ?? (product?.currentPrice ? String(product.currentPrice) : ''));
+  const [reportType, setReportType] = useState(product ? 'sobreprecio' : 'oferta');
   const [comments, setComments] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,7 +47,7 @@ export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoa
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ productName, storeName: selectedStoreName, reportedPrice, reportType, comments, city: selectedCity }),
+        body: JSON.stringify({ productName, storeName: selectedStoreName, reportedPrice: observedPrice, reportType, comments, city: selectedCity }),
       });
       const payload = await response.json().catch(() => ({}));
       if (response.status === 404) {
@@ -183,8 +191,8 @@ export function ReportPriceModal({ onClose, selectedCity, stores = [], storesLoa
                   min="0.01"
                   step="0.01"
                   max="1000000000"
-                  value={reportedPrice}
-                  onChange={(e) => setReportedPrice(e.target.value)}
+                  value={observedPrice}
+                  onChange={(e) => setObservedPrice(e.target.value)}
                   placeholder="Ej: 3850"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />

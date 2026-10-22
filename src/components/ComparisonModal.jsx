@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { X, TrendingDown, Store, Calendar, Info } from 'lucide-react';
+import { X, TrendingDown, Store, Calendar, Info, TriangleAlert } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
 
-export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, onExplain }) {
+export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, onExplain, onReportPriceInflated }) {
   const [added, setAdded] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   if (!product) return null;
@@ -210,6 +210,17 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                         >
                           +
                         </button>
+                        {onReportPriceInflated && (
+                          <button
+                            type="button"
+                            onClick={() => onReportPriceInflated(product, store)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300 dark:hover:bg-rose-900/70"
+                            title={`Reportar precio de ${store.supermarket || store.storeName || 'este comercio'}`}
+                            aria-label={`Reportar precio inflado de ${product.name} en ${store.supermarket || store.storeName || 'este comercio'}`}
+                          >
+                            <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

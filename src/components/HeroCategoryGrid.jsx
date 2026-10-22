@@ -31,6 +31,7 @@ export function HeroCategoryGrid({
   onSearchSubmit,
   onQuickSearch,
   searchHistory = [],
+  registeredMerchantCount,
   onSelectSearch,
   onRemoveSearch,
   onClearSearch,
@@ -206,7 +207,11 @@ export function HeroCategoryGrid({
               <Store className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-xs font-extrabold text-stone-900 dark:text-white">12+ Cadenas de Comercios</p>
+              <p className="text-xs font-extrabold text-stone-900 dark:text-white">
+                {Number.isInteger(registeredMerchantCount)
+                  ? `${registeredMerchantCount} ${registeredMerchantCount === 1 ? 'Comercio registrado' : 'Comercios registrados'}`
+                  : 'Comercios registrados'}
+              </p>
               <p className="text-[11px] text-stone-500 dark:text-stone-400">Supermercados y tiendas</p>
             </div>
           </div>
