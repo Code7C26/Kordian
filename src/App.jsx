@@ -719,47 +719,20 @@ export default function App() {
           )}
         </main>
       ) : viewMode === 'categories' ? (
-        <>
-          <HeroCategoryGrid
-            categories={categories}
-            selectedCategory={filters.category}
-            onSelectCategory={handleSelectCategory}
-            searchQuery={filters.searchQuery}
-            setSearchQuery={(value) => updateFilters((prev) => ({ ...prev, searchQuery: value }))}
-            onSearchSubmit={navigateToSearch}
-            onQuickSearch={handleQuickSearch}
-            searchHistory={searchHistory}
-            registeredMerchantCount={registeredMerchantCount}
-            onSelectSearch={handleQuickSearch}
-            onRemoveSearch={(query) => setSearchHistory((previous) => previous.filter((item) => item !== query))}
-            onClearSearch={() => setSearchHistory([])}
-          />
-
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-[0.24em] text-sky-600 font-bold">{t('Novedades y ofertas')}</p>
-                <h2 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">{t('Ofertas destacadas y alertas de precios inflados')}</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReportModalOpen(true)}
-                className="px-4 py-2 rounded-xl bg-sky-600 text-white font-semibold text-sm hover:bg-sky-500 transition-colors"
-              >
-                {t('Reportar un precio')}
-              </button>
-            </div>
-
-            <DealsSummaryBanner
-              products={products}
-              onSelectProduct={(product) => {
-                setSelectedProductForComparison(product);
-                setViewMode('products');
-                navigate('/buscar');
-              }}
-            />
-          </div>
-        </>
+        <HeroCategoryGrid
+          categories={categories}
+          selectedCategory={filters.category}
+          onSelectCategory={handleSelectCategory}
+          searchQuery={filters.searchQuery}
+          setSearchQuery={(value) => updateFilters((prev) => ({ ...prev, searchQuery: value }))}
+          onSearchSubmit={navigateToSearch}
+          onQuickSearch={handleQuickSearch}
+          searchHistory={searchHistory}
+          registeredMerchantCount={registeredMerchantCount}
+          onSelectSearch={handleQuickSearch}
+          onRemoveSearch={(query) => setSearchHistory((previous) => previous.filter((item) => item !== query))}
+          onClearSearch={() => setSearchHistory([])}
+        />
       ) : (
         <main id="products-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           <div className="bg-white dark:bg-stone-800 p-4 rounded-3xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs space-y-3">
@@ -1076,8 +1049,6 @@ export default function App() {
             </div>
             <div className="flex flex-wrap gap-3">
               <button onClick={() => openPriceReport()} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
-                Reportar precio
-              <button onClick={() => setReportModalOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
                 {t('Reportar precio')}
               </button>
               <button onClick={() => setBasketOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">

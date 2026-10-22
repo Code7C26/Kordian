@@ -4,6 +4,10 @@ import {
   Search,
   ArrowRight,
   Clock3,
+  TrendingDown,
+  Store,
+  Zap,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
@@ -231,9 +235,6 @@ export function HeroCategoryGrid({
             </div>
           </div>
         </div>
-        <p className="mt-3 text-right text-[10px] text-stone-400 dark:text-stone-500">
-          Íconos por <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-400" href="https://www.flaticon.es/autores/magnific" target="_blank" rel="noreferrer">Magnific</a> en <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-400" href="https://www.flaticon.es" target="_blank" rel="noreferrer">Flaticon</a>
-        </p>
       </div>
     </div>
   );
