@@ -171,11 +171,11 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/5.png" alt="Comparar Precios">
+  <img src="assents/screenshots/historial_precios.png" alt="Comparar Precios">
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/historial_precios.png" alt="Canasta de Compras">
+  <img src="assents/screenshots/5.png" alt="Canasta de Compras">
 </p>
 
 <p align="center">
