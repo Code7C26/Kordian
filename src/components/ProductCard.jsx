@@ -3,7 +3,6 @@ import {
   BarChart3, 
   Heart, 
   ShoppingBag, 
-  Store,
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
@@ -86,10 +85,6 @@ export function ProductCard({
           <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
         </button>
 
-        <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900/80 text-white backdrop-blur-sm text-[10px] font-medium">
-          <Store className="w-3 h-3 text-sky-400" />
-          <span>{product.primaryStore.name}</span>
-        </div>
       </div>
 
       <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
