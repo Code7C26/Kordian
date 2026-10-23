@@ -16,6 +16,7 @@ import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
+import { addLocalComparisonOffers } from './utils/localComparisonOffers.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent, MapPin } from 'lucide-react';
 import brandLogo from '../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
@@ -358,7 +359,10 @@ export default function App() {
         const analysisByProduct = new Map((analysisCache.current || []).map((item) => [String(item.product?.id), item]))
 
         const enriched = validProducts.map((product) => {
-          const offers = (product.offers || [])
+          const sourceOffers = import.meta.env.DEV
+            ? addLocalComparisonOffers(product, product.offers || [])
+            : product.offers || []
+          const offers = sourceOffers
             .map((offer) => {
               const supermarket = offer.supermarket || offer.supermarket_name || offer.storeName || ''
               return {
