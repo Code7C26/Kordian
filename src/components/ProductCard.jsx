@@ -114,9 +114,19 @@ export function ProductCard({
             <span className="text-2xl font-black text-stone-900 dark:text-white tracking-tight">
               {formatCurrency(product.currentPrice)}
             </span>
-            <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-700 shadow-xs max-w-[52%] truncate">
-              {product.primaryStore?.name || t('Sin supermercado')}
-            </span>
+            {product.primaryStore?.image ? (
+              <img
+                src={product.primaryStore.image}
+                alt={product.primaryStore.name || t('Supermercado')}
+                title={product.primaryStore.name || t('Supermercado')}
+                className="h-8 max-w-[38%] rounded-lg object-contain"
+                loading="lazy"
+              />
+            ) : (
+              <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-700 shadow-xs max-w-[52%] truncate">
+                {product.primaryStore?.name || t('Sin supermercado')}
+              </span>
+            )}
           </div>
         </div>
 
