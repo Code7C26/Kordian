@@ -3,6 +3,31 @@ const crypto = require('node:crypto')
 const PRICE_STATUS_RULES_VERSION = '2026-10-10-v2'
 const PRICE_STATUS_BATCH_SIZE = 100
 
+function hasCompletePriceStatusDetails(status) {
+  const details = status?.analysis_details
+  const quality = status?.data_quality
+  const indicators = details?.indicators
+  const references = details?.references
+  const hasCount = (value) => value !== null
+    && value !== undefined
+    && value !== ''
+    && Number.isFinite(Number(value))
+  return Boolean(
+    indicators
+      && typeof indicators === 'object'
+      && Object.hasOwn(indicators, 'percentageVariation')
+      && Object.hasOwn(indicators, 'inflationDeviation')
+      && Array.isArray(indicators.signals)
+      && Array.isArray(references?.references)
+      && Array.isArray(details.priceHistory)
+      && Array.isArray(details.pricePeriods)
+      && hasCount(quality?.historyPoints)
+      && hasCount(quality?.supermarkets)
+      && hasCount(quality?.comparables)
+      && typeof quality?.quality === 'string'
+  )
+}
+
 function buildPriceFingerprint(product, references = {}, analysis = {}) {
   const offers = (product?.offers || [])
     .map((offer, index) => ({
@@ -87,17 +112,24 @@ async function saveCurrentPriceStatuses(database, analyses) {
   if (!rows.length) return 0
   const { data, error: selectError } = await database
     .from('product_price_status')
-    .select('product_id, price_fingerprint, rules_version')
+    .select('product_id, price_fingerprint, rules_version, analysis_details, data_quality')
     .in('product_id', rows.map((row) => row.product_id))
   if (selectError) throw selectError
 
   const existing = new Map((data || []).map((row) => [
     String(row.product_id),
-    { fingerprint: row.price_fingerprint, rulesVersion: row.rules_version },
+    {
+      fingerprint: row.price_fingerprint,
+      rulesVersion: row.rules_version,
+      analysis_details: row.analysis_details,
+      data_quality: row.data_quality,
+    },
   ]))
   const changedRows = rows.filter((row) => {
     const status = existing.get(row.product_id)
-    return status?.fingerprint !== row.price_fingerprint || status?.rulesVersion !== row.rules_version
+    return status?.fingerprint !== row.price_fingerprint
+      || status?.rulesVersion !== row.rules_version
+      || !hasCompletePriceStatusDetails(status)
   })
   if (!changedRows.length) return 0
   const { error } = await database.from('product_price_status').upsert(changedRows, { onConflict: 'product_id' })
@@ -150,11 +182,12 @@ async function enqueueIncompletePriceStatuses(database, queue, batchSize = PRICE
     if (!productIds.length) break
     const { data: statuses, error: statusesError } = await database
       .from('product_price_status')
-      .select('product_id, rules_version')
+      .select('product_id, rules_version, analysis_details, data_quality')
       .in('product_id', productIds)
     if (statusesError) throw statusesError
     const currentIds = new Set((statuses || [])
-      .filter((status) => status.rules_version === PRICE_STATUS_RULES_VERSION)
+      .filter((status) => status.rules_version === PRICE_STATUS_RULES_VERSION
+        && hasCompletePriceStatusDetails(status))
       .map((status) => String(status.product_id)))
     queue.enqueue(productIds.filter((id) => !currentIds.has(String(id))))
     if (productIds.length < batchSize) break
