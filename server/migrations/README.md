@@ -27,12 +27,15 @@ también necesita estas variables configuradas en Render: `SUPABASE_URL`,
 permanecer únicamente en el backend; nunca configurarla como `VITE_*` ni
 incluirla en el frontend.
 
-Para que los enlaces de recuperación vuelvan directamente a la aplicación,
-configurar `FRONTEND_URL` en Render con la URL pública del frontend y agregar
-`<FRONTEND_URL>/restablecer-contrasena` a las Redirect URLs permitidas en
-Supabase Auth. Si `FRONTEND_URL` no está configurada, el backend usa la Site URL
-de Supabase; en ese caso la aplicación también admite el callback en la ruta
-principal.
+La URL pública del frontend es `https://ar-price.netlify.app` y está configurada
+como `FRONTEND_URL` en `render.yaml`. En Supabase Auth, agregar
+`https://ar-price.netlify.app/ingresar?confirmation=success` y
+`https://ar-price.netlify.app/restablecer-contrasena` a las Redirect URLs
+permitidas.
+
+Los enlaces de confirmación de registro redirigen a
+`/ingresar?confirmation=success`. El frontend usa una regla SPA para que las
+rutas de la aplicación abran correctamente.
 
 Si la confirmación de correo está habilitada en Supabase Auth, cada usuario
 debe confirmar el correo recibido antes de iniciar sesión. Si está
