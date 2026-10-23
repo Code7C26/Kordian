@@ -69,6 +69,7 @@ const translations = {
   'Seleccionar producto': 'Select a product',
   'Cargando productos...': 'Loading products...',
   'No hay productos con esa búsqueda': 'No products match that search',
+  'No se encontraron ubicaciones disponibles.': 'No available locations were found.',
   'Conectando con el catálogo; mientras tanto, puedes explorar los datos de demostración.': 'Connecting to the catalog; in the meantime, you can explore demo data.',
   'Conectando con el catálogo para actualizar los datos...': 'Connecting to the catalog to update the data...',
   'Historial de precios': 'Price history',

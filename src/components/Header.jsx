@@ -141,8 +141,10 @@ export function Header({
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .includes(normalizedLocationQuery))
-  const customCity = locationQuery.trim()
-  const isKnownCity = CITIES_LIST.some((city) => city.toLowerCase() === customCity.toLowerCase())
+  const exactMatchingCity = normalizedLocationQuery && matchingCities.find((city) => city
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase() === normalizedLocationQuery)
 
   const selectCity = (city) => {
     setSelectedCity(city)
@@ -215,9 +217,9 @@ export function Header({
                 value={locationQuery}
                 onChange={(event) => setLocationQuery(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && customCity) {
+                  if (event.key === 'Enter' && exactMatchingCity) {
                     event.preventDefault()
-                    selectCity(customCity)
+                    selectCity(exactMatchingCity)
                   }
                 }}
                 placeholder={t('Escribe una ciudad')}
@@ -238,17 +240,8 @@ export function Header({
                     {selectedCity === city && <span className="text-xs font-bold text-sky-700 dark:text-sky-300">{t('Actual')}</span>}
                   </button>
                 ))}
-                {customCity && !isKnownCity && (
-                  <button
-                    type="button"
-                    onClick={() => selectCity(customCity)}
-                    className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-stone-700"
-                  >
-                    {t('Usar “')}{customCity}”
-                  </button>
-                )}
-                {!matchingCities.length && !customCity && (
-                  <p className="px-3 py-2 text-sm text-stone-500 dark:text-stone-400">{t('Escribe el nombre de tu ciudad.')}</p>
+                {!matchingCities.length && (
+                  <p className="px-3 py-2 text-sm text-stone-500 dark:text-stone-400">{t('No se encontraron ubicaciones disponibles.')}</p>
                 )}
               </div>
               <p className="mt-2 border-t border-stone-200 pt-2 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">

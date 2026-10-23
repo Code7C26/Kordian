@@ -22,10 +22,8 @@ export default function SettingsPage() {
 
   const saveCity = (event) => {
     event.preventDefault()
-    const normalizedCity = city.trim()
-    if (!normalizedCity) return
-    setSelectedCity(normalizedCity)
-    setCity(normalizedCity)
+    if (!CITIES_LIST.includes(city)) return
+    setSelectedCity(city)
     setSaved(true)
   }
 
@@ -75,22 +73,18 @@ export default function SettingsPage() {
                 </div>
               </div>
               <form onSubmit={saveCity} className="flex flex-col gap-2 sm:flex-row">
-                <input
+                <select
                   aria-label={t('Ciudad')}
-                  list="settings-cities"
                   value={city}
                   onChange={(event) => {
                     setCity(event.target.value)
                     setSaved(false)
                   }}
-                  maxLength={80}
                   required
-                  placeholder={t('Escribe tu ciudad')}
                   className="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200 dark:border-stone-700 dark:bg-stone-900 dark:focus:ring-sky-900"
-                />
-                <datalist id="settings-cities">
-                  {CITIES_LIST.map((availableCity) => <option key={availableCity} value={availableCity} />)}
-                </datalist>
+                >
+                  {CITIES_LIST.map((availableCity) => <option key={availableCity} value={availableCity}>{availableCity}</option>)}
+                </select>
                 <button type="submit" className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800">
                   {t('Guardar ubicación')}
                 </button>
