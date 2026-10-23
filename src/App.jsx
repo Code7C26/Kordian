@@ -16,7 +16,7 @@ import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
-import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent, MapPin } from 'lucide-react';
 import brandLogo from '../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
 
@@ -44,7 +44,7 @@ function SortMenu({ value, onChange }) {
       >
         <span className="flex min-w-0 items-center gap-2">
           <SelectedIcon className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
-          <span className="truncate">{selectedOption.label}</span>
+          <span className="truncate">{t(selectedOption.label)}</span>
         </span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
@@ -131,7 +131,6 @@ export default function App() {
     }
   })
   const [storesList, setStoresList] = useState([])
-  const [registeredMerchantCount, setRegisteredMerchantCount] = useState(null)
   const [filters, setFilters] = useState({
     category: 'todos',
     searchQuery: initialSearchParams.get('q') || '',
@@ -328,7 +327,6 @@ export default function App() {
               categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
               taxonomy: taxonomyResponse.ok ? await taxonomyResponse.json() : [],
               supermarkets,
-              registeredMerchantCount: supermarketsResponse.ok ? supermarkets.length : null,
             }
             catalogReferenceCache.current = references
             return references
@@ -339,7 +337,6 @@ export default function App() {
         ])
 
         if (!mounted) return
-        setRegisteredMerchantCount(references.registeredMerchantCount)
         if (!productsResponse.ok) throw new Error('Backend returned non-ok response')
 
         const pagePayload = await productsResponse.json()
@@ -728,7 +725,6 @@ export default function App() {
           onSearchSubmit={navigateToSearch}
           onQuickSearch={handleQuickSearch}
           searchHistory={searchHistory}
-          registeredMerchantCount={registeredMerchantCount}
           onSelectSearch={handleQuickSearch}
           onRemoveSearch={(query) => setSearchHistory((previous) => previous.filter((item) => item !== query))}
           onClearSearch={() => setSearchHistory([])}
@@ -750,7 +746,7 @@ export default function App() {
               <div className="flex items-center gap-2 text-xs font-semibold text-stone-500 dark:text-stone-400">
                 <span className="text-stone-400">{t('Categoría activa:')}</span>
                 <span className="px-3 py-1.5 rounded-full bg-sky-600 text-white font-extrabold text-xs">
-                  {favoritesOnlyView ? `❤️ ${t('Favoritos')}` : currentCategoryName}
+                  {favoritesOnlyView ? `❤️ ${t('Favoritos')}` : t(currentCategoryName)}
                 </span>
               </div>
             </div>
@@ -762,7 +758,7 @@ export default function App() {
                 {t('Inicio')}
               </button>
               <ChevronRight className="w-4 h-4 text-stone-400" />
-              <span className="text-stone-900 dark:text-white font-bold">{favoritesOnlyView ? `❤️ ${t('Mis Favoritos')}` : currentCategoryName}</span>
+              <span className="text-stone-900 dark:text-white font-bold">{favoritesOnlyView ? `❤️ ${t('Mis Favoritos')}` : t(currentCategoryName)}</span>
               {filters.searchQuery && (
                 <>
                   <ChevronRight className="w-4 h-4 text-stone-400" />
@@ -816,7 +812,7 @@ export default function App() {
                 const isSelected = filters.category === category.id && !favoritesOnlyView
                 return (
                   <button key={category.id} type="button" onClick={() => handleSelectCategory(category.id)} className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${isSelected ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}>
-                    <span className={`block text-sm font-black leading-tight ${isSelected ? 'text-white' : 'text-stone-900 dark:text-white'}`}>{category.name}</span>
+                    <span className={`block text-sm font-black leading-tight ${isSelected ? 'text-white' : 'text-stone-900 dark:text-white'}`}>{t(category.name)}</span>
                   </button>
                 )
               })}
@@ -862,6 +858,17 @@ export default function App() {
                     </option>
                   ))}
                 </select>
+                {filters.store !== 'todos' && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${storesList.find((store) => String(store.id) === String(filters.store))?.name || filters.store}, ${selectedCity}`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-sky-100 px-3 py-1.5 text-xs font-bold text-sky-800 transition-colors hover:bg-sky-200 dark:bg-sky-950/70 dark:text-sky-300 dark:hover:bg-sky-900"
+                  >
+                    <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('Ver ubicación en Maps')}
+                  </a>
+                )}
               </div>
 
               <div>
@@ -874,7 +881,7 @@ export default function App() {
                 >
                   <option value="todos">{t('Todas las subcategorías')}</option>
                   {availableSubcategories.map((subcategory) => (
-                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name} ({subcategory.productCount || 0})</option>
+                    <option key={subcategory.id} value={subcategory.id}>{t(subcategory.name)} ({subcategory.productCount || 0})</option>
                   ))}
                 </select>
               </div>

@@ -3,8 +3,10 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { LoaderCircle, LockKeyhole } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { isValidCustomerPassword } from '../utils/customerAuthValidation.js'
+import { useLanguage } from '../contexts/LanguageContext.jsx'
 
 export default function PasswordRecoveryPage() {
+  const { t } = useLanguage()
   const location = useLocation()
   const navigate = useNavigate()
   const { updatePassword } = useCustomerAuth()
@@ -50,16 +52,16 @@ export default function PasswordRecoveryPage() {
           <LockKeyhole className="h-5 w-5" aria-hidden="true" />
         </span>
         <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-400">
-          {accountType === 'admin' ? 'Cuenta de administrador' : 'Cuenta de cliente'}
+          {t(accountType === 'admin' ? 'Cuenta de administrador' : 'Cuenta de cliente')}
         </p>
-        <h1 className="mt-1 text-2xl font-black">Crear contraseña nueva</h1>
+        <h1 className="mt-1 text-2xl font-black">{t('Crear contraseña nueva')}</h1>
         <p className="mt-2 text-sm text-stone-600 dark:text-stone-400">
-          Elige una contraseña de al menos 4 caracteres alfanuméricos.
+          {t('Elige una contraseña de al menos 4 caracteres alfanuméricos.')}
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
-            <label htmlFor="recovery-password" className="mb-1.5 block text-sm font-semibold">Nueva contraseña</label>
+            <label htmlFor="recovery-password" className="mb-1.5 block text-sm font-semibold">{t('Nueva contraseña')}</label>
             <input
               id="recovery-password"
               type="password"
@@ -73,7 +75,7 @@ export default function PasswordRecoveryPage() {
             />
           </div>
           <div>
-            <label htmlFor="recovery-confirmation" className="mb-1.5 block text-sm font-semibold">Repetir contraseña</label>
+            <label htmlFor="recovery-confirmation" className="mb-1.5 block text-sm font-semibold">{t('Repetir contraseña')}</label>
             <input
               id="recovery-confirmation"
               type="password"
@@ -85,16 +87,16 @@ export default function PasswordRecoveryPage() {
               className="w-full rounded-lg border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-100 dark:border-stone-700 dark:bg-stone-950 dark:focus:ring-sky-950"
             />
           </div>
-          {error && <p className="text-sm font-semibold text-rose-600" role="alert">{error}</p>}
+          {error && <p className="text-sm font-semibold text-rose-600" role="alert">{t(error)}</p>}
           <button type="submit" disabled={isSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50">
             {isSubmitting && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
-            Actualizar contraseña
+            {t('Actualizar contraseña')}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-stone-600 dark:text-stone-400">
           <Link to={accountType === 'admin' ? '/login' : '/ingresar'} className="font-bold text-sky-700 underline underline-offset-4 dark:text-sky-300">
-            Volver al inicio de sesión
+            {t('Volver al inicio de sesión')}
           </Link>
         </p>
       </section>
