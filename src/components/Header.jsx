@@ -51,7 +51,6 @@ export function Header({
   const showAdminPanel = openMenu === 'admin'
   const showCategoryMenu = openMenu === 'category'
   const showAccountMenu = openMenu === 'account'
-  const showLanguageMenu = openMenu === 'language'
   const accountMenuRef = useRef(null)
   const showLocationMenu = openMenu === 'location'
   const [locationQuery, setLocationQuery] = useState('')
@@ -153,8 +152,8 @@ export function Header({
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-sky-400/30 dark:border-stone-800 bg-sky-600 dark:bg-stone-900/90 backdrop-blur-md transition-colors duration-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 md:h-20 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex min-h-18 flex-wrap items-center justify-between gap-x-2 gap-y-2 py-2 lg:h-18 lg:flex-nowrap lg:gap-4 lg:py-0">
+        <div className="flex min-w-0 items-center gap-3">
           <button 
             onClick={onResetView}
             className="flex items-center gap-2.5 group text-left focus:outline-none cursor-pointer"
@@ -180,7 +179,7 @@ export function Header({
                   </span>
                 </div>
                 <p className="hidden md:block text-[11px] font-semibold italic text-white/80 dark:text-white leading-tight tracking-wide">
-                  Ahorrar no es suerte, es información
+                  {t('Ahorrar no es suerte, es información')}
                 </p>
               </div>
             </div>
@@ -197,10 +196,10 @@ export function Header({
             aria-haspopup="dialog"
             aria-expanded={showLocationMenu}
             aria-label={`${t('Cambiar ubicación. Ubicación actual:')} ${selectedCity}`}
-            className="flex items-center gap-2 rounded-xl border border-white/30 bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30 dark:border-stone-700/40 dark:bg-stone-900/40 dark:text-stone-200"
+            className="flex shrink-0 items-center gap-1 rounded-xl border border-white/30 bg-white/20 px-2 py-2 text-sm font-medium text-white hover:bg-white/30 dark:border-stone-700/40 dark:bg-stone-900/40 dark:text-stone-200 sm:gap-2 sm:px-4"
           >
             <MapPin className="h-4 w-4 shrink-0 text-white dark:text-sky-400" aria-hidden="true" />
-            <span className="max-w-[120px] truncate sm:max-w-[180px]">{selectedCity}</span>
+            <span className="max-w-[80px] max-[359px]:max-w-[44px] truncate sm:max-w-[120px] lg:max-w-[180px]">{selectedCity}</span>
             <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${showLocationMenu ? 'rotate-180' : ''}`} aria-hidden="true" />
           </button>
           {showLocationMenu && (
@@ -259,7 +258,7 @@ export function Header({
           )}
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex w-full items-center justify-between gap-1 lg:w-auto lg:justify-start lg:gap-2 xl:gap-3">
           {!isAdminHeader && (
             <>
               <button
@@ -312,7 +311,7 @@ export function Header({
                   <div
                     role="menu"
                     aria-label={t('Menú principal')}
-                    className="absolute right-0 top-full z-50 mt-2 max-h-[min(78vh,40rem)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-stone-200 bg-white p-2 text-stone-800 shadow-xl dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+                    className="absolute right-0 top-full z-50 mt-2 max-h-[min(78vh,40rem)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-stone-200 bg-white p-2 text-stone-800 shadow-xl dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 max-lg:fixed max-lg:right-4 max-lg:left-auto max-lg:top-[116px] max-lg:mt-0 max-sm:top-[108px]"
                   >
                     <Link role="menuitem" to="/listas-compartidas" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <UsersRound className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
@@ -354,6 +353,34 @@ export function Header({
                         </Link>
                       </>
                     )}
+                    <div className="my-2 border-t border-stone-200 dark:border-stone-700" />
+                    <div className="px-3 py-2">
+                      <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">
+                        <Languages className="h-4 w-4" aria-hidden="true" />
+                        {t('Idioma')}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { value: 'es', label: 'Español' },
+                          { value: 'en', label: 'English' },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={language === option.value}
+                            onClick={() => setLanguage(option.value)}
+                            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+                              language === option.value
+                                ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200'
+                                : 'hover:bg-stone-100 dark:hover:bg-stone-800'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -383,46 +410,6 @@ export function Header({
             )}
           </button>
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => toggleExclusiveMenu('language')}
-              aria-label={t('Idioma')}
-              aria-haspopup="menu"
-              aria-expanded={showLanguageMenu}
-              title={t('Idioma')}
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-white transition-colors hover:bg-white/20 dark:text-stone-300 dark:hover:bg-stone-800"
-            >
-              <Languages className="h-5 w-5" aria-hidden="true" />
-              <span className="text-[11px] font-bold uppercase">{language}</span>
-            </button>
-            {showLanguageMenu && (
-              <div role="menu" aria-label={t('Idioma')} className="absolute right-0 top-full z-50 mt-2 w-40 rounded-xl border border-stone-200 bg-white p-1 text-stone-800 shadow-xl dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
-                {[
-                  { value: 'es', label: 'Español' },
-                  { value: 'en', label: 'English' },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={language === option.value}
-                    onClick={() => {
-                      setLanguage(option.value)
-                      setOpenMenu(null)
-                    }}
-                    className={`w-full rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors ${
-                      language === option.value
-                        ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200'
-                        : 'hover:bg-stone-100 dark:hover:bg-stone-800'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
       </div>
@@ -473,8 +460,8 @@ export function Header({
                         <CategoryIconImage src={categoryIcon} className="h-5 w-5" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-sm font-black">{category.name}</span>
-                        <span className={`mt-1 block text-xs ${isSelected ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>{category.description}</span>
+                        <span className="block text-sm font-black">{t(category.name)}</span>
+                        <span className={`mt-1 block text-xs ${isSelected ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>{t(category.description)}</span>
                       </span>
                     </span>
                   </button>

@@ -4,10 +4,6 @@ import {
   Search,
   ArrowRight,
   Clock3,
-  TrendingDown,
-  Store,
-  Zap,
-  ShieldCheck,
   X,
 } from 'lucide-react';
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
@@ -31,7 +27,6 @@ export function HeroCategoryGrid({
   onSearchSubmit,
   onQuickSearch,
   searchHistory = [],
-  registeredMerchantCount,
   onSelectSearch,
   onRemoveSearch,
   onClearSearch,
@@ -43,7 +38,7 @@ export function HeroCategoryGrid({
     <div className="relative overflow-hidden bg-stone-50 pb-12 pt-8 sm:pt-12 border-b border-stone-200 dark:bg-stone-950 dark:border-stone-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="text-center max-w-5xl mx-auto space-y-5">
-          <h1 className="hero-title-font mx-auto max-w-5xl text-balance text-4xl font-black leading-[1.08] tracking-[-0.04em] text-stone-950 dark:text-white sm:text-5xl md:text-6xl">
+          <h1 className="hero-title-font mx-auto max-w-5xl text-balance text-3xl font-black leading-tight tracking-[-0.04em] text-stone-950 dark:text-white sm:text-5xl md:text-6xl">
             {t('Encontrá el ')}<span className="animated-price-gradient bg-gradient-to-r from-sky-500 via-blue-600 to-cyan-500 bg-clip-text text-transparent">{t('precio justo')}</span>{t(' para cada compra')}
           </h1>
 
@@ -70,7 +65,7 @@ export function HeroCategoryGrid({
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
                 placeholder={t('Busca por producto, marca o categoría (ej: Yerba, TV, Leche)...')}
-                className="w-full px-3 py-2.5 text-stone-900 dark:text-white placeholder-stone-400 bg-transparent text-sm sm:text-base focus:outline-none"
+                className="min-w-0 w-full px-2 py-2.5 text-stone-900 dark:text-white placeholder-stone-400 bg-transparent text-sm sm:px-3 sm:text-base focus:outline-none"
               />
               {searchFocused && searchHistory.length > 0 && (
                 <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-sky-200 bg-white text-left shadow-xl dark:border-sky-900 dark:bg-stone-800">
@@ -113,7 +108,7 @@ export function HeroCategoryGrid({
                   }}
                   className="rounded-full border border-sky-600 bg-sky-600 px-3 py-1.5 font-semibold text-white transition-colors hover:border-sky-700 hover:bg-sky-700 dark:border-sky-500 dark:bg-sky-600 dark:hover:border-sky-400 dark:hover:bg-sky-500"
                 >
-                  {tag}
+                  {t(tag)}
                 </button>
               ))}
             </div>
@@ -157,12 +152,12 @@ export function HeroCategoryGrid({
                   <h3 className={`font-bold text-sm leading-tight ${
                     isSelected ? 'text-white' : 'text-stone-900 dark:text-white'
                   }`}>
-                    {cat.name}
+                    {t(cat.name)}
                   </h3>
                   <p className={`text-[11px] line-clamp-1 mt-0.5 ${
                     isSelected ? 'text-sky-100' : 'text-stone-400 dark:text-stone-400'
                   }`}>
-                    {cat.description}
+                    {t(cat.description)}
                   </p>
                 </div>
               </button>
@@ -184,57 +179,15 @@ export function HeroCategoryGrid({
             </div>
             <div>
               <h3 className={`font-bold text-sm leading-tight ${selectedCategory === 'todos' ? 'text-white' : 'text-stone-900 dark:text-white'}`}>
-                Todos
+                {t('Todos')}
               </h3>
               <p className={`text-[11px] line-clamp-1 mt-0.5 ${selectedCategory === 'todos' ? 'text-sky-100' : 'text-stone-400 dark:text-stone-400'}`}>
-                Todos los productos
+                {t('Todos los productos')}
               </p>
             </div>
           </button>
         </div>
 
-        <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3 bg-white dark:bg-stone-800/60 p-3 sm:p-4 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs">
-          <div className="flex items-center gap-3 p-2">
-            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
-              <TrendingDown className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-extrabold text-stone-900 dark:text-white">Ahorro Promedio 24%</p>
-              <p className="text-[11px] text-stone-500 dark:text-stone-400">En compras comparadas</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-2">
-            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
-              <Store className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-extrabold text-stone-900 dark:text-white">
-                {Number.isInteger(registeredMerchantCount)
-                  ? `${registeredMerchantCount} ${registeredMerchantCount === 1 ? 'Comercio registrado' : 'Comercios registrados'}`
-                  : 'Comercios registrados'}
-              </p>
-              <p className="text-[11px] text-stone-500 dark:text-stone-400">Supermercados y tiendas</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-2">
-            <div className="p-2 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
-              <Zap className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-extrabold text-stone-900 dark:text-white">Alertas de Inflado</p>
-              <p className="text-[11px] text-stone-500 dark:text-stone-400">Notifica sobreprecios</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-2">
-            <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-extrabold text-stone-900 dark:text-white">Precios Auditados</p>
-              <p className="text-[11px] text-stone-500 dark:text-stone-400">Actualización diaria</p>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
