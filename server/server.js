@@ -2619,7 +2619,7 @@ function getPasswordRecoveryRedirectUrl(accountType) {
   const frontendUrl = process.env.FRONTEND_URL || (
     process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : ''
   )
-  if (!frontendUrl) throw new Error('FRONTEND_URL is required for password recovery')
+  if (!frontendUrl) return null
   const redirectUrl = new URL('/restablecer-contrasena', frontendUrl)
   redirectUrl.searchParams.set('account', accountType)
   return redirectUrl.toString()
@@ -2644,11 +2644,9 @@ app.post('/auth/customer-password-reset', customerPasswordResetIpRateLimit, asyn
       }
       email = profile?.email || ''
     }
-
     if (email) {
-      const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(email, {
-        redirectTo: getPasswordRecoveryRedirectUrl('customer'),
-      })
+      const redirectTo = getPasswordRecoveryRedirectUrl('customer')
+      const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : {})
       if (error) {
         console.error('Customer password recovery email failed', error)
         return res.status(503).json({ error: 'No se pudo enviar el correo de recuperación.' })
@@ -2679,9 +2677,8 @@ app.post('/auth/admin-password-reset', customerPasswordResetIpRateLimit, async (
     }
 
     if (profile?.email) {
-      const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(profile.email, {
-        redirectTo: getPasswordRecoveryRedirectUrl('admin'),
-      })
+      const redirectTo = getPasswordRecoveryRedirectUrl('admin')
+      const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(profile.email, redirectTo ? { redirectTo } : {})
       if (error) {
         console.error('Admin password recovery email failed', error)
         return res.status(503).json({ error: 'No se pudo enviar el correo de recuperación.' })
