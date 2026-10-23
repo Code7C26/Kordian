@@ -237,6 +237,26 @@ export default function SharedListsPage() {
     }
   }
 
+  const deleteList = async (list) => {
+    if (!window.confirm(`¿Eliminar la lista “${list.name}” y todos sus artículos? Esta acción no se puede deshacer.`)) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await request(`/shared-lists/${encodeURIComponent(list.id)}`, { method: 'DELETE' })
+      const remainingLists = await loadLists()
+      if (selectedListId === list.id) {
+        setSelectedListId(remainingLists[0]?.id || '')
+        setSelectedList(null)
+      }
+      setNotice(`Se eliminó “${list.name}”.`)
+    } catch (deleteError) {
+      setError(deleteError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const shareList = async () => {
     if (!selectedList) return
     const inviteUrl = new URL(`/listas-compartidas?invite=${encodeURIComponent(selectedList.invite_code)}`, window.location.origin).toString()
@@ -305,10 +325,17 @@ export default function SharedListsPage() {
               ) : lists.length ? (
                 <div className="space-y-2">
                   {lists.map((list) => (
-                    <button key={list.id} type="button" onClick={() => setSelectedListId(list.id)} className={`w-full rounded-xl border px-3 py-3 text-left ${list.id === selectedListId ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40' : 'border-stone-200 hover:border-sky-300 dark:border-stone-700'}`}>
-                      <span className="block truncate text-sm font-bold">{list.name}</span>
-                      <span className="mt-1 block text-xs text-stone-500">{list.role === 'owner' ? 'Propietario' : 'Compartida'}</span>
-                    </button>
+                    <div key={list.id} className={`flex items-center gap-1 rounded-xl border px-2 ${list.id === selectedListId ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40' : 'border-stone-200 dark:border-stone-700'}`}>
+                      <button type="button" onClick={() => setSelectedListId(list.id)} className="min-w-0 flex-1 py-3 pl-1 text-left">
+                        <span className="block truncate text-sm font-bold">{list.name}</span>
+                        <span className="mt-1 block text-xs text-stone-500">{list.role === 'owner' ? 'Propietario' : 'Compartida'}</span>
+                      </button>
+                      {list.role === 'owner' && (
+                        <button type="button" onClick={() => deleteList(list)} disabled={busy} aria-label={`Eliminar lista ${list.name}`} title="Eliminar lista" className="rounded-lg p-2 text-stone-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-rose-950/40">
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               ) : (

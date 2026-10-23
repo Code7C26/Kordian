@@ -3436,6 +3436,28 @@ app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
   }
 })
 
+app.delete('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+    if (membership.role !== 'owner') {
+      return res.status(403).json({ error: 'Solo quien creó la lista puede eliminarla.' })
+    }
+
+    const { error, count } = await analysisWriter
+      .from('shared_shopping_lists')
+      .delete({ count: 'exact' })
+      .eq('id', req.params.listId)
+      .eq('owner_user_id', req.customerUser.id)
+    if (error) throw error
+    if (!count) return res.status(404).json({ error: 'No se encontró la lista.' })
+    return res.status(204).end()
+  } catch (error) {
+    console.error('Shared-list deletion failed', error)
+    return res.status(503).json({ error: 'No se pudo eliminar la lista.' })
+  }
+})
+
 app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
