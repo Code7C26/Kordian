@@ -2617,12 +2617,18 @@ function requireCustomerAuthStorage(res) {
 
 function getPasswordRecoveryRedirectUrl(accountType) {
   const frontendUrl = process.env.FRONTEND_URL || (
-    process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : ''
+    process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://ar-price.netlify.app'
   )
-  if (!frontendUrl) return null
   const redirectUrl = new URL('/restablecer-contrasena', frontendUrl)
   redirectUrl.searchParams.set('account', accountType)
   return redirectUrl.toString()
+}
+
+function getCustomerConfirmationRedirectUrl() {
+  const frontendUrl = process.env.FRONTEND_URL || (
+    process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://ar-price.netlify.app'
+  )
+  return new URL('/ingresar?confirmation=success', frontendUrl).toString()
 }
 
 app.post('/auth/customer-password-reset', customerPasswordResetIpRateLimit, async (req, res) => {
@@ -2748,10 +2754,14 @@ app.post('/auth/customer-register', async (req, res) => {
     if (existingProfile) return res.status(409).json({ error: 'Este usuario ya se encuentra registrado.' })
 
     const authClient = createCustomerAuthClient()
+    const emailRedirectTo = getCustomerConfirmationRedirectUrl()
     const { data, error } = await authClient.auth.signUp({
       email,
       password,
-      options: { data: { username } },
+      options: {
+        data: { username },
+        emailRedirectTo,
+      },
     })
     if (error) {
       const normalizedMessage = String(error.message || '').toLowerCase()

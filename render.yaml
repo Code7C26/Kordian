@@ -17,6 +17,6 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: FRONTEND_URL
-        sync: false
+        value: https://ar-price.netlify.app
       - key: ADMIN_SESSION_SECRET
         generateValue: true
