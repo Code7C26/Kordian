@@ -14,7 +14,7 @@ function normalizeStoreName(value) {
     .toLowerCase()
 }
 
-export function addLocalComparisonOffers(product, offers = []) {
+export function addProductComparisonOffers(product, offers = []) {
   const productName = String(product?.name || '').trim().toLowerCase()
   const isTargetProduct = String(product?.id || '') === '18075'
     || String(product?.ean || '') === '7790895012266'
