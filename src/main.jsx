@@ -4,7 +4,7 @@ import ReactDOM from 'react-dom/client'
 
 import './index.css'
 
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 
 import App from './App'
 import Admin from './pages/Admin'
@@ -23,6 +23,15 @@ import SettingsPage from './pages/SettingsPage.jsx'
 import PasswordRecoveryPage from './pages/PasswordRecoveryPage.jsx'
 import { LanguageProvider } from './contexts/LanguageContext.jsx'
 
+function HomeRoute() {
+  const location = useLocation()
+  const hashParams = new URLSearchParams(location.hash.slice(1))
+  if (hashParams.get('type') === 'recovery' && hashParams.has('access_token')) {
+    return <Navigate to={`/restablecer-contrasena${location.hash}`} replace />
+  }
+  return <App />
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <LanguageProvider>
@@ -31,7 +40,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <BrowserRouter>
             <Routes>
             {/* HOME */}
-            <Route path="/" element={<App />} />
+            <Route path="/" element={<HomeRoute />} />
             <Route path="/buscar" element={<App />} />
             <Route path="/favoritos" element={<FavoritesPage />} />
             <Route path="/ingresar" element={<CustomerAuthPage mode="login" />} />
