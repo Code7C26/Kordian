@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { LoaderCircle, LockKeyhole } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { isValidCustomerPassword } from '../utils/customerAuthValidation.js'
+import { parsePasswordRecoveryLink } from '../utils/passwordRecoveryLink.js'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 
 export default function PasswordRecoveryPage() {
@@ -10,18 +11,17 @@ export default function PasswordRecoveryPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const { updatePassword } = useCustomerAuth()
-  const accountType = new URLSearchParams(location.search).get('account') === 'admin' ? 'admin' : 'customer'
-  const accessToken = new URLSearchParams(location.hash.slice(1)).get('access_token')
-  const recoveryType = new URLSearchParams(location.hash.slice(1)).get('type')
+  const recoveryLink = parsePasswordRecoveryLink(location)
+  const { accountType, accessToken, tokenHash, recoveryType } = recoveryLink
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(recoveryLink.error)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
-    if (!accessToken || recoveryType !== 'recovery') {
+    if ((!accessToken && !tokenHash) || recoveryType !== 'recovery') {
       setError('El enlace de recuperación no es válido o venció. Solicita uno nuevo.')
       return
     }
@@ -36,7 +36,7 @@ export default function PasswordRecoveryPage() {
 
     setIsSubmitting(true)
     try {
-      await updatePassword({ accessToken, password })
+      await updatePassword({ accessToken, tokenHash, password })
       navigate(accountType === 'admin' ? '/login?password=updated' : '/ingresar?password=updated', { replace: true })
     } catch (updateError) {
       setError(updateError.message || 'No se pudo actualizar la contraseña.')

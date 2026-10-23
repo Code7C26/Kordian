@@ -219,10 +219,10 @@ export function CustomerAuthProvider({ children }) {
     })
   }
 
-  const updatePassword = async ({ accessToken, password }) => requestJson('/auth/password-update', {
+  const updatePassword = async ({ accessToken, tokenHash, password }) => requestJson('/auth/password-update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accessToken, password }),
+    body: JSON.stringify({ accessToken, tokenHash, password }),
   })
 
   const signOut = async () => {
