@@ -16,6 +16,8 @@ import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
+import { fetchAnalysisProducts } from './services/analysisApi.js';
+import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 
 const CATEGORY_ONBOARDING_KEY = 'arprice_category_onboarding_complete';
@@ -99,6 +101,7 @@ export default function App() {
   const [isMockCatalog, setIsMockCatalog] = useState(false)
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
   const [catalogLoadError, setCatalogLoadError] = useState(false)
+  const [analysisLoadState, setAnalysisLoadState] = useState('idle')
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
   const [selectedCategory, setSelectedCategory] = useState(
     () => localStorage.getItem('arprice_selected_category'),
@@ -398,14 +401,12 @@ export default function App() {
         setStoresList([...stores.values()])
 
         if (!analysisCache.current && !filters.searchQuery.trim() && !favoritesOnlyView) {
-          fetch(apiUrl('/analysis/products'), { signal: controller.signal })
-            .then(async (response) => {
-              if (!response.ok) throw new Error('Backend returned non-ok analysis response')
-              return response.json()
-            })
+          setAnalysisLoadState('loading')
+          fetchAnalysisProducts(apiUrl('/analysis/products'), { signal: controller.signal })
             .then((analysisResults) => {
               if (!mounted) return
               analysisCache.current = analysisResults
+              setAnalysisLoadState('loaded')
               const resultsByProduct = new Map(analysisResults.map((item) => [String(item.product?.id), item]))
               setProducts((current) => current.map((product) => {
                 const analysis = resultsByProduct.get(String(product.id))
@@ -421,7 +422,10 @@ export default function App() {
               }))
             })
             .catch((error) => {
-              if (error.name !== 'AbortError') console.error('Error loading price analysis', error)
+              if (error.name !== 'AbortError') {
+                console.error('Error loading price analysis', error)
+                if (mounted) setAnalysisLoadState('error')
+              }
             })
         }
       } catch (error) {
@@ -587,6 +591,10 @@ export default function App() {
       location.pathname === '/'
       && localStorage.getItem(CATEGORY_ONBOARDING_KEY) !== 'true'
     );
+  const explanationProduct = resolveSelectedAnalysisProduct(
+    selectedProductForExplanation,
+    products,
+  );
 
   if (isCategoryOnboarding) {
     return (
@@ -1049,7 +1057,8 @@ export default function App() {
       )}
 
       <PriceExplanationModal
-        product={selectedProductForExplanation}
+        product={explanationProduct}
+        analysisLoadState={analysisLoadState}
         onClose={() => setSelectedProductForExplanation(null)}
       />
 

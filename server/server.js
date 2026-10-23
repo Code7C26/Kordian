@@ -27,6 +27,9 @@ const {
 } = require('./services/currentPriceStatus')
 const priceStatusRulesVersion = PRICE_STATUS_RULES_VERSION
 const catalogPageCache = createCatalogPageCache()
+const publicDiscoSearchCache = new Map()
+const publicDiscoSearchInFlight = new Set()
+const publicDiscoSearchMaxResults = Math.min(500, Math.max(50, Number(process.env.DISCO_PUBLIC_SEARCH_MAX_RESULTS || 500)))
 const analysisWriter = process.env.SUPABASE_SERVICE_ROLE_KEY ? require('./supabaseAdmin') : supabase
 const priceStatusQueue = createPriceStatusRefreshQueue({
   refreshBatch: refreshCurrentPriceStatuses,
@@ -885,99 +888,6 @@ function scheduleDiscoSearchResults(search) {
   })
 }
 
-async function importDiscoSearchResults(search) {
-  const normalizedSearch = String(search || '').trim().toLowerCase()
-  if (!normalizedSearch) return { imported: 0, updated: 0 }
-  const cachedAt = publicDiscoSearchCache.get(normalizedSearch)
-  if (cachedAt && Date.now() - cachedAt < 5 * 60 * 1000) return { imported: 0, updated: 0 }
-
-  const previewReport = await fetchDiscoPreviewReport({ query: normalizedSearch, from: 0, to: publicDiscoSearchMaxResults - 1 })
-  const preview = previewReport.products
-  if (!preview.length && !previewReport.discarded.length) return { imported: 0, updated: 0 }
-  publicDiscoSearchCache.set(normalizedSearch, Date.now())
-
-  const [{ data: categories }, { data: subcategories }, { data: brands }, { data: existingProducts }] = await Promise.all([
-    analysisWriter.from('categories').select('id, name'),
-    analysisWriter.from('subcategories').select('id, name, category_id'),
-    analysisWriter.from('brands').select('id, name'),
-    analysisWriter.from('products').select('id, source_product_id, ean, offers(id, supermarket)'),
-  ])
-  const productsBySource = new Map((existingProducts || []).map((product) => [String(product.source_product_id || ''), product]))
-  const productsByEan = new Map((existingProducts || []).filter((product) => product.ean).map((product) => [String(product.ean), product]))
-  const brandCache = new Map((brands || []).map((brand) => [normalizeBrandName(brand.name), brand]))
-  let imported = 0
-  let updated = 0
-
-  for (const item of preview) {
-    const existing = productsBySource.get(String(item.sourceProductId)) || (item.ean && productsByEan.get(String(item.ean)))
-    const existingOffer = existing?.offers?.find((offer) => offer.supermarket === 'Disco')
-    if (existing && existingOffer) {
-      if (Number(existingOffer.cash_price) !== Number(item.price)) {
-        const { error } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
-        if (!error) {
-          await recordPriceHistory({ productId: existing.id, offerId: existingOffer.id, cashPrice: item.price, source: 'disco_public_search' })
-          updated++
-        }
-      }
-      continue
-    }
-    if (existing && !existingOffer) {
-      const { data: offer, error } = await analysisWriter.from('offers').insert({ product_id: existing.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
-      if (!error) {
-        await recordPriceHistory({ productId: existing.id, offerId: offer.id, cashPrice: item.price, source: 'disco_public_search' })
-        updated++
-      }
-      continue
-    }
-    if (!item.proposedCategory || !item.proposedSubcategory) continue
-    const category = (categories || []).find((candidate) => candidate.name === item.proposedCategory)
-    const subcategory = (subcategories || []).find((candidate) => candidate.name === item.proposedSubcategory && String(candidate.category_id) === String(category?.id))
-    if (!category || !subcategory) continue
-
-    const brandName = normalizeBrandName(item.brand)
-    let brand = brandName ? brandCache.get(brandName) : null
-    if (!brand && brandName) {
-      const { data: createdBrand, error: brandError } = await analysisWriter.from('brands').insert({ name: String(item.brand).trim() }).select('id, name').single()
-      if (brandError) continue
-      brand = createdBrand
-      brandCache.set(brandName, brand)
-    }
-    const { data: product, error: productError } = await analysisWriter.from('products').insert({
-      name: item.name,
-      brand_id: brand?.id || null,
-      category_id: category.id,
-      subcategory_id: subcategory.id,
-      image: item.image || null,
-      source: 'disco',
-      source_product_id: String(item.sourceProductId),
-      source_sku: item.sourceSku || null,
-      ean: item.ean || null,
-      source_url: item.sourceUrl || null,
-      source_category: item.sourceCategory || null,
-      source_subcategory: item.proposedSubcategory || null,
-    }).select('id').single()
-    if (productError) continue
-    const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: product.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
-    if (!offerError) {
-      await recordPriceHistory({ productId: product.id, offerId: offer.id, cashPrice: item.price, source: 'disco_public_search' })
-      imported++
-    }
-  }
-  const discardedByReason = previewReport.discarded.reduce((counts, product) => {
-    counts[product.reason] = (counts[product.reason] || 0) + 1
-    return counts
-  }, {})
-  const { error: logError } = await analysisWriter.from('price_update_log').insert({
-    admin_username: 'public_search',
-    filters: { source: 'disco_public_search', query: normalizedSearch, discarded: discardedByReason },
-    percentage: 0,
-    products_updated: imported + updated,
-    changes: [{ imported, updated, discarded: previewReport.discarded.length }],
-  })
-  if (logError) console.error('Error recording public Disco search', logError.message)
-  return { imported, updated, discarded: previewReport.discarded.length }
-}
-
 // GET /products - fetch from Supabase with simple filters + pagination
 app.get('/products', async (req, res) => {
   try {
@@ -1161,7 +1071,7 @@ async function getPriceUpdateLogs() {
           .range(offset, offset + pageSize - 1)
         if (error) {
           console.error('Error fetching price update history', error)
-          return logs
+          throw error
         }
         logs.push(...(data || []))
         if ((data || []).length < pageSize) break
@@ -1244,21 +1154,24 @@ app.get('/analysis/products', async (req, res) => {
       }
       analyses.push(...(data || []).map((status) => {
         const details = status.analysis_details || {}
+        const nullableNumber = (value) => value === null || value === undefined || value === ''
+          ? null
+          : Number.isFinite(Number(value)) ? Number(value) : null
         return {
           product: { id: status.product_id },
           classification: status.classification,
-          score: Number(status.anomaly_score) || 0,
-          offerScore: Number(status.offer_score) || 0,
-          confidence: status.confidence || 'baja',
-          confidencePercentage: Number(status.confidence_percentage) || 0,
-          dataQuality: status.data_quality || {},
+          score: nullableNumber(status.anomaly_score),
+          offerScore: nullableNumber(status.offer_score),
+          confidence: status.confidence || null,
+          confidencePercentage: nullableNumber(status.confidence_percentage),
+          dataQuality: status.data_quality || null,
           analyzedAt: status.analyzed_at,
-          indicators: details.indicators || {},
-          references: details.references || { references: [] },
-          priceHistory: details.priceHistory || [],
-          pricePeriods: details.pricePeriods || [],
-          populatedPeriods: details.populatedPeriods || 0,
-          evolutionAvailable: details.evolutionAvailable || false,
+          indicators: details.indicators || null,
+          references: details.references || null,
+          priceHistory: details.priceHistory || null,
+          pricePeriods: details.pricePeriods || null,
+          populatedPeriods: nullableNumber(details.populatedPeriods),
+          evolutionAvailable: details.evolutionAvailable ?? null,
           taxonomy: details.taxonomy || null,
         }
       }))

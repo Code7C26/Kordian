@@ -1,6 +1,11 @@
 import { X, Info, Database, BarChart3 } from 'lucide-react'
 import { useState } from 'react'
 import { formatCurrency } from '../utils/formatters'
+import {
+  formatOptionalNumber,
+  formatOptionalPercentage,
+  getAnalysisLoadMessage,
+} from '../utils/priceExplanationPresentation.js'
 
 const statusLabels = {
   OFERTA: 'En oferta',
@@ -11,38 +16,38 @@ const statusLabels = {
   INFORMACION_INSUFICIENTE: 'Información insuficiente',
 }
 
-const isAvailableNumber = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
-const formatValue = (value) => isAvailableNumber(value) ? Number(value).toFixed(1) : 'No disponible'
-
 const getRiskLevel = (value) => {
-  if (!isAvailableNumber(value)) return { label: 'No disponible', className: 'text-stone-900 dark:text-white' }
+  if (formatOptionalNumber(value) === 'No disponible') return { label: 'No disponible', className: 'text-stone-900 dark:text-white' }
   const score = Number(value)
   if (score >= 60) return { label: 'Alto', className: 'text-rose-700 dark:text-rose-300' }
   if (score >= 30) return { label: 'Medio', className: 'text-amber-700 dark:text-amber-300' }
   return { label: 'Bajo', className: 'text-emerald-700 dark:text-emerald-300' }
 }
 
-export default function PriceExplanationModal({ product, onClose }) {
+export default function PriceExplanationModal({ product, analysisLoadState = 'idle', onClose }) {
   const [showRiskScale, setShowRiskScale] = useState(false)
   if (!product) return null
 
-  const analysis = product.analysis || {}
-  const indicators = analysis.indicators || {}
-  const references = analysis.references?.references || []
-  const dataQuality = analysis.dataQuality || {}
-  const status = statusLabels[analysis.classification || product.status] || 'Estado no disponible'
-  const riskLevel = getRiskLevel(analysis.score)
-  const confidenceLabel = isAvailableNumber(analysis.confidencePercentage)
-    ? `${analysis.confidence || 'baja'} (${formatValue(analysis.confidencePercentage)}%)`
+  const analysis = product.analysis
+  const indicators = analysis?.indicators || {}
+  const references = Array.isArray(analysis?.references?.references)
+    ? analysis.references.references
+    : null
+  const dataQuality = analysis?.dataQuality
+  const status = statusLabels[analysis?.classification || product.status] || 'Estado no disponible'
+  const riskLevel = getRiskLevel(analysis?.score)
+  const confidenceLabel = formatOptionalNumber(analysis?.confidencePercentage) !== 'No disponible'
+    ? `${analysis.confidence || 'No disponible'} (${formatOptionalPercentage(analysis.confidencePercentage)})`
     : 'No disponible'
-  const scoreLabel = isAvailableNumber(analysis.score)
-    ? `${riskLevel.label} (${formatValue(analysis.score)}/100)`
+  const scoreLabel = formatOptionalNumber(analysis?.score) !== 'No disponible'
+    ? `${riskLevel.label} (${formatOptionalNumber(analysis.score)}/100)`
     : 'No disponible'
-  const signals = Array.isArray(analysis.indicators?.signals)
+  const signals = Array.isArray(analysis?.indicators?.signals)
     ? analysis.indicators.signals
-    : Array.isArray(analysis.indicators?.reasons)
+    : Array.isArray(analysis?.indicators?.reasons)
       ? analysis.indicators.reasons
-      : []
+      : null
+  const analysisLoadMessage = getAnalysisLoadMessage(product, analysisLoadState)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/60 p-4" role="presentation" onClick={onClose}>
@@ -94,24 +99,25 @@ export default function PriceExplanationModal({ product, onClose }) {
           <div className="rounded-xl border border-stone-200 p-4 dark:border-stone-700">
             <h3 className="flex items-center gap-2 font-bold text-stone-900 dark:text-white"><BarChart3 className="h-4 w-4 text-sky-600" /> Indicadores</h3>
             <dl className="mt-3 space-y-2 text-sm text-stone-600 dark:text-stone-300">
-              <div className="flex justify-between gap-3"><dt>Variación histórica</dt><dd className="font-bold">{formatValue(indicators.percentageVariation)}%</dd></div>
-              <div className="flex justify-between gap-3"><dt>Desvío de inflación</dt><dd className="font-bold">{formatValue(indicators.inflationDeviation)}%</dd></div>
-              <div className="flex justify-between gap-3"><dt>Registros históricos</dt><dd className="font-bold">{dataQuality.historyPoints ?? 0}</dd></div>
-              <div className="flex justify-between gap-3"><dt>Supermercados</dt><dd className="font-bold">{dataQuality.supermarkets ?? 0}</dd></div>
-              <div className="flex justify-between gap-3"><dt>Comparables</dt><dd className="font-bold">{dataQuality.comparables ?? 0}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Variación histórica</dt><dd className="font-bold">{formatOptionalPercentage(indicators.percentageVariation)}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Desvío de inflación</dt><dd className="font-bold">{formatOptionalPercentage(indicators.inflationDeviation)}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Registros históricos</dt><dd className="font-bold">{formatOptionalNumber(dataQuality?.historyPoints, 0)}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Supermercados</dt><dd className="font-bold">{formatOptionalNumber(dataQuality?.supermarkets, 0)}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Comparables</dt><dd className="font-bold">{formatOptionalNumber(dataQuality?.comparables, 0)}</dd></div>
             </dl>
           </div>
 
           <div className="rounded-xl border border-stone-200 p-4 dark:border-stone-700">
             <h3 className="flex items-center gap-2 font-bold text-stone-900 dark:text-white"><Database className="h-4 w-4 text-sky-600" /> Evidencia</h3>
-            {signals.length ? <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-stone-600 dark:text-stone-300">{signals.map((signal, index) => <li key={signal.id || index}>{typeof signal === 'string' ? signal : `${signal.label} (${signal.score} puntos)`}</li>)}</ul> : <p className="mt-3 text-sm text-stone-500">No se detectaron señales adicionales.</p>}
-            <p className="mt-3 text-xs text-stone-500 dark:text-stone-400">Calidad de datos: <strong>{dataQuality.quality || 'baja'}</strong></p>
+            {signals?.length ? <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-stone-600 dark:text-stone-300">{signals.map((signal, index) => <li key={signal.id || index}>{typeof signal === 'string' ? signal : `${signal.label} (${signal.score} puntos)`}</li>)}</ul> : <p className="mt-3 text-sm text-stone-500">{signals ? 'No se detectaron señales adicionales.' : 'Sin datos de evidencia disponibles.'}</p>}
+            <p className="mt-3 text-xs text-stone-500 dark:text-stone-400">Calidad de datos: <strong>{dataQuality?.quality || 'No disponible'}</strong></p>
           </div>
         </div>
 
         <div className="mt-4 rounded-xl border border-stone-200 p-4 dark:border-stone-700">
           <h3 className="font-bold text-stone-900 dark:text-white">Referencias comparables</h3>
-          {references.length ? <div className="mt-3 space-y-2 text-sm">{references.map((reference) => <div key={reference.id} className="flex justify-between gap-3 text-stone-600 dark:text-stone-300"><span>{reference.name}</span><strong>{formatCurrency(reference.price || 0)}</strong></div>)}</div> : <p className="mt-2 text-sm text-stone-500">No hay referencias comparables suficientes.</p>}
+          {references?.length ? <div className="mt-3 space-y-2 text-sm">{references.map((reference) => <div key={reference.id} className="flex justify-between gap-3 text-stone-600 dark:text-stone-300"><span>{reference.name}</span><strong>{formatCurrency(reference.price || 0)}</strong></div>)}</div> : <p className="mt-2 text-sm text-stone-500">{references ? 'No hay referencias comparables suficientes.' : 'Referencias comparables no disponibles.'}</p>}
+          {analysisLoadMessage && <p role="status" className="mt-3 text-sm text-amber-700 dark:text-amber-300">{analysisLoadMessage}</p>}
         </div>
       </section>
     </div>
