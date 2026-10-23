@@ -238,19 +238,29 @@ export default function SharedListsPage() {
   }
 
   const deleteList = async (list) => {
-    if (!window.confirm(`¿Eliminar la lista “${list.name}” y todos sus artículos? Esta acción no se puede deshacer.`)) return
+    const wasSelected = selectedListId === list.id
+    const nextLists = lists.filter((currentList) => currentList.id !== list.id)
+    const nextSelectedListId = nextLists[0]?.id || ''
+
+    setLists(nextLists)
+    if (wasSelected) {
+      setSelectedListId(nextSelectedListId)
+      setSelectedList(null)
+    }
     setBusy(true)
     setError('')
     setNotice('')
     try {
       await request(`/shared-lists/${encodeURIComponent(list.id)}`, { method: 'DELETE' })
-      const remainingLists = await loadLists()
-      if (selectedListId === list.id) {
-        setSelectedListId(remainingLists[0]?.id || '')
-        setSelectedList(null)
-      }
       setNotice(`Se eliminó “${list.name}”.`)
     } catch (deleteError) {
+      setLists((currentLists) => currentLists.some((currentList) => currentList.id === list.id)
+        ? currentLists
+        : [...currentLists, list])
+      if (wasSelected) {
+        setSelectedListId((currentId) => currentId === nextSelectedListId ? list.id : currentId)
+        setSelectedList((currentList) => currentList || selectedList)
+      }
       setError(deleteError.message)
     } finally {
       setBusy(false)
