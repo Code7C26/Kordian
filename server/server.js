@@ -7,6 +7,7 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const app = express()
+const { normalizeOptionalReference } = require('./productFields')
 
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
@@ -1149,6 +1150,9 @@ app.get('/admin/import/disco/import-status', requireAdmin, async (req, res) => {
 
 app.put('/products/:id/classification', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La edición de productos requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { id } = req.params
     const { subcategory_id } = req.body || {}
     const priceHistoryRecorded = req.body?.priceHistoryRecorded === true
@@ -2141,8 +2145,8 @@ app.post('/products', requireAdmin, async (req, res) => {
       .from('products')
       .insert({
         name,
-        category_id,
-        brand_id,
+        category_id: normalizeOptionalReference(category_id),
+        brand_id: normalizeOptionalReference(brand_id),
         rating,
         image,
         subcategory_id: subcategory_id || null,
@@ -2198,6 +2202,9 @@ app.post('/products', requireAdmin, async (req, res) => {
 
 app.put('/products/:id', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La edición de productos requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { id } = req.params 
     const { name, category_id, brand_id, rating, image } = req.body || {}
     const { data: previousProduct, error: previousError } = await analysisWriter
@@ -2208,14 +2215,20 @@ app.put('/products/:id', requireAdmin, async (req, res) => {
     if (previousError) throw previousError
     const { data, error } = await analysisWriter
       .from('products')
-      .update({ name, category_id, brand_id, rating, image })
+      .update({
+        name,
+        category_id: normalizeOptionalReference(category_id),
+        brand_id: normalizeOptionalReference(brand_id),
+        rating,
+        image,
+      })
       .eq('id', id)
       .select()
       .single()
 
     if (error) {
       console.error('Error updating product', error)
-      return res.status(500).json({ error: 'Error updating product' })
+      return res.status(500).json({ error: error.message || 'Error updating product' })
     }
 
     invalidateCatalogPageCache()
@@ -2254,6 +2267,9 @@ app.delete('/products/:id', requireAdmin, async (req, res) => {
 
 app.post('/offers', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { 
       product_id,
       supermarket,
@@ -2269,7 +2285,7 @@ app.post('/offers', requireAdmin, async (req, res) => {
     const normalizedInstallmentsQuantity = normalizeNumericValue(installments_quantity)
     const normalizedInstallmentPrice = normalizeNumericValue(installment_price)
 
-    const { data, error } = await supabase
+    const { data, error } = await analysisWriter
       .from('offers')
       .insert({
         product_id,
@@ -2283,7 +2299,7 @@ app.post('/offers', requireAdmin, async (req, res) => {
 
     if (error) {
       console.error('Error creating offer', error)
-      return res.status(500).json({ error: 'Error creating offer' })
+      return res.status(500).json({ error: error.message || 'Error creating offer' })
     }
 
     if (!skipPriceChangeRecording) {
@@ -2300,6 +2316,9 @@ app.post('/offers', requireAdmin, async (req, res) => {
 
 app.put('/offers/:id', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { id } = req.params 
     const {
       supermarket,
@@ -2313,14 +2332,14 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
     const normalizedInstallmentsQuantity = normalizeNumericValue(installments_quantity)
     const normalizedInstallmentPrice = normalizeNumericValue(installment_price)
 
-    const { data: previousOffer, error: previousError } = await supabase
+    const { data: previousOffer, error: previousError } = await analysisWriter
       .from('offers')
       .select('id, product_id, cash_price, supermarket')
       .eq('id', id)
       .single()
     if (previousError) return res.status(404).json({ error: 'Oferta no encontrada' })
 
-    const { data, error } = await supabase
+    const { data, error } = await analysisWriter
       .from('offers')
       .update({
         supermarket,
@@ -2334,7 +2353,7 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
 
     if (error) {
       console.error('Error updating offer', error)
-      return res.status(500).json({ error: 'Error updating offer' })
+      return res.status(500).json({ error: error.message || 'Error updating offer' })
     }
 
     if (!skipPriceChangeRecording) {
@@ -2371,13 +2390,16 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
 
 app.delete('/offers/:id', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { id } = req.params 
-    const { data: offer, error: offerError } = await supabase.from('offers').select('product_id').eq('id', id).maybeSingle()
+    const { data: offer, error: offerError } = await analysisWriter.from('offers').select('product_id').eq('id', id).maybeSingle()
     if (offerError) throw offerError
-    const { error } = await supabase.from('offers').delete().eq('id', id)
+    const { error } = await analysisWriter.from('offers').delete().eq('id', id)
     if (error) {
       console.error('Error deleting offer', error)
-      return res.status(500).json({ error: 'Error deleting offer' })
+      return res.status(500).json({ error: error.message || 'Error deleting offer' })
     }
     invalidateCatalogPageCache()
     if (offer?.product_id) scheduleRelatedPriceStatusRefresh(offer.product_id)

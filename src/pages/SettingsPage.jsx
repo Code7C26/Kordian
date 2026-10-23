@@ -20,6 +20,11 @@ export default function SettingsPage() {
     localStorage.setItem('arprice_theme', darkMode ? 'dark' : 'light')
   }, [darkMode])
 
+  useEffect(() => {
+    setCity(selectedCity)
+    setSaved(false)
+  }, [selectedCity])
+
   const saveCity = (event) => {
     event.preventDefault()
     if (!CITIES_LIST.includes(city)) return

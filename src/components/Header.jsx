@@ -244,9 +244,6 @@ export function Header({
                   <p className="px-3 py-2 text-sm text-stone-500 dark:text-stone-400">{t('No se encontraron ubicaciones disponibles.')}</p>
                 )}
               </div>
-              <p className="mt-2 border-t border-stone-200 pt-2 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">
-                {t('Por ahora, el catálogo no cambia según la ubicación seleccionada.')}
-              </p>
             </div>
           )}
         </div>
