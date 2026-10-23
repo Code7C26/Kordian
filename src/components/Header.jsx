@@ -450,7 +450,7 @@ export function Header({
                         <CategoryIconImage src={categoryIcon} className="h-5 w-5" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-sm font-black">{t(category.name)}</span>
+                        <span className="block break-words text-sm font-black">{t(category.name)}</span>
                         <span className={`mt-1 block text-xs ${isSelected ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>{t(category.description)}</span>
                       </span>
                     </span>

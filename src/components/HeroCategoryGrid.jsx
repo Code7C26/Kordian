@@ -20,6 +20,7 @@ const QUICK_SEARCH_TAGS = [
 
 export function HeroCategoryGrid({
   categories,
+  isLoadingCategories = false,
   selectedCategory,
   onSelectCategory,
   searchQuery,
@@ -64,7 +65,7 @@ export function HeroCategoryGrid({
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
-                placeholder={t('Busca por producto, marca o categoría (ej: Yerba, TV, Leche)...')}
+                placeholder={t('Busca por producto o marca')}
                 className="min-w-0 w-full px-2 py-2.5 text-stone-900 dark:text-white placeholder-stone-400 bg-transparent text-sm sm:px-3 sm:text-base focus:outline-none"
               />
               {searchFocused && searchHistory.length > 0 && (
@@ -125,7 +126,22 @@ export function HeroCategoryGrid({
         </div>
 
         <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
-          {categories.map((cat) => {
+          {isLoadingCategories && (
+            <div className="flex gap-3 sm:gap-4" role="status" aria-label={t('Cargando categorías')}>
+              {Array.from({ length: 5 }, (_, index) => (
+                <div
+                  key={index}
+                  aria-hidden="true"
+                  className="h-36 min-w-[180px] flex-1 animate-pulse rounded-2xl border border-stone-200/80 bg-white p-4 sm:min-w-[190px] dark:border-stone-700/80 dark:bg-stone-800/90"
+                >
+                  <div className="h-14 w-14 rounded-xl bg-stone-200 dark:bg-stone-700" />
+                  <div className="mt-5 h-3 w-2/3 rounded bg-stone-200 dark:bg-stone-700" />
+                  <div className="mt-2 h-2 w-full rounded bg-stone-100 dark:bg-stone-700/70" />
+                </div>
+              ))}
+            </div>
+          )}
+          {!isLoadingCategories && categories.map((cat) => {
             const isSelected = selectedCategory === cat.id;
             const categoryIcon = getCategoryIconAsset(cat);
             return (
@@ -133,7 +149,7 @@ export function HeroCategoryGrid({
                 type="button"
                 key={cat.id}
                 onClick={() => onSelectCategory(cat.id)}
-                className={`group relative min-w-[180px] sm:min-w-[190px] flex-1 snap-start text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
+                className={`group relative min-w-[180px] sm:min-w-[190px] flex-1 snap-start overflow-hidden text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
                   isSelected
                     ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/20 ring-2 ring-sky-400'
                     : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 text-stone-800 dark:text-stone-100 hover:border-sky-300 dark:hover:border-sky-700 shadow-xs hover:shadow-md'
@@ -148,8 +164,8 @@ export function HeroCategoryGrid({
                     <CategoryIconImage src={categoryIcon} className="h-9 w-9" />
                   </div>
                 </div>
-                <div>
-                  <h3 className={`font-bold text-sm leading-tight ${
+                <div className="min-w-0">
+                  <h3 className={`line-clamp-2 break-words font-bold text-sm leading-tight ${
                     isSelected ? 'text-white' : 'text-stone-900 dark:text-white'
                   }`}>
                     {t(cat.name)}
@@ -179,11 +195,8 @@ export function HeroCategoryGrid({
             </div>
             <div>
               <h3 className={`font-bold text-sm leading-tight ${selectedCategory === 'todos' ? 'text-white' : 'text-stone-900 dark:text-white'}`}>
-                {t('Todos')}
-              </h3>
-              <p className={`text-[11px] line-clamp-1 mt-0.5 ${selectedCategory === 'todos' ? 'text-sky-100' : 'text-stone-400 dark:text-stone-400'}`}>
                 {t('Todos los productos')}
-              </p>
+              </h3>
             </div>
           </button>
         </div>

@@ -11,7 +11,6 @@ import { ProductCard } from './components/ProductCard.jsx';
 import { ComparisonModal } from './components/ComparisonModal.jsx';
 import { SmartBasketModal } from './components/SmartBasketModal.jsx';
 import PriceExplanationModal from './components/PriceExplanationModal.jsx';
-import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js';
 import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
@@ -27,6 +26,23 @@ const SORT_OPTIONS = [
   { value: 'price-desc', label: 'Mayor precio', icon: ArrowUpWideNarrow },
   { value: 'name-asc', label: 'Nombre A-Z', icon: ArrowDownAZ },
 ]
+
+function getCategoryCacheKey() {
+  return `arprice_categories:${apiUrl('/categories')}`
+}
+
+function readCachedCategories() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(getCategoryCacheKey()) || 'null')
+    return Array.isArray(saved) && saved.length > 0 && saved.every((category) =>
+      category && category.id != null && typeof category.name === 'string'
+    )
+      ? saved
+      : []
+  } catch {
+    return []
+  }
+}
 
 function SortMenu({ value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -110,11 +126,10 @@ export default function App() {
   const { selectedCity, setSelectedCity } = useSelectedCity();
   const { user, favorites, favoritesLoading, favoritesError, toggleFavorite: updateFavorite } = useCustomerAuth();
   const [favoriteNotice, setFavoriteNotice] = useState('');
-  const [categories, setCategories] = useState(MOCK_CATEGORIES)
+  const [categories, setCategories] = useState(readCachedCategories)
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
   const [catalogTotal, setCatalogTotal] = useState(0)
-  const [isMockCatalog, setIsMockCatalog] = useState(false)
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
   const [catalogLoadError, setCatalogLoadError] = useState(false)
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
@@ -319,13 +334,26 @@ export default function App() {
         const referencesPromise = catalogReferenceCache.current
           ? Promise.resolve(catalogReferenceCache.current)
           : Promise.all([
-            fetch(apiUrl('/categories'), { signal: controller.signal }),
+            fetch(apiUrl('/categories'), { signal: controller.signal })
+              .then(async (response) => {
+                const data = response.ok ? await response.json() : []
+                const freshCategories = Array.isArray(data) ? data : []
+                if (freshCategories.length > 0) {
+                  try {
+                    localStorage.setItem(getCategoryCacheKey(), JSON.stringify(freshCategories))
+                  } catch (error) {
+                    console.warn('Could not cache categories', error)
+                  }
+                  if (mounted) setCategories(freshCategories)
+                }
+                return freshCategories
+              }),
             fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
             fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
-          ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
+          ]).then(async ([categoriesData, taxonomyResponse, supermarketsResponse]) => {
             const supermarkets = supermarketsResponse.ok ? await supermarketsResponse.json() : []
             const references = {
-              categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
+              categories: categoriesData,
               taxonomy: taxonomyResponse.ok ? await taxonomyResponse.json() : [],
               supermarkets,
             }
@@ -405,11 +433,10 @@ export default function App() {
           }
         })
 
-        setCategories(cats.length ? cats : MOCK_CATEGORIES)
+        setCategories((current) => cats.length ? cats : current)
         setTaxonomy(taxonomyData || [])
         setProducts(enriched)
         setCatalogTotal(total)
-        setIsMockCatalog(false)
         setCatalogLoadError(false)
 
         const stores = new Map()
@@ -453,29 +480,9 @@ export default function App() {
         if (!mounted || error.name === 'AbortError') return
         console.error('Error loading data', error)
         setCatalogLoadError(true)
-
-        const fallbackProducts = MOCK_PRODUCTS.map((product) => ({
-          ...product,
-          currentPrice: Number(product.currentPrice || 0),
-          avgMarketPrice: Number(product.avgMarketPrice || 0),
-          percentageDiff: Number(product.percentageDiff || 0),
-          status: product.status || 'EN_PRECIO',
-          primaryStore: product.primaryStore || { name: '', id: null },
-          otherStores: Array.isArray(product.otherStores) ? product.otherStores : [],
-        }))
-        setIsMockCatalog(true)
-        setCategories(MOCK_CATEGORIES)
-        setProducts(fallbackProducts)
-        setCatalogTotal(fallbackProducts.length)
-
-        const stores = new Set()
-        fallbackProducts.forEach((product) => {
-          product.otherStores.forEach((offer) => {
-            if (offer.storeName) stores.add(offer.storeName)
-          })
-          if (product.primaryStore?.name) stores.add(product.primaryStore.name)
-        })
-        setStoresList([...stores].map((name) => ({ id: name, name })))
+        setProducts([])
+        setCatalogTotal(0)
+        setStoresList([])
       } finally {
         clearTimeout(requestTimeout)
         if (mounted) setIsLoadingProducts(false)
@@ -557,36 +564,7 @@ export default function App() {
     updateBasket(() => []);
   };
 
-  const filteredProducts = useMemo(() => {
-    if (!isMockCatalog) return products
-
-    let result = [...products]
-    const query = filters.searchQuery.toLowerCase().trim()
-    if (query) {
-      result = result.filter((product) =>
-        [product.name, product.brand, product.category]
-          .some((value) => String(value || '').toLowerCase().includes(query))
-      )
-    }
-    if (filters.category && filters.category !== 'todos') {
-      const category = filters.category.toLowerCase()
-      result = result.filter((product) =>
-        product.category?.toLowerCase() === category || product.category_name?.toLowerCase() === category
-      )
-    }
-    if (filters.store && filters.store !== 'todos') {
-      const store = filters.store.toLowerCase()
-      result = result.filter((product) =>
-        product.otherStores?.some((offer) => offer.supermarket?.toLowerCase() === store)
-      )
-    }
-
-    if (sortBy === 'name-asc') result.sort((left, right) => (left.name || '').localeCompare(right.name || '', 'es'))
-    else if (sortBy === 'price-asc') result.sort((left, right) => (left.currentPrice || 0) - (right.currentPrice || 0))
-    else if (sortBy === 'price-desc') result.sort((left, right) => (right.currentPrice || 0) - (left.currentPrice || 0))
-    else if (sortBy === 'discount' || sortBy === 'discount-desc') result.sort((left, right) => (right.percentageDiff || 0) - (left.percentageDiff || 0))
-    return result
-  }, [products, filters, sortBy, isMockCatalog])
+  const filteredProducts = products
   const favoriteIds = useMemo(() => new Set(favorites.map(String)), [favorites])
   const favoriteProducts = useMemo(
     () => filteredProducts.filter((product) => favoriteIds.has(String(product.id))),
@@ -598,15 +576,13 @@ export default function App() {
   }, [searchHistory])
 
   const totalPages = useMemo(
-    () => getTotalPages(isMockCatalog ? filteredProducts.length : catalogTotal, productsPageSize),
-    [catalogTotal, filteredProducts.length, isMockCatalog, productsPageSize],
+    () => getTotalPages(catalogTotal, productsPageSize),
+    [catalogTotal, productsPageSize],
   );
   const visiblePages = useMemo(() => getVisiblePageNumbers(productsPage, totalPages, 1), [productsPage, totalPages]);
   const paginatedProducts = useMemo(
-    () => isMockCatalog
-      ? filteredProducts.slice((productsPage - 1) * productsPageSize, productsPage * productsPageSize)
-      : filteredProducts,
-    [filteredProducts, isMockCatalog, productsPage, productsPageSize],
+    () => filteredProducts,
+    [filteredProducts],
   );
 
   useEffect(() => {
@@ -720,6 +696,7 @@ export default function App() {
       ) : viewMode === 'categories' ? (
         <HeroCategoryGrid
           categories={categories}
+          isLoadingCategories={isLoadingProducts && categories.length === 0}
           selectedCategory={filters.category}
           onSelectCategory={handleSelectCategory}
           searchQuery={filters.searchQuery}
@@ -938,22 +915,6 @@ export default function App() {
             </div>
           </div>
 
-          {catalogLoadError && isMockCatalog && (
-            <div className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between" role="alert">
-              <div>
-                <p className="font-bold">{t('No se pudo conectar con la base de datos.')}</p>
-                <p className="mt-1 text-sm">{t('Se muestran productos de demostración; los precios no son datos actuales.')}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCatalogRefreshKey((key) => key + 1)}
-                className="shrink-0 rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
-              >
-                {t('Reintentar conexión')}
-              </button>
-            </div>
-          )}
-
           {isLoadingProducts ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-sky-200 dark:border-sky-800 space-y-4" role="status" aria-live="polite">
               <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
@@ -961,6 +922,21 @@ export default function App() {
               </div>
               <h3 className="text-xl font-bold text-stone-900 dark:text-white">{t('Cargando productos')}</h3>
               <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">{t('Estamos actualizando los productos de esta categoría.')}</p>
+            </div>
+          ) : catalogLoadError ? (
+            <div className="flex flex-col items-center gap-4 rounded-3xl border border-amber-300 bg-amber-50 p-10 text-center text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100" role="alert">
+              <AlertTriangle className="h-10 w-10" aria-hidden="true" />
+              <div>
+                <h3 className="text-xl font-bold">{t('No se pudieron cargar los productos actuales.')}</h3>
+                <p className="mt-2 text-sm">{t('No se muestran productos para evitar información desactualizada.')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCatalogRefreshKey((key) => key + 1)}
+                className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
+              >
+                {t('Reintentar conexión')}
+              </button>
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-stone-200/80 dark:border-stone-700/80 space-y-4">
