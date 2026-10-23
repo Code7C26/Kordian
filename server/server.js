@@ -1153,13 +1153,13 @@ app.put('/products/:id/classification', requireAdmin, async (req, res) => {
     const { subcategory_id } = req.body || {}
     const priceHistoryRecorded = req.body?.priceHistoryRecorded === true
     if (!subcategory_id) return res.status(400).json({ error: 'subcategory_id is required' })
-    const { data: previousProduct, error: previousError } = await supabase
+    const { data: previousProduct, error: previousError } = await analysisWriter
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { data, error } = await supabase.from('products').update({
+    const { data, error } = await analysisWriter.from('products').update({
       subcategory_id,
       classification_source: 'manual',
       classification_confidence: 'manual',
@@ -2137,7 +2137,7 @@ app.post('/products', requireAdmin, async (req, res) => {
 
     if (!name) return res.status(400).json({ error: 'Product name is required' })
 
-    const { data: product, error: productError } = await supabase
+    const { data: product, error: productError } = await analysisWriter
       .from('products')
       .insert({
         name,
@@ -2162,10 +2162,10 @@ app.post('/products', requireAdmin, async (req, res) => {
       const normalizedInstallmentsQuantity = parsePrice(installmentsQuantity)
       const normalizedInstallmentPrice = parsePrice(installmentPrice)
       if (cashPrice && (!normalizedCashPrice || normalizedCashPrice <= 0)) {
-        await supabase.from('products').delete().eq('id', product.id)
+        await analysisWriter.from('products').delete().eq('id', product.id)
         return res.status(400).json({ error: 'El precio contado debe ser un número mayor que cero' })
       }
-      const { data: newOffer, error: offerError } = await supabase
+      const { data: newOffer, error: offerError } = await analysisWriter
         .from('offers')
         .insert({
           product_id: product.id,
@@ -2179,7 +2179,7 @@ app.post('/products', requireAdmin, async (req, res) => {
 
       if (offerError) {
         console.error('Error creating offer', offerError)
-        await supabase.from('products').delete().eq('id', product.id)
+        await analysisWriter.from('products').delete().eq('id', product.id)
         return res.status(500).json({ error: offerError.message || 'Error creating offer' })
       }
       offer = newOffer
@@ -2200,13 +2200,13 @@ app.put('/products/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params 
     const { name, category_id, brand_id, rating, image } = req.body || {}
-    const { data: previousProduct, error: previousError } = await supabase
+    const { data: previousProduct, error: previousError } = await analysisWriter
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { data, error } = await supabase
+    const { data, error } = await analysisWriter
       .from('products')
       .update({ name, category_id, brand_id, rating, image })
       .eq('id', id)
@@ -2230,15 +2230,15 @@ app.put('/products/:id', requireAdmin, async (req, res) => {
 app.delete('/products/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params 
-    const { data: previousProduct, error: previousError } = await supabase
+    const { data: previousProduct, error: previousError } = await analysisWriter
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { error: offersError } = await supabase.from('offers').delete().eq('product_id', id)
+    const { error: offersError } = await analysisWriter.from('offers').delete().eq('product_id', id)
     if (offersError) throw offersError
-    const { error } = await supabase.from('products').delete().eq('id', id)
+    const { error } = await analysisWriter.from('products').delete().eq('id', id)
     if (error) {
       console.error('Error deleting product', error)
       return res.status(500).json({ error: 'Error deleting product' })
