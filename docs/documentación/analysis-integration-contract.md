@@ -7,24 +7,15 @@
 - The frontend analysis layer consumes that catalog through `src/services/catalogApi.js`.
 - Historical admin updates currently remain in browser storage under `arprice_update_history`.
 
-## Database migration for server-side analysis
+## Current persistence
 
-The current schema does not expose persistent fields for the classification pipeline. A future migration should add, without removing existing columns:
+`GET /analysis/products` reads the latest persisted rows from `product_price_status`. The server builds or refreshes those rows from current offers, `price_history`, and `price_update_log`; detailed indicators, comparable references, and price periods are stored in `analysis_details`.
 
-- `subcategories(id, category_id, name)`
-- `comparable_groups(id, subcategory_id, name, normalization_key)`
-- `products.subcategory_id`
-- `products.comparable_group_id`
-- `products.classification_source` (`automatic` or `manual`)
-- `products.classification_confidence`
-- `price_history(id, product_id, offer_id, observed_at, cash_price, source)`
-- `price_analysis(id, product_id, analyzed_at, status, anomaly_score, offer_score, confidence, indicators jsonb)`
-
-The migration is available at `server/migrations/20260822_price_analysis.sql`. The current schema was checked: product and offer IDs are integers, while category IDs are UUIDs. The migration adds nullable classification fields and preserves current `category_id`, `offers`, and product records.
+The older `price_analysis` migration and the nested `kordian-app movil/Kordian-main/` copy describe a historical implementation. They are not used by the active `server/server.js` entry point. The current-status migration is `server/migrations/20261008_product_price_status.sql`, with additional detail fields in `server/migrations/20261012_price_status_analysis_details.sql`.
 
 ## Integration rule
 
-Until that migration is applied, the client must not pretend that browser history is a durable backend history. It may use the existing catalog fallback and display its data quality. Once the migration is applied, `GET /analysis/products` returns a structured analysis object and the client consumes it:
+`GET /analysis/products` returns the persisted current analysis object and the client consumes it:
 
 ```js
 {
@@ -33,6 +24,7 @@ Until that migration is applied, the client must not pretend that browser histor
   confidence,
   indicators,
   references,
+  priceHistory,
   dataQuality,
   analyzedAt
 }
@@ -44,4 +36,4 @@ The public product card opens `src/components/PriceExplanationModal.jsx` through
 
 Administrative mutations require the temporary Bearer token returned by `POST /login`; public catalog reads remain unauthenticated.
 
-When `SUPABASE_SERVICE_ROLE_KEY` is configured on the server, each analysis response is also persisted in `price_analysis`. The service role key is never sent to the browser.
+Missing analysis details are represented as unavailable; they must not be rendered as zero counts or empty evidence. Current status and the old `price_analysis` snapshots are not equivalent: the current tables cannot reconstruct the deleted historical snapshots. The service role key is used only by the server and is never sent to the browser.

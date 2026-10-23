@@ -15,11 +15,16 @@ function createAnalysis({ price = 100, comparablePrice = 200 } = {}) {
     offerScore: 20,
     confidence: 'alta',
     confidencePercentage: 85,
-    dataQuality: { points: 5 },
+    dataQuality: { historyPoints: 0, supermarkets: 2, comparables: 1, quality: 'media' },
+    indicators: { percentageVariation: null, inflationDeviation: null, signals: [] },
     references: {
       level: 'subcategoria',
       references: [{ id: 20, price: comparablePrice, unitPrice: 10 }],
     },
+    priceHistory: [],
+    pricePeriods: [],
+    populatedPeriods: 0,
+    evolutionAvailable: false,
   }
 }
 
@@ -45,10 +50,13 @@ test('status rows retain comparable ids and analysis details', () => {
 
 test('statuses are upserted only when the price fingerprint or rules version changes', async () => {
   const analysis = createAnalysis()
+  const [completeRow] = buildCurrentPriceStatusRows([analysis])
   const stored = {
     product_id: '10',
     price_fingerprint: buildPriceFingerprint(analysis.product, analysis.references, analysis),
     rules_version: PRICE_STATUS_RULES_VERSION,
+    analysis_details: completeRow.analysis_details,
+    data_quality: completeRow.data_quality,
   }
   let upserts = 0
   const database = {
@@ -71,4 +79,78 @@ test('statuses are upserted only when the price fingerprint or rules version cha
   assert.equal(upserts, 0)
   assert.equal(await saveCurrentPriceStatuses(database, [createAnalysis({ price: 101 })]), 1)
   assert.equal(upserts, 1)
+})
+
+test('statuses with a matching fingerprint but missing details are refreshed', async () => {
+  const analysis = createAnalysis()
+  const stored = {
+    product_id: '10',
+    price_fingerprint: buildPriceFingerprint(analysis.product, analysis.references, analysis),
+    rules_version: PRICE_STATUS_RULES_VERSION,
+    analysis_details: {},
+    data_quality: {},
+  }
+  let upserts = 0
+  const database = {
+    from() {
+      return {
+        select() {
+          return {
+            in: async () => ({ data: [stored], error: null }),
+          }
+        },
+        upsert: async () => {
+          upserts += 1
+          return { error: null }
+        },
+      }
+    },
+  }
+
+  assert.equal(await saveCurrentPriceStatuses(database, [analysis]), 1)
+  assert.equal(upserts, 1)
+})
+
+test('startup queues current-version statuses with incomplete details', async () => {
+  const { enqueueIncompletePriceStatuses } = require('./currentPriceStatus')
+  let productPageRead = false
+  const database = {
+    from(table) {
+      if (table === 'products') {
+        return {
+          select: () => ({
+            order: () => ({
+              range: async () => {
+                if (productPageRead) return { data: [], error: null }
+                productPageRead = true
+                return { data: [{ id: 10 }], error: null }
+              },
+            }),
+          }),
+        }
+      }
+      return {
+        select: () => ({
+          in: async () => ({
+            data: [{
+              product_id: 10,
+              rules_version: PRICE_STATUS_RULES_VERSION,
+              analysis_details: {},
+              data_quality: {},
+            }],
+            error: null,
+          }),
+          neq: () => ({
+            order: () => ({
+              range: async () => ({ data: [], error: null }),
+            }),
+          }),
+        }),
+      }
+    },
+  }
+  const enqueued = []
+  await enqueueIncompletePriceStatuses(database, { enqueue: (ids) => enqueued.push(...ids) })
+
+  assert.deepEqual(enqueued, [10])
 })
