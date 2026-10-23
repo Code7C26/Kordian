@@ -41,6 +41,7 @@ const {
   customerPasswordResetIpRateLimit,
   customerPriceReportIpRateLimit,
 } = require('./rateLimiters')
+const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
 const {
   PRICE_STATUS_RULES_VERSION,
   createPriceStatusRefreshQueue,
@@ -2608,7 +2609,14 @@ app.post('/login', async (req, res) => {
 
 function createCustomerAuthClient() {
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    auth: {
+      // Recovery emails are issued by the backend, so a PKCE verifier cannot be
+      // persisted in the browser that later opens the email link.
+      flowType: 'implicit',
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
   })
 }
 
@@ -2677,7 +2685,8 @@ app.post('/auth/customer-password-reset', customerPasswordResetIpRateLimit, asyn
       const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : {})
       if (error) {
         console.error('Customer password recovery email failed', error)
-        return res.status(503).json({ error: 'No se pudo enviar el correo de recuperación.' })
+        const failure = getPasswordRecoveryFailure(error)
+        return res.status(failure.status).json({ error: failure.message })
       }
     }
     res.json({ message: 'Si existe una cuenta asociada, recibirás un correo con instrucciones para recuperar tu contraseña.' })
@@ -2709,7 +2718,8 @@ app.post('/auth/admin-password-reset', customerPasswordResetIpRateLimit, async (
       const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(profile.email, redirectTo ? { redirectTo } : {})
       if (error) {
         console.error('Admin password recovery email failed', error)
-        return res.status(503).json({ error: 'No se pudo enviar el correo de recuperación.' })
+        const failure = getPasswordRecoveryFailure(error)
+        return res.status(failure.status).json({ error: failure.message })
       }
     }
     res.json({ message: 'Si el correo corresponde a una cuenta administradora, recibirás un mensaje con instrucciones.' })
@@ -2723,14 +2733,17 @@ app.post('/auth/password-update', customerPasswordResetIpRateLimit, async (req, 
   try {
     if (!requireCustomerAuthStorage(res)) return
     const accessToken = String(req.body?.accessToken || '')
+    const tokenHash = String(req.body?.tokenHash || '')
     const password = String(req.body?.password || '')
-    if (!accessToken) return res.status(400).json({ error: 'El enlace de recuperación no es válido.' })
+    if (!accessToken && !tokenHash) return res.status(400).json({ error: 'El enlace de recuperación no es válido.' })
     if (!/^[a-zA-Z0-9]{4,}$/.test(password)) {
       return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres alfanuméricos.' })
     }
 
     const authClient = createCustomerAuthClient()
-    const { data: authData, error: authError } = await authClient.auth.getUser(accessToken)
+    const { data: authData, error: authError } = accessToken
+      ? await authClient.auth.getUser(accessToken)
+      : await authClient.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' })
     if (authError || !authData.user) return res.status(401).json({ error: 'El enlace venció o ya no es válido. Solicita uno nuevo.' })
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(authData.user.id, { password })
