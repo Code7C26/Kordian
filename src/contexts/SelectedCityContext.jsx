@@ -1,20 +1,38 @@
 import { createContext, useContext, useState } from 'react'
+import { CITIES_LIST } from '../data/mockProducts.js'
+import { useCustomerAuth } from './CustomerAuthContext.jsx'
 
 const SelectedCityContext = createContext(null)
-const SELECTED_CITY_KEY = 'arprice_selected_city'
+const GUEST_SELECTED_CITY_KEY = 'arprice_selected_city'
+const ACCOUNT_SELECTED_CITY_PREFIX = 'arprice_selected_city:'
 
-function readSelectedCity() {
-  return localStorage.getItem(SELECTED_CITY_KEY) || 'Alta Gracia'
+function getSelectedCityKey(userId) {
+  return userId
+    ? `${ACCOUNT_SELECTED_CITY_PREFIX}${userId}`
+    : GUEST_SELECTED_CITY_KEY
+}
+
+function readSelectedCity(key) {
+  const storedCity = localStorage.getItem(key)
+  return CITIES_LIST.find((city) => city.toLowerCase() === storedCity?.trim().toLowerCase()) || CITIES_LIST[0] || 'Alta Gracia'
 }
 
 export function SelectedCityProvider({ children }) {
-  const [selectedCity, setSelectedCityState] = useState(readSelectedCity)
+  const { user } = useCustomerAuth()
+  const selectedCityKey = getSelectedCityKey(user?.id)
+  const [selection, setSelection] = useState(() => ({
+    key: selectedCityKey,
+    city: readSelectedCity(selectedCityKey),
+  }))
+  const selectedCity = selection.key === selectedCityKey
+    ? selection.city
+    : readSelectedCity(selectedCityKey)
 
   const setSelectedCity = (city) => {
-    const normalizedCity = String(city || '').trim()
-    if (!normalizedCity) return
-    localStorage.setItem(SELECTED_CITY_KEY, normalizedCity)
-    setSelectedCityState(normalizedCity)
+    const availableCity = CITIES_LIST.find((availableCity) => availableCity.toLowerCase() === String(city || '').trim().toLowerCase())
+    if (!availableCity) return
+    localStorage.setItem(selectedCityKey, availableCity)
+    setSelection({ key: selectedCityKey, city: availableCity })
   }
 
   return (

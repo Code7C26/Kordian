@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, BadgePercent, Check, Clock3, Tag, TicketPercent } from 'lucide-react'
+import { useLanguage } from '../contexts/LanguageContext.jsx'
 
 const promotions = [
   { store: 'Carrefour', type: 'Descuento en seleccionados', value: 'Hasta 30%', color: 'from-sky-600 to-blue-700', initials: 'C', tag: 'Destacado' },
@@ -9,27 +10,28 @@ const promotions = [
 ]
 
 export default function CouponsPage() {
+  const { t } = useLanguage()
   return (
     <main className="min-h-screen bg-stone-50 px-4 py-6 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
       <div className="mx-auto max-w-6xl">
         <header className="flex items-center justify-between border-b border-stone-200 pb-4 dark:border-stone-800">
           <Link to="/" className="font-black tracking-tight text-sky-700 dark:text-sky-300">AR-PRICE</Link>
           <Link to="/buscar" className="inline-flex items-center gap-2 text-sm font-semibold text-stone-600 hover:text-sky-700 dark:text-stone-300 dark:hover:text-sky-300">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Volver a productos
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('Volver a productos')}
           </Link>
         </header>
 
         <section className="relative mt-7 overflow-hidden rounded-3xl bg-gradient-to-r from-sky-700 via-blue-700 to-indigo-800 p-6 text-white shadow-lg sm:p-9">
           <div className="relative z-10 max-w-2xl">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-bold">
-              <TicketPercent className="h-4 w-4" aria-hidden="true" /> Promociones para aprovechar
+              <TicketPercent className="h-4 w-4" aria-hidden="true" /> {t('Promociones para aprovechar')}
             </span>
-            <h1 className="mt-4 text-3xl font-black leading-tight sm:text-4xl">Cupones y descuentos</h1>
+            <h1 className="mt-4 text-3xl font-black leading-tight sm:text-4xl">{t('Cupones y descuentos')}</h1>
             <p className="mt-3 max-w-xl text-sm leading-6 text-sky-100 sm:text-base">
-              Explora beneficios y ofertas destacadas para encontrar nuevas formas de ahorrar en tus compras.
+              {t('Explora beneficios y ofertas destacadas para encontrar nuevas formas de ahorrar en tus compras.')}
             </p>
             <Link to="/buscar?deals=1" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-extrabold text-sky-800 transition-colors hover:bg-sky-50">
-              Ver productos en oferta <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              {t('Ver productos en oferta')} <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </div>
           <span className="absolute -right-8 -top-10 hidden h-64 w-64 items-center justify-center rounded-full border-[30px] border-white/10 text-white/20 sm:flex">
@@ -40,10 +42,10 @@ export default function CouponsPage() {
         <section className="py-8">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-sky-700 dark:text-sky-300">Elegí tu próximo ahorro</p>
-              <h2 className="mt-1 text-2xl font-black">Descuentos destacados</h2>
+              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-sky-700 dark:text-sky-300">{t('Elegí tu próximo ahorro')}</p>
+              <h2 className="mt-1 text-2xl font-black">{t('Descuentos destacados')}</h2>
             </div>
-            <span className="text-sm font-semibold text-stone-500 dark:text-stone-400">Promociones de muestra</span>
+            <span className="text-sm font-semibold text-stone-500 dark:text-stone-400">{t('Promociones de muestra')}</span>
           </div>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -54,7 +56,7 @@ export default function CouponsPage() {
                     <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-lg font-black text-stone-800">{promotion.initials}</span>
                     <div>
                       <p className="text-lg font-black">{promotion.store}</p>
-                      <p className="text-xs font-semibold text-white/80">{promotion.tag}</p>
+                      <p className="text-xs font-semibold text-white/80">{t(promotion.tag)}</p>
                     </div>
                   </div>
                   <Tag className="h-5 w-5 text-white/80" aria-hidden="true" />
@@ -62,16 +64,16 @@ export default function CouponsPage() {
                 <div className="p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">{promotion.type}</p>
+                      <p className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t(promotion.type)}</p>
                       <p className="mt-1 text-2xl font-black text-sky-700 dark:text-sky-300">{promotion.value}</p>
                     </div>
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                      <Check className="h-3.5 w-3.5" aria-hidden="true" /> Beneficio disponible
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" /> {t('Beneficio disponible')}
                     </span>
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-dashed border-stone-200 pt-4 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">
-                    <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5" aria-hidden="true" /> Consultar vigencia</span>
-                    <Link to="/buscar?deals=1" className="font-bold text-sky-700 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">Ver ofertas</Link>
+                    <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5" aria-hidden="true" /> {t('Consultar vigencia')}</span>
+                    <Link to="/buscar?deals=1" className="font-bold text-sky-700 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">{t('Ver ofertas')}</Link>
                   </div>
                 </div>
               </article>

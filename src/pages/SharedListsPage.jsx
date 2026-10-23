@@ -23,6 +23,14 @@ export default function SharedListsPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
+  useEffect(() => {
+    setLists([])
+    setSelectedListId('')
+    setSelectedList(null)
+    setError('')
+    setNotice('')
+  }, [user?.id])
+
   const request = useCallback(async (path, options = {}) => {
     const response = await fetch(apiUrl(path), {
       ...options,
@@ -229,6 +237,36 @@ export default function SharedListsPage() {
     }
   }
 
+  const deleteList = async (list) => {
+    const wasSelected = selectedListId === list.id
+    const nextLists = lists.filter((currentList) => currentList.id !== list.id)
+    const nextSelectedListId = nextLists[0]?.id || ''
+
+    setLists(nextLists)
+    if (wasSelected) {
+      setSelectedListId(nextSelectedListId)
+      setSelectedList(null)
+    }
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await request(`/shared-lists/${encodeURIComponent(list.id)}`, { method: 'DELETE' })
+      setNotice(`Se eliminó “${list.name}”.`)
+    } catch (deleteError) {
+      setLists((currentLists) => currentLists.some((currentList) => currentList.id === list.id)
+        ? currentLists
+        : [...currentLists, list])
+      if (wasSelected) {
+        setSelectedListId((currentId) => currentId === nextSelectedListId ? list.id : currentId)
+        setSelectedList((currentList) => currentList || selectedList)
+      }
+      setError(deleteError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const shareList = async () => {
     if (!selectedList) return
     const inviteUrl = new URL(`/listas-compartidas?invite=${encodeURIComponent(selectedList.invite_code)}`, window.location.origin).toString()
@@ -297,10 +335,17 @@ export default function SharedListsPage() {
               ) : lists.length ? (
                 <div className="space-y-2">
                   {lists.map((list) => (
-                    <button key={list.id} type="button" onClick={() => setSelectedListId(list.id)} className={`w-full rounded-xl border px-3 py-3 text-left ${list.id === selectedListId ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40' : 'border-stone-200 hover:border-sky-300 dark:border-stone-700'}`}>
-                      <span className="block truncate text-sm font-bold">{list.name}</span>
-                      <span className="mt-1 block text-xs text-stone-500">{list.role === 'owner' ? 'Propietario' : 'Compartida'}</span>
-                    </button>
+                    <div key={list.id} className={`flex items-center gap-1 rounded-xl border px-2 ${list.id === selectedListId ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40' : 'border-stone-200 dark:border-stone-700'}`}>
+                      <button type="button" onClick={() => setSelectedListId(list.id)} className="min-w-0 flex-1 py-3 pl-1 text-left">
+                        <span className="block truncate text-sm font-bold">{list.name}</span>
+                        <span className="mt-1 block text-xs text-stone-500">{list.role === 'owner' ? 'Propietario' : 'Compartida'}</span>
+                      </button>
+                      {list.role === 'owner' && (
+                        <button type="button" onClick={() => deleteList(list)} disabled={busy} aria-label={`Eliminar lista ${list.name}`} title="Eliminar lista" className="rounded-lg p-2 text-stone-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-rose-950/40">
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -321,6 +366,18 @@ export default function SharedListsPage() {
                     <Share2 className="h-4 w-4" aria-hidden="true" /> Invitar
                   </button>
                 </div>
+                <section className="mt-4 rounded-xl bg-stone-50 p-3 dark:bg-stone-950/60" aria-label="Participantes de la lista">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Participantes</h3>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(selectedList.members || []).map((member) => (
+                      <span key={member.user_id} className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm font-semibold dark:border-stone-700 dark:bg-stone-900">
+                        <Users className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                        {member.username}
+                        {member.role === 'owner' && <span className="text-xs font-normal text-stone-500 dark:text-stone-400">· Creador</span>}
+                      </span>
+                    ))}
+                  </div>
+                </section>
                 <form onSubmit={addItem} className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_96px_auto]">
                   <label className="sr-only" htmlFor="shared-list-item-name">Artículo</label>
                   <input id="shared-list-item-name" className={inputClass} maxLength={160} value={itemName} onChange={(event) => setItemName(event.target.value)} placeholder="Agregar artículo" />

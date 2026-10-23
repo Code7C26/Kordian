@@ -23,6 +23,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.hero-title-font {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
 html.dark body,
 body.dark {
   background: radial-gradient(circle at top, rgba(56, 189, 248, 0.08), transparent 30%), linear-gradient(180deg, #020617 0%, #0f172a 100%);
@@ -39,6 +43,28 @@ html {
 
 #root {
   min-height: 100vh;
+}
+
+.animated-price-gradient {
+  background-size: 200% 100%;
+  animation: price-gradient-shift 6s ease-in-out infinite;
+}
+
+@keyframes price-gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-price-gradient {
+    animation: none;
+  }
 }
 
 button,

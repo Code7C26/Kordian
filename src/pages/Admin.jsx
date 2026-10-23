@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Header } from '../components/Header.jsx'
 import ProductForm from '../components/ProductForm.jsx'
 import CategoryBrandForm from '../components/CategoryBrandForm.jsx'
 import CsvUploader from '../components/CsvUploader.jsx'
 import Toast from '../components/Toast.jsx'
 import BusinessStoreAssignments from '../components/BusinessStoreAssignments.jsx'
+import RegisteredUserAccounts from '../components/RegisteredUserAccounts.jsx'
 import {
   BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
   Eye,
+  Flag,
   FolderTree,
   GitMerge,
   History,
@@ -31,6 +34,7 @@ const ADMIN_PAGES = [
   { id: 'acciones', label: 'Acciones', icon: Zap },
   { id: 'producto', label: 'Producto', icon: Package },
   { id: 'registro', label: 'Registro de actualizaciones', icon: History },
+  { id: 'reportes', label: 'Reportes de precios', icon: Flag },
   { id: 'vista-previa', label: 'Vista previa', icon: Eye },
   { id: 'agrupacion', label: 'Agrupación', icon: GitMerge },
   { id: 'usuario', label: 'Usuario', icon: Users },
@@ -66,6 +70,10 @@ export default function Admin() {
   const [taxonomy, setTaxonomy] = useState([])
 
   const [priceUpdates, setPriceUpdates] = useState([])
+  const [priceReports, setPriceReports] = useState([])
+  const [priceReportsCount, setPriceReportsCount] = useState(0)
+  const [priceReportsLoading, setPriceReportsLoading] = useState(false)
+  const [priceReportsError, setPriceReportsError] = useState('')
 
   // Revisión Mami / Disco
   const [reviewSummary, setReviewSummary] = useState(null)
@@ -103,6 +111,16 @@ export default function Admin() {
   const [mamiError, setMamiError] = useState('')
   const [mamiImportSkipped, setMamiImportSkipped] = useState([])
   const [selectedMamiProducts, setSelectedMamiProducts] = useState([])
+
+  // Carrefour
+  const [carrefourQuery, setCarrefourQuery] = useState('leche')
+  const [carrefourPostalCode, setCarrefourPostalCode] = useState('5186')
+  const [carrefourPreview, setCarrefourPreview] = useState([])
+  const [carrefourDiscarded, setCarrefourDiscarded] = useState([])
+  const [selectedCarrefourProducts, setSelectedCarrefourProducts] = useState([])
+  const [carrefourLoading, setCarrefourLoading] = useState(false)
+  const [carrefourError, setCarrefourError] = useState('')
+  const [carrefourImportSkipped, setCarrefourImportSkipped] = useState([])
 
   // Edición
   const [editingProduct, setEditingProduct] = useState(null)
@@ -1191,6 +1209,26 @@ export default function Admin() {
     }
   }
 
+  const loadPriceReports = useCallback(async () => {
+    setPriceReportsLoading(true)
+    setPriceReportsError('')
+    try {
+      const response = await adminFetch('/admin/price-reports')
+      const result = await readApiResponse(response, 'No se pudieron cargar los reportes de precios.')
+      const reports = Array.isArray(result) ? result : Array.isArray(result?.reports) ? result.reports : []
+      const totalCount = Array.isArray(result)
+        ? reports.length
+        : Number.isInteger(result?.totalCount) ? result.totalCount : reports.length
+      setPriceReports(reports)
+      setPriceReportsCount(totalCount)
+    } catch (error) {
+      console.error('Price reports could not be loaded', error)
+      setPriceReportsError(error.message || 'No se pudieron cargar los reportes de precios.')
+    } finally {
+      setPriceReportsLoading(false)
+    }
+  }, [])
+
   const deletePriceUpdate = async (
     id,
   ) => {
@@ -1978,9 +2016,92 @@ export default function Admin() {
       }
     }
 
+  const previewCarrefourProducts =
+    async () => {
+      setCarrefourLoading(true)
+      setCarrefourError('')
+      setCarrefourPreview([])
+      setCarrefourDiscarded([])
+      setSelectedCarrefourProducts([])
+
+      try {
+        const params = new URLSearchParams({
+          query: carrefourQuery,
+          postalCode: carrefourPostalCode,
+        })
+        const response = await adminFetch(
+          `/admin/import/carrefour/preview?${params.toString()}`,
+        )
+        const data = await readApiResponse(
+          response,
+          'No se pudo consultar Carrefour',
+        )
+        setCarrefourPreview(data.products || [])
+        setCarrefourDiscarded(data.discarded || [])
+      } catch (error) {
+        setCarrefourError(error.message || 'No se pudo consultar Carrefour')
+      } finally {
+        setCarrefourLoading(false)
+      }
+    }
+
+  const importSelectedCarrefourProducts =
+    async () => {
+      const selectedIds = selectedCarrefourProducts.slice(0, 5)
+      if (!selectedIds.length) {
+        showToast('Seleccioná productos válidos de Carrefour', 'error')
+        return
+      }
+
+      setCarrefourLoading(true)
+      try {
+        const response = await adminFetch(
+          '/admin/import/carrefour/execute',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productIds: selectedIds,
+              postalCode: carrefourPostalCode,
+            }),
+          },
+        )
+        const result = await readApiResponse(
+          response,
+          'No se pudieron importar los productos de Carrefour',
+        )
+        setSelectedCarrefourProducts([])
+        setCarrefourImportSkipped(result.skipped || [])
+        await loadProducts()
+        await loadPriceUpdates()
+
+        const importedCount = result.imported?.length || 0
+        const updatedCount = result.updated?.length || 0
+        const unchangedCount = result.unchanged?.length || 0
+        const skippedCount = result.skipped?.length || 0
+        showToast(
+          `Carrefour: ${importedCount} nuevo(s), ${updatedCount} oferta(s) actualizada(s), ${unchangedCount} sin cambios, ${skippedCount} omitido(s).`,
+          importedCount || updatedCount || unchangedCount ? 'success' : 'error',
+        )
+        await previewCarrefourProducts()
+      } catch (error) {
+        showToast(error.message || 'No se pudieron importar productos de Carrefour', 'error')
+      } finally {
+        setCarrefourLoading(false)
+      }
+    }
+
   // =========================================================
   // LOAD INICIAL
   // =========================================================
+
+  useEffect(() => {
+    loadPriceReports()
+  }, [loadPriceReports])
+
+  useEffect(() => {
+    if (activePage === 'reportes') loadPriceReports()
+  }, [activePage, loadPriceReports])
 
   useEffect(() => {
     loadProducts(productPage)
@@ -2219,6 +2340,14 @@ export default function Admin() {
                   ?.source ===
                 'mami_import'
 
+              const isCarrefourImport =
+                update.filters
+                  ?.source ===
+                'carrefour_import'
+
+              const isManualImport =
+                isMamiImport || isCarrefourImport
+
               const changeLabel =
                 changeType ===
                 'classification_edit'
@@ -2266,13 +2395,14 @@ export default function Admin() {
               const updateLabel =
                 isProductEdit
                   ? changeLabel
-                  : isMamiImport
-                    ? `Importación Mami${
-                        update.filters
-                          ?.query
+                  : isManualImport
+                  ? `Importación ${isCarrefourImport ? 'Carrefour' : 'Mami'}${
+                      isCarrefourImport && update.filters?.postal_code
+                        ? ` (CP ${update.filters.postal_code})`
+                        : !isCarrefourImport && update.filters?.query
                           ? `: ${update.filters.query}`
                           : ''
-                      }`
+                    }`
                     : automatic
                       ? 'Sincronización de precios Disco'
                       : appliedFilters.length
@@ -2284,7 +2414,7 @@ export default function Admin() {
               const updateValue =
                 isProductEdit
                   ? linkedPriceLabel
-                  : isMamiImport
+                  : isManualImport
                     ? 'Importación'
                     : `${
                         percentage > 0
@@ -2315,7 +2445,7 @@ export default function Admin() {
                     className={`py-3 pr-4 font-bold ${
                       isProductEdit
                         ? 'text-sky-600'
-                        : isMamiImport
+                        : isManualImport
                           ? 'text-emerald-600'
                           : percentage >= 0
                             ? 'text-rose-600'
@@ -2431,26 +2561,27 @@ export default function Admin() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              localStorage.removeItem(
-                'adminAuth',
-              )
-              localStorage.removeItem(
-                'adminToken',
-              )
-              localStorage.removeItem(
-                'currentAdmin',
-              )
-
-              window.location.href =
-                '/login'
-            }}
-            className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800"
-          >
-            Cerrar sesión
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/configuracion"
+              className="inline-flex items-center gap-2 rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+              Volver
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.removeItem('adminAuth')
+                localStorage.removeItem('adminToken')
+                localStorage.removeItem('currentAdmin')
+                window.location.href = '/login'
+              }}
+              className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800"
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </div>
 
         <nav
@@ -2488,6 +2619,14 @@ export default function Admin() {
                     aria-hidden="true"
                   />
                   {label}
+                  {id === 'reportes' && priceReportsCount > 0 && (
+                    <span
+                      aria-label={`${priceReportsCount} reportes de precios`}
+                      className="inline-flex min-w-5 items-center justify-center rounded-full bg-sky-200 px-1.5 py-0.5 text-[10px] font-black leading-none text-sky-900 dark:bg-sky-800 dark:text-sky-100"
+                    >
+                      {priceReportsCount >= 100 ? '+99' : priceReportsCount}
+                    </span>
+                  )}
                 </button>
               ),
             )}
@@ -3341,6 +3480,82 @@ export default function Admin() {
             </section>
           )}
 
+          {activePage === 'reportes' && (
+            <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold">Reportes de precios</h2>
+                  <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
+                    Reportes enviados por la comunidad, con los datos de la cuenta que los presentó.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadPriceReports}
+                  disabled={priceReportsLoading}
+                  className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold hover:bg-stone-100 disabled:opacity-50 dark:border-stone-600 dark:hover:bg-stone-700"
+                >
+                  {priceReportsLoading ? 'Actualizando…' : 'Actualizar'}
+                </button>
+              </div>
+
+              {priceReportsError && (
+                <p className="mb-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200" role="alert">
+                  {priceReportsError}
+                </p>
+              )}
+              {priceReportsLoading && priceReports.length === 0 ? (
+                <p className="py-8 text-center text-sm text-stone-500" role="status">Cargando reportes…</p>
+              ) : priceReports.length === 0 ? (
+                <p className="py-8 text-center text-sm text-stone-500">Todavía no hay reportes de precios.</p>
+              ) : (
+                <div className="space-y-4">
+                  {priceReports.map((report) => (
+                    <article key={report.id} className="rounded-xl border border-stone-200 p-4 dark:border-stone-700">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-base font-bold">{report.product_name}</h3>
+                          <p className="mt-1 text-sm text-stone-600 dark:text-stone-300">
+                            {report.store_name} · {report.city}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold capitalize text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                          {report.status || 'pendiente'}
+                        </span>
+                      </div>
+                      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                        <div>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">Tipo de reporte</dt>
+                          <dd className="mt-1 font-semibold capitalize">{report.report_type}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">Precio observado</dt>
+                          <dd className="mt-1 font-semibold">{formatCurrency(Number(report.reported_price))}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">Reportado por</dt>
+                          <dd className="mt-1 font-semibold">{report.reporter_username}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">Email de la cuenta</dt>
+                          <dd className="mt-1 break-all font-semibold">{report.reporter_email || 'No disponible'}</dd>
+                        </div>
+                      </dl>
+                      {report.comments && (
+                        <p className="mt-4 whitespace-pre-wrap rounded-lg bg-stone-50 p-3 text-sm text-stone-700 dark:bg-stone-900 dark:text-stone-300">
+                          <strong>Detalles:</strong> {report.comments}
+                        </p>
+                      )}
+                      <p className="mt-3 text-xs text-stone-500 dark:text-stone-400">
+                        Enviado el {new Date(report.created_at).toLocaleString('es-AR')}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
           {/* ================================================= */}
           {/* VISTA PREVIA */}
           {/* ================================================= */}
@@ -3809,6 +4024,177 @@ export default function Admin() {
                   </>
                 )}
               </section>
+
+              {/* CARREFOUR */}
+
+              <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold">
+                      Importación controlada de Carrefour
+                    </h2>
+                    <p className="mt-1 max-w-3xl text-sm text-stone-500 dark:text-stone-400">
+                      Consulta el catálogo regional por el endpoint público de VTEX. La vista previa no escribe datos; cada lote vuelve a validar precio, stock e identificadores antes de importar.
+                    </p>
+                    <p className="mt-2 text-xs font-semibold text-sky-700 dark:text-sky-300">
+                      Zona de consulta: CP {carrefourPostalCode || 'sin definir'} · Predeterminado: Alta Gracia (5186) · Máximo 20 resultados por consulta y 5 productos por lote.
+                    </p>
+                  </div>
+
+                  <form
+                    className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem_auto]"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      previewCarrefourProducts()
+                    }}
+                  >
+                    <input
+                      className="min-w-0 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
+                      value={carrefourQuery}
+                      onChange={(event) => setCarrefourQuery(event.target.value)}
+                      placeholder="Buscar en Carrefour"
+                      aria-label="Buscar productos de Carrefour"
+                    />
+                    <input
+                      className="rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
+                      value={carrefourPostalCode}
+                      onChange={(event) => setCarrefourPostalCode(event.target.value)}
+                      placeholder="Código postal"
+                      aria-label="Código postal de Carrefour"
+                      maxLength={8}
+                    />
+                    <button
+                      type="submit"
+                      disabled={carrefourLoading}
+                      className="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
+                    >
+                      {carrefourLoading ? 'Consultando...' : 'Vista previa'}
+                    </button>
+                  </form>
+                </div>
+
+                {carrefourError && (
+                  <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                    {carrefourError}
+                  </p>
+                )}
+
+                {carrefourImportSkipped.length > 0 && (
+                  <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <summary className="cursor-pointer font-semibold">
+                      {carrefourImportSkipped.length} producto(s) omitido(s) en el último lote
+                    </summary>
+                    <div className="mt-3 space-y-1 text-xs">
+                      {carrefourImportSkipped.map((item, index) => (
+                        <p key={`${item.sourceProductId || 'sin-id'}-${index}`}>
+                          <strong>{item.sourceProductId || 'Sin ID'}</strong>: {item.reason}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {carrefourDiscarded.length > 0 && (
+                  <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <summary className="cursor-pointer font-semibold">
+                      {carrefourDiscarded.length} producto(s) fuera de la importación segura
+                    </summary>
+                    <div className="mt-3 space-y-1 text-xs">
+                      {carrefourDiscarded.map((item, index) => (
+                        <p key={`${item.sourceProductId || 'sin-id'}-${index}`}>
+                          <strong>{item.sourceProductId || 'Sin ID'}</strong>: {item.reason}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {carrefourPreview.length > 0 && (
+                  <>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs text-stone-500">
+                        Seleccionados: {selectedCarrefourProducts.length}/5. Los productos sin GTIN válido, con variantes ambiguas o sin categoría compatible no se pueden importar.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={importSelectedCarrefourProducts}
+                        disabled={carrefourLoading || !selectedCarrefourProducts.length}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
+                      >
+                        {carrefourLoading ? 'Importando...' : 'Importar lote seleccionado'}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      {carrefourPreview.map((product) => {
+                        const selected = selectedCarrefourProducts.includes(product.sourceProductId)
+                        const blocked = Boolean(product.importBlockedReason)
+                        const batchFull = selectedCarrefourProducts.length >= 5 && !selected
+                        return (
+                          <label
+                            key={product.sourceProductId}
+                            className="flex gap-3 rounded-xl border border-stone-200 p-3 dark:border-stone-700"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              disabled={blocked || batchFull || carrefourLoading}
+                              checked={selected}
+                              onChange={(event) => setSelectedCarrefourProducts((current) => (
+                                event.target.checked
+                                  ? [...current, product.sourceProductId]
+                                  : current.filter((id) => id !== product.sourceProductId)
+                              ))}
+                            />
+                            <ProductImage
+                              src={product.image}
+                              alt={product.name}
+                              productName={product.name}
+                              productCategory={product.sourceCategory}
+                              className="h-20 w-20 rounded-lg"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold">{product.name}</p>
+                              <p className="text-xs text-stone-500">
+                                {product.brand || 'Marca no informada'} · EAN {product.ean} · SKU {product.sourceSku}
+                              </p>
+                              <p className="mt-1 font-black text-emerald-700">
+                                Carrefour: {formatCurrency(product.price)}
+                                {Number(product.listPrice) > Number(product.price) && (
+                                  <span className="ml-2 text-xs font-medium text-stone-500 line-through">
+                                    {formatCurrency(product.listPrice)}
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-xs text-stone-500">
+                                Stock informado: {product.stock}
+                              </p>
+                              {product.existingProduct && (
+                                <p className="mt-1 text-xs text-sky-700">
+                                  Se asociará a “{product.existingProduct.name}” por {product.existingProduct.matchedBy === 'ean' ? 'EAN exacto' : 'ID exacto de Carrefour'}.
+                                  {product.existingOffer && ` Actualizará la oferta existente (${formatCurrency(product.existingOffer.cashPrice)}).`}
+                                </p>
+                              )}
+                              {!product.existingProduct && (
+                                <p className="mt-1 text-xs text-stone-500">
+                                  {product.proposedCategory && product.proposedSubcategory
+                                    ? `${product.proposedCategory} > ${product.proposedSubcategory}`
+                                    : 'Mapeo pendiente'}
+                                </p>
+                              )}
+                              {blocked && (
+                                <p className="mt-1 text-xs font-semibold text-rose-700">
+                                  No importable: {product.importBlockedReason}
+                                </p>
+                              )}
+                            </div>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </section>
             </div>
           )}
 
@@ -4229,76 +4615,53 @@ export default function Admin() {
 
           {activePage ===
             'usuario' && (
-            <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
-              <h2 className="mb-3 text-lg font-bold">
-                Administradores
-              </h2>
+            <div className="space-y-6">
+              <RegisteredUserAccounts />
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <input
-                  className="rounded-lg border px-3 py-2"
-                  placeholder="Usuario"
-                  value={
-                    adminForm.username
-                  }
-                  onChange={(event) =>
-                    setAdminForm({
+              <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
+                <h2 className="mb-1 text-lg font-bold">Credenciales de acceso al panel</h2>
+                <p className="mb-4 text-sm text-stone-500 dark:text-stone-400">
+                  Las cuentas registradas con tipo Administrador también pueden ingresar usando su usuario y contraseña de AR-PRICE.
+                </p>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <input
+                    className="rounded-lg border px-3 py-2"
+                    placeholder="Usuario"
+                    value={adminForm.username}
+                    onChange={(event) => setAdminForm({
                       ...adminForm,
-                      username:
-                        event.target
-                          .value,
-                    })
-                  }
-                />
+                      username: event.target.value,
+                    })}
+                  />
 
-                <input
-                  type="password"
-                  className="rounded-lg border px-3 py-2"
-                  placeholder="Contraseña"
-                  value={
-                    adminForm.password
-                  }
-                  onChange={(event) =>
-                    setAdminForm({
+                  <input
+                    type="password"
+                    className="rounded-lg border px-3 py-2"
+                    placeholder="Contraseña"
+                    value={adminForm.password}
+                    onChange={(event) => setAdminForm({
                       ...adminForm,
-                      password:
-                        event.target
-                          .value,
-                    })
-                  }
-                />
-              </div>
+                      password: event.target.value,
+                    })}
+                  />
+                </div>
 
-              <div className="mt-4">
-                <button
-                  type="button"
-                  onClick={
-                    createAdmin
-                  }
-                  className="rounded-lg bg-sky-600 px-4 py-2 text-white"
-                >
-                  Crear admin
-                </button>
-              </div>
+                <div className="mt-4">
+                  <button type="button" onClick={createAdmin} className="rounded-lg bg-sky-600 px-4 py-2 text-white">
+                    Crear credencial independiente
+                  </button>
+                </div>
 
-              <div className="mt-4 space-y-2">
-                {admins.map(
-                  (admin) => (
-                    <div
-                      key={
-                        admin.id
-                      }
-                      className="rounded-lg bg-stone-50 px-3 py-2 dark:bg-stone-900"
-                    >
-                      👤{' '}
-                      {
-                        admin.username
-                      }
+                <div className="mt-4 space-y-2">
+                  {admins.map((admin) => (
+                    <div key={admin.id} className="rounded-lg bg-stone-50 px-3 py-2 dark:bg-stone-900">
+                      👤 {admin.username}
                     </div>
-                  ),
-                )}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </section>
+            </div>
           )}
         </div>
       </main>

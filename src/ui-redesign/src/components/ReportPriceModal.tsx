@@ -4,10 +4,9 @@ import { STORES_LIST } from '../data/mockProducts';
 
 interface ReportPriceModalProps {
   onClose: () => void;
-  selectedCity: string;
 }
 
-export const ReportPriceModal: React.FC<ReportPriceModalProps> = ({ onClose, selectedCity }) => {
+export const ReportPriceModal: React.FC<ReportPriceModalProps> = ({ onClose }) => {
   const [productName, setProductName] = useState('');
   const [storeName, setStoreName] = useState(STORES_LIST[0].name);
   const [reportedPrice, setReportedPrice] = useState('');
@@ -38,7 +37,7 @@ export const ReportPriceModal: React.FC<ReportPriceModalProps> = ({ onClose, sel
               <span>Aportar o Reportar un Precio</span>
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              Ayuda a la comunidad a mantener la transparencia de precios en {selectedCity}
+              Ayuda a la comunidad a mantener la transparencia de precios
             </p>
           </div>
 

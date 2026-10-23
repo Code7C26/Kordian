@@ -176,6 +176,36 @@ export function apiFetch(path, options = {}) {
   return fetchWithApiFallback(path, options)
 }
 
+export function adminLogin(options = {}) {
+  const localApiBases = DEFAULT_API_BASES.filter((base) =>
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(base)
+  )
+  const candidateBases = import.meta.env.DEV
+    ? [...new Set([import.meta.env.VITE_API_URL, ...localApiBases, CURRENT_RENDER_API_BASE].filter(Boolean))]
+    : [...new Set([import.meta.env.VITE_API_URL, CURRENT_RENDER_API_BASE].filter(Boolean))]
+  let lastResponse = null
+  let lastError = null
+
+  return (async () => {
+    for (const base of candidateBases) {
+      try {
+        const response = await fetch(`${base}/login`, options)
+        const contentType = response.headers.get('content-type') || ''
+        lastResponse = response
+
+        if (response.status !== 404 && !contentType.includes('text/html')) {
+          return response
+        }
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    if (lastResponse) return lastResponse
+    throw lastError || new Error('No se pudo conectar con ningún servidor de autenticación.')
+  })()
+}
+
 export async function adminFetch(path, options = {}) {
   const token = localStorage.getItem('adminToken')
 

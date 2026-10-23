@@ -43,9 +43,94 @@ test('reuses an ordered ID index to serve successive pages without re-running th
   assert.deepEqual(secondPage.data.map((product) => product.id), [3, 4])
   assert.equal(secondPage.total, 5)
   assert.equal(secondPage.page, 2)
-  assert.equal(secondPage.cacheHit, true)
+  assert.equal(secondPage.cacheHit, false)
+  const cachedSecondPage = await cache.getPage({
+    key: 'query-a',
+    page: 2,
+    limit: 2,
+    loadIndex,
+    loadProductsByIds: async () => assert.fail('should use the hydrated page cache'),
+    loadPage: async () => assert.fail('should not fall back'),
+  })
+
+  assert.deepEqual(cachedSecondPage.data.map((product) => product.id), [3, 4])
+  assert.equal(cachedSecondPage.cacheHit, true)
   assert.equal(indexLoadCount, 1)
   assert.equal(hydrationCount, 1)
+})
+
+test('prefetches the next page so navigation uses hydrated products from cache', async () => {
+  const cache = createCatalogPageCache()
+  let hydrationCount = 0
+  const loadIndex = async (page, limit) => ({
+    data: [{ id: 1 }, { id: 2 }],
+    total: 4,
+    orderedIds: [1, 2, 3, 4],
+    page,
+    limit,
+  })
+  const loadProductsByIds = async (ids) => {
+    hydrationCount += 1
+    return ids.map((id) => ({ id }))
+  }
+
+  await cache.getPage({
+    key: 'query-a',
+    page: 1,
+    limit: 2,
+    loadIndex,
+    loadProductsByIds,
+    loadPage: async () => assert.fail('should not fall back'),
+  })
+  const prefetched = await cache.prefetchPage({
+    key: 'query-a',
+    page: 2,
+    limit: 2,
+    loadProductsByIds,
+  })
+  const secondPage = await cache.getPage({
+    key: 'query-a',
+    page: 2,
+    limit: 2,
+    loadIndex,
+    loadProductsByIds: async () => assert.fail('should use prefetched products'),
+    loadPage: async () => assert.fail('should not fall back'),
+  })
+
+  assert.equal(prefetched, true)
+  assert.deepEqual(secondPage.data, [{ id: 3 }, { id: 4 }])
+  assert.equal(secondPage.cacheHit, true)
+  assert.equal(hydrationCount, 1)
+})
+
+test('expires query and hydrated page entries after the configured TTL', async () => {
+  const cache = createCatalogPageCache({ ttlMs: 1 })
+  let loadCount = 0
+  const options = {
+    key: 'query-a',
+    page: 1,
+    limit: 2,
+    loadIndex: async (page, limit) => {
+      loadCount += 1
+      return {
+        data: [{ id: loadCount }],
+        orderedIds: [loadCount],
+        total: 1,
+        page,
+        limit,
+      }
+    },
+    loadProductsByIds: async () => assert.fail('should use index payload'),
+    loadPage: async () => assert.fail('should not fall back'),
+  }
+
+  await cache.getPage(options)
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  const refreshed = await cache.getPage(options)
+
+  assert.equal(loadCount, 2)
+  assert.equal(refreshed.cacheHit, false)
+  assert.deepEqual(refreshed.data, [{ id: 2 }])
 })
 
 test('keeps recent search indexes when the search query changes', async () => {

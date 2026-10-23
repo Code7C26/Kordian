@@ -7,6 +7,7 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const app = express()
+const { normalizeOptionalReference } = require('./productFields')
 
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
@@ -17,8 +18,30 @@ const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
   : null
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
 const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
+const {
+  fetchPreview: fetchCarrefourPreview,
+  fetchProductById: fetchCarrefourProductById,
+  findCarrefourLocalMatch,
+  getCarrefourProductInvalidReason,
+  isValidCarrefourProduct,
+  normalizePostalCode,
+} = require('./services/carrefourImporter')
+const CARREFOUR_IMPORT_BATCH_LIMIT = 5
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
+const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
+const {
+  clearReviewDecisions,
+  listReviewDecisions,
+  normalizePairKey,
+  summarizeReviewDecisions,
+  upsertReviewDecision,
+} = require('./services/reviewDecisionStore')
+const {
+  customerPasswordResetIpRateLimit,
+  customerPriceReportIpRateLimit,
+} = require('./rateLimiters')
+const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
 const {
   PRICE_STATUS_RULES_VERSION,
   createPriceStatusRefreshQueue,
@@ -273,6 +296,428 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error fetching Mami preview', error)
     res.status(502).json({ error: error.message || 'No se pudo consultar Mami' })
+  }
+})
+
+app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
+  try {
+    const query = String(req.query.query || '').trim().slice(0, 100)
+    const postalCode = normalizePostalCode(req.query.postalCode)
+    if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
+
+    const [previewReport, localProductsResult, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
+      fetchCarrefourPreview({ query, postalCode }),
+      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price)'),
+      analysisWriter.from('categories').select('id, name'),
+      analysisWriter.from('subcategories').select('id, name, category_id'),
+    ])
+    const { data: localProducts, error: productsError } = localProductsResult
+    const catalogError = productsError || categoriesError || subcategoriesError
+    if (catalogError) {
+      console.error('Error loading catalog for Carrefour preview', catalogError)
+      return res.status(500).json({
+        error: 'No se pudo consultar el inventario local o el catálogo de categorías',
+        detail: catalogError.code === 'PGRST204' || catalogError.code === '42703'
+          ? 'Verifica las migraciones 20260826_external_catalog.sql y 20261023_carrefour_price_history.sql antes de consultar Carrefour.'
+          : catalogError.message || 'Error desconocido del catálogo',
+      })
+    }
+
+    const eanCounts = new Map()
+    for (const product of previewReport.products) {
+      const ean = String(product.ean || '')
+      eanCounts.set(ean, (eanCounts.get(ean) || 0) + 1)
+    }
+    const products = previewReport.products.map((product) => {
+      const match = findCarrefourLocalMatch(product, localProducts || [])
+      const suggestion = suggestCatalogMapping({
+        name: product.name,
+        brand: product.brand,
+        source_category: product.sourceCategory,
+      })
+      const proposedCategory = suggestion?.category || null
+      const proposedSubcategory = suggestion?.subcategory || null
+      const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
+      const subcategory = (subcategories || []).find((candidate) => (
+        candidate.name === proposedSubcategory
+        && String(candidate.category_id) === String(category?.id)
+      ))
+      const existingOffer = match.product?.offers?.find((offer) => offer.supermarket === 'Carrefour') || null
+      const mappingReady = Boolean(category && subcategory)
+      return {
+        ...product,
+        proposedCategory,
+        proposedSubcategory,
+        mappingStatus: mappingReady ? 'propuesta_automatica' : 'pendiente',
+        existingProduct: match.product
+          ? { id: match.product.id, name: match.product.name, matchedBy: match.matchedBy }
+          : null,
+        existingOffer: existingOffer
+          ? {
+            id: existingOffer.id,
+            cashPrice: Number(existingOffer.cash_price),
+            listPrice: Number(existingOffer.list_price) || null,
+          }
+          : null,
+        importBlockedReason: match.ambiguous
+          ? match.reason
+          : eanCounts.get(String(product.ean || '')) > 1
+            ? 'El GTIN aparece en más de un resultado de Carrefour'
+            : (!match.product && !mappingReady ? 'Falta mapeo de categoría y subcategoría' : null),
+      }
+    })
+
+    res.json({
+      source: 'carrefour',
+      query,
+      postalCode,
+      products,
+      discarded: previewReport.discarded,
+      resultLimit: previewReport.resultLimit,
+      dryRun: true,
+      writeSafety: {
+        productWritesAllowed: false,
+        priceHistoryWritesAllowed: false,
+        mutationSurface: 'preview_only',
+        reason: 'Carrefour preview only reads the regional catalog and local references; it does not write products or offers.',
+      },
+    })
+  } catch (error) {
+    console.error('Error fetching Carrefour preview', error)
+    res.status(502).json({ error: error.message || 'No se pudo consultar el catálogo de Carrefour' })
+  }
+})
+
+app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
+  const createdProductIds = []
+  const createdOfferIds = []
+  const createdHistoryIds = []
+  const createdBrandIds = []
+  const updatedOfferPrices = []
+  try {
+    const postalCode = normalizePostalCode(req.body?.postalCode)
+    const requestedIds = Array.isArray(req.body?.productIds) ? req.body.productIds : []
+    const productIds = [...new Set(requestedIds.map((id) => String(id || '').trim()))]
+    if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
+    if (!productIds.length) return res.status(400).json({ error: 'Seleccioná al menos un producto de Carrefour' })
+    if (productIds.length > CARREFOUR_IMPORT_BATCH_LIMIT) {
+      return res.status(400).json({ error: `La importación controlada permite hasta ${CARREFOUR_IMPORT_BATCH_LIMIT} productos por lote` })
+    }
+    if (productIds.some((id) => !/^\d{1,20}$/.test(id))) {
+      return res.status(400).json({ error: 'La selección contiene identificadores de Carrefour inválidos' })
+    }
+
+    const currentProducts = []
+    for (const productId of productIds) {
+      const product = await fetchCarrefourProductById(productId, { postalCode })
+      if (!product) {
+        return res.status(502).json({ error: `Carrefour no devolvió el producto ${productId}; no se realizaron escrituras` })
+      }
+      if (String(product.sourceProductId) !== productId || !isValidCarrefourProduct(product)) {
+        return res.status(409).json({
+          error: `El producto ${productId} dejó de cumplir las validaciones de importación`,
+          reason: getCarrefourProductInvalidReason(product) || 'Producto no válido',
+          noWrites: true,
+        })
+      }
+      currentProducts.push(product)
+    }
+
+    const selectedEanCounts = new Map()
+    for (const product of currentProducts) {
+      selectedEanCounts.set(product.ean, (selectedEanCounts.get(product.ean) || 0) + 1)
+    }
+    const repeatedGtins = [...selectedEanCounts]
+      .filter(([, count]) => count > 1)
+      .map(([ean]) => ean)
+    if (repeatedGtins.length) {
+      return res.status(409).json({
+        error: 'La selección incluye varios productos de Carrefour con el mismo GTIN; no se realizaron escrituras.',
+        repeatedGtins,
+        noWrites: true,
+      })
+    }
+
+    const [
+      { data: categories, error: categoriesError },
+      { data: subcategories, error: subcategoriesError },
+      { data: brands, error: brandsError },
+      existingProductsResult,
+    ] = await Promise.all([
+      analysisWriter.from('categories').select('id, name'),
+      analysisWriter.from('subcategories').select('id, name, category_id'),
+      readAllRowsForImport('brands', 'id, name'),
+      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price)'),
+    ])
+    const { data: existingProducts, error: productsError } = existingProductsResult
+    const catalogError = categoriesError || subcategoriesError || brandsError || productsError
+    if (catalogError) {
+      console.error('Error loading catalog for Carrefour import', catalogError)
+      return res.status(500).json({
+        error: 'No se pudo consultar el catálogo local',
+        detail: catalogError.code === 'PGRST204' || catalogError.code === '42703'
+          ? 'Verifica las migraciones 20260826_external_catalog.sql y 20261023_carrefour_price_history.sql antes de importar Carrefour.'
+          : catalogError.message,
+      })
+    }
+
+    const imported = []
+    const updated = []
+    const unchanged = []
+    const skipped = []
+    const brandCache = new Map()
+    const productCache = [...(existingProducts || [])]
+    const failImport = (message, detail) => {
+      const error = new Error(detail || message)
+      error.importFailure = true
+      error.publicMessage = message
+      throw error
+    }
+
+    for (const item of currentProducts) {
+      const sourceProductId = String(item.sourceProductId)
+      const match = findCarrefourLocalMatch(item, productCache)
+      if (match.ambiguous) {
+        skipped.push({ sourceProductId, reason: match.reason })
+        continue
+      }
+
+      const suggestion = suggestCatalogMapping({
+        name: item.name,
+        brand: item.brand,
+        source_category: item.sourceCategory,
+      })
+      const category = (categories || []).find((candidate) => candidate.name === suggestion?.category)
+      const subcategory = (subcategories || []).find((candidate) => (
+        candidate.name === suggestion?.subcategory
+        && String(candidate.category_id) === String(category?.id)
+      ))
+      if (!match.product && (!category || !subcategory)) {
+        skipped.push({ sourceProductId, reason: 'Falta mapeo de categoría y subcategoría' })
+        continue
+      }
+
+      if (match.product) {
+        const existingOffer = match.product.offers?.find((offer) => offer.supermarket === 'Carrefour')
+        if (existingOffer) {
+          const nextListPrice = Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null
+          const priceChanged = Number(existingOffer.cash_price) !== Number(item.price)
+          const listPriceChanged = (Number(existingOffer.list_price) || null) !== nextListPrice
+          if (priceChanged || listPriceChanged) {
+            const { error } = await analysisWriter.from('offers')
+              .update({ cash_price: item.price, list_price: nextListPrice })
+              .eq('id', existingOffer.id)
+            if (error) failImport('No se pudo actualizar la oferta de Carrefour', error.message)
+            updatedOfferPrices.push({
+              id: existingOffer.id,
+              cashPrice: existingOffer.cash_price,
+              listPrice: existingOffer.list_price,
+            })
+            if (priceChanged) {
+              const historyId = await recordPriceHistory({
+                productId: match.product.id,
+                offerId: existingOffer.id,
+                cashPrice: item.price,
+                source: 'carrefour_import',
+                scheduleStatusRefresh: false,
+                throwOnError: true,
+              })
+              if (historyId) createdHistoryIds.push(historyId)
+            } else {
+              invalidateCatalogPageCache()
+            }
+            existingOffer.cash_price = item.price
+            existingOffer.list_price = nextListPrice
+            updated.push({ productId: match.product.id, sourceProductId })
+          } else {
+            unchanged.push({ productId: match.product.id, sourceProductId })
+          }
+        } else {
+          const { data: offer, error } = await analysisWriter.from('offers')
+            .insert({
+              product_id: match.product.id,
+              supermarket: 'Carrefour',
+              cash_price: item.price,
+              list_price: Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null,
+            })
+            .select('id, supermarket, cash_price, list_price')
+            .single()
+          if (error) failImport('No se pudo crear la oferta de Carrefour', error.message)
+          createdOfferIds.push(offer.id)
+          match.product.offers = [...(match.product.offers || []), offer]
+          const historyId = await recordPriceHistory({
+            productId: match.product.id,
+            offerId: offer.id,
+            cashPrice: item.price,
+            source: 'carrefour_import',
+            scheduleStatusRefresh: false,
+            throwOnError: true,
+          })
+          if (historyId) createdHistoryIds.push(historyId)
+          updated.push({ productId: match.product.id, sourceProductId })
+        }
+        continue
+      }
+
+      const normalizedBrandName = normalizeBrandName(item.brand)
+      let brand = normalizedBrandName ? brandCache.get(normalizedBrandName) : null
+      if (!brand && normalizedBrandName) {
+        brand = (brands || []).find((candidate) => normalizeBrandName(candidate.name) === normalizedBrandName)
+      }
+      if (!brand && normalizedBrandName) {
+        const { data: createdBrand, error: brandError } = await analysisWriter.from('brands')
+          .insert({ name: normalizedBrandName })
+          .select('id, name')
+          .single()
+        if (brandError) {
+          if (brandError.code !== '23505') failImport('No se pudo crear la marca de Carrefour', brandError.message)
+          const { data: existingBrand, error: existingBrandError } = await analysisWriter.from('brands')
+            .select('id, name')
+            .eq('name', normalizedBrandName)
+            .maybeSingle()
+          if (existingBrandError || !existingBrand) {
+            failImport('No se pudo resolver la marca de Carrefour', existingBrandError?.message || brandError.message)
+          }
+          brand = existingBrand
+        } else {
+          brand = createdBrand
+          createdBrandIds.push(createdBrand.id)
+        }
+        brandCache.set(normalizedBrandName, brand)
+      }
+
+      const productPayload = {
+        name: item.name,
+        brand_id: brand?.id || null,
+        category_id: category.id,
+        subcategory_id: subcategory.id,
+        image: item.image,
+        classification_source: 'manual',
+        classification_confidence: 'manual',
+        source: 'carrefour',
+        source_product_id: sourceProductId,
+        source_sku: item.sourceSku,
+        ean: item.ean,
+        source_url: item.sourceUrl,
+        source_category: item.sourceCategory,
+        source_subcategory: suggestion.subcategory,
+      }
+      const { data: product, error: productError } = await analysisWriter.from('products')
+        .insert(productPayload)
+        .select('id, name, source, source_product_id, ean')
+        .single()
+      if (productError) {
+        if (productError.code === '42703' || productError.code === 'PGRST204') {
+          failImport('Falta aplicar la migración de metadatos del catálogo externo', productError.message)
+        }
+        failImport('No se pudo crear el producto de Carrefour', productError.message)
+      }
+      createdProductIds.push(product.id)
+
+      const { data: offer, error: offerError } = await analysisWriter.from('offers')
+        .insert({
+          product_id: product.id,
+          supermarket: 'Carrefour',
+          cash_price: item.price,
+          list_price: Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null,
+        })
+        .select('id, supermarket, cash_price, list_price')
+        .single()
+      if (offerError) failImport('No se pudo crear la oferta de Carrefour', offerError.message)
+      createdOfferIds.push(offer.id)
+      const historyId = await recordPriceHistory({
+        productId: product.id,
+        offerId: offer.id,
+        cashPrice: item.price,
+        source: 'carrefour_import',
+        scheduleStatusRefresh: false,
+        throwOnError: true,
+      })
+      if (historyId) createdHistoryIds.push(historyId)
+      imported.push({ productId: product.id, sourceProductId })
+      productCache.push({ ...product, offers: [offer] })
+    }
+
+    if (imported.length || updated.length || unchanged.length) {
+      const { error: supermarketError } = await analysisWriter.from('supermarkets')
+        .upsert({ name: 'Carrefour' }, { onConflict: 'name', ignoreDuplicates: true })
+      if (supermarketError) failImport('No se pudo habilitar Carrefour en los filtros del catálogo', supermarketError.message)
+    }
+
+    const { error: logError } = await analysisWriter.from('price_update_log').insert({
+      admin_username: req.admin,
+      filters: { source: 'carrefour_import', postal_code: postalCode },
+      percentage: 0,
+      products_updated: imported.length + updated.length,
+      changes: [
+        ...imported.map((entry) => ({ type: 'carrefour_import', status: 'imported', ...entry })),
+        ...updated.map((entry) => ({ type: 'carrefour_import', status: 'updated', ...entry })),
+        ...unchanged.map((entry) => ({ type: 'carrefour_import', status: 'unchanged', ...entry })),
+        ...skipped.map((entry) => ({ type: 'carrefour_import', status: 'skipped', ...entry })),
+      ],
+    })
+    if (logError) failImport('No se pudo registrar el lote de importación de Carrefour', logError.message)
+
+    invalidateAnalysisCache()
+    for (const productId of new Set([...imported, ...updated].map((entry) => String(entry.productId)))) {
+      scheduleRelatedPriceStatusRefresh(productId)
+    }
+
+    res.json({
+      source: 'carrefour',
+      postalCode,
+      imported,
+      updated,
+      unchanged,
+      skipped,
+      dryRun: false,
+      writeSafety: {
+        productWritesAllowed: true,
+        priceHistoryWritesAllowed: true,
+        mutationSurface: 'carrefour_manual_import',
+      },
+    })
+  } catch (error) {
+    if (error.importFailure) {
+      const rollbackResults = []
+      const runRollbackStage = async (operations) => {
+        rollbackResults.push(...await Promise.all(operations))
+      }
+      await runRollbackStage(
+        createdHistoryIds.map((id) => analysisWriter.from('price_history').delete().eq('id', id)),
+      )
+      await runRollbackStage(
+        updatedOfferPrices.map((offer) => analysisWriter.from('offers')
+          .update({ cash_price: offer.cashPrice, list_price: offer.listPrice })
+          .eq('id', offer.id)),
+      )
+      await runRollbackStage(
+        createdOfferIds.map((id) => analysisWriter.from('offers').delete().eq('id', id)),
+      )
+      await runRollbackStage(
+        createdProductIds.map((id) => analysisWriter.from('products').delete().eq('id', id)),
+      )
+      await runRollbackStage(
+        createdBrandIds.map((id) => analysisWriter.from('brands').delete().eq('id', id)),
+      )
+      const rollbackErrors = rollbackResults.filter((result) => result.error).map((result) => result.error.message)
+      if (rollbackErrors.length) {
+        console.error('Carrefour import rollback was incomplete', rollbackErrors)
+        return res.status(500).json({
+          error: error.publicMessage || 'No se pudo completar la importación de Carrefour',
+          detail: error.message,
+          rolledBack: false,
+          rollbackErrors,
+        })
+      }
+      return res.status(500).json({
+        error: error.publicMessage || 'No se pudo completar la importación de Carrefour',
+        detail: error.message,
+        rolledBack: true,
+      })
+    }
+    console.error('Error importing Carrefour products', error)
+    res.status(502).json({ error: error.message || 'No se pudo importar Carrefour' })
   }
 })
 
@@ -709,17 +1154,20 @@ app.get('/admin/import/disco/import-status', requireAdmin, async (req, res) => {
 
 app.put('/products/:id/classification', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La edición de productos requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { id } = req.params
     const { subcategory_id } = req.body || {}
     const priceHistoryRecorded = req.body?.priceHistoryRecorded === true
     if (!subcategory_id) return res.status(400).json({ error: 'subcategory_id is required' })
-    const { data: previousProduct, error: previousError } = await supabase
+    const { data: previousProduct, error: previousError } = await analysisWriter
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { data, error } = await supabase.from('products').update({
+    const { data, error } = await analysisWriter.from('products').update({
       subcategory_id,
       classification_source: 'manual',
       classification_confidence: 'manual',
@@ -743,23 +1191,40 @@ function invalidateCatalogPageCache() {
   catalogPageCache.clear()
 }
 
-async function recordPriceHistory({ productId, offerId, cashPrice, source = 'admin', scheduleStatusRefresh = true }) {
+async function recordPriceHistory({
+  productId,
+  offerId,
+  cashPrice,
+  source = 'admin',
+  scheduleStatusRefresh = true,
+  throwOnError = false,
+}) {
   const price = Number(cashPrice)
-  if (!productId || !offerId) return
-  invalidateCatalogPageCache()
-  if (!Number.isFinite(price) || price <= 0) return
+  if (!productId || !offerId || !Number.isFinite(price) || price <= 0) {
+    const error = new TypeError('Price history requires a product, offer, and positive price')
+    if (throwOnError) throw error
+    console.error(error.message)
+    return null
+  }
 
-  const { data, error } = await analysisWriter.from('price_history').insert({
+  let historyInsert = analysisWriter.from('price_history').insert({
     product_id: productId,
     offer_id: offerId,
     cash_price: price,
     source,
   })
-  if (error) console.error('Error recording price history', error)
+  if (throwOnError) historyInsert = historyInsert.select('id').single()
+  const { data, error } = await historyInsert
+  if (error) {
+    console.error('Error recording price history', error)
+    if (throwOnError) throw error
+  }
   else {
+    invalidateCatalogPageCache()
     invalidateAnalysisCache()
     if (scheduleStatusRefresh) scheduleRelatedPriceStatusRefresh(productId)
   }
+  return data?.id || null
 }
 
 async function importDiscoSearchResults(search) {
@@ -1590,12 +2055,12 @@ app.post('/products', requireAdmin, async (req, res) => {
 
     if (!name) return res.status(400).json({ error: 'Product name is required' })
 
-    const { data: product, error: productError } = await supabase
+    const { data: product, error: productError } = await analysisWriter
       .from('products')
       .insert({
         name,
-        category_id,
-        brand_id,
+        category_id: normalizeOptionalReference(category_id),
+        brand_id: normalizeOptionalReference(brand_id),
         rating,
         image,
         subcategory_id: subcategory_id || null,
@@ -1615,10 +2080,10 @@ app.post('/products', requireAdmin, async (req, res) => {
       const normalizedInstallmentsQuantity = parsePrice(installmentsQuantity)
       const normalizedInstallmentPrice = parsePrice(installmentPrice)
       if (cashPrice && (!normalizedCashPrice || normalizedCashPrice <= 0)) {
-        await supabase.from('products').delete().eq('id', product.id)
+        await analysisWriter.from('products').delete().eq('id', product.id)
         return res.status(400).json({ error: 'El precio contado debe ser un número mayor que cero' })
       }
-      const { data: newOffer, error: offerError } = await supabase
+      const { data: newOffer, error: offerError } = await analysisWriter
         .from('offers')
         .insert({
           product_id: product.id,
@@ -1632,7 +2097,7 @@ app.post('/products', requireAdmin, async (req, res) => {
 
       if (offerError) {
         console.error('Error creating offer', offerError)
-        await supabase.from('products').delete().eq('id', product.id)
+        await analysisWriter.from('products').delete().eq('id', product.id)
         return res.status(500).json({ error: offerError.message || 'Error creating offer' })
       }
       offer = newOffer
@@ -1651,24 +2116,33 @@ app.post('/products', requireAdmin, async (req, res) => {
 
 app.put('/products/:id', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La edición de productos requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { id } = req.params 
     const { name, category_id, brand_id, rating, image } = req.body || {}
-    const { data: previousProduct, error: previousError } = await supabase
+    const { data: previousProduct, error: previousError } = await analysisWriter
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { data, error } = await supabase
+    const { data, error } = await analysisWriter
       .from('products')
-      .update({ name, category_id, brand_id, rating, image })
+      .update({
+        name,
+        category_id: normalizeOptionalReference(category_id),
+        brand_id: normalizeOptionalReference(brand_id),
+        rating,
+        image,
+      })
       .eq('id', id)
       .select()
       .single()
 
     if (error) {
       console.error('Error updating product', error)
-      return res.status(500).json({ error: 'Error updating product' })
+      return res.status(500).json({ error: error.message || 'Error updating product' })
     }
 
     invalidateCatalogPageCache()
@@ -1683,15 +2157,15 @@ app.put('/products/:id', requireAdmin, async (req, res) => {
 app.delete('/products/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params 
-    const { data: previousProduct, error: previousError } = await supabase
+    const { data: previousProduct, error: previousError } = await analysisWriter
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { error: offersError } = await supabase.from('offers').delete().eq('product_id', id)
+    const { error: offersError } = await analysisWriter.from('offers').delete().eq('product_id', id)
     if (offersError) throw offersError
-    const { error } = await supabase.from('products').delete().eq('id', id)
+    const { error } = await analysisWriter.from('products').delete().eq('id', id)
     if (error) {
       console.error('Error deleting product', error)
       return res.status(500).json({ error: 'Error deleting product' })
@@ -1707,6 +2181,9 @@ app.delete('/products/:id', requireAdmin, async (req, res) => {
 
 app.post('/offers', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { 
       product_id,
       supermarket,
@@ -1722,7 +2199,7 @@ app.post('/offers', requireAdmin, async (req, res) => {
     const normalizedInstallmentsQuantity = normalizeNumericValue(installments_quantity)
     const normalizedInstallmentPrice = normalizeNumericValue(installment_price)
 
-    const { data, error } = await supabase
+    const { data, error } = await analysisWriter
       .from('offers')
       .insert({
         product_id,
@@ -1736,7 +2213,7 @@ app.post('/offers', requireAdmin, async (req, res) => {
 
     if (error) {
       console.error('Error creating offer', error)
-      return res.status(500).json({ error: 'Error creating offer' })
+      return res.status(500).json({ error: error.message || 'Error creating offer' })
     }
 
     if (!skipPriceChangeRecording) {
@@ -1753,6 +2230,9 @@ app.post('/offers', requireAdmin, async (req, res) => {
 
 app.put('/offers/:id', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { id } = req.params 
     const {
       supermarket,
@@ -1766,14 +2246,14 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
     const normalizedInstallmentsQuantity = normalizeNumericValue(installments_quantity)
     const normalizedInstallmentPrice = normalizeNumericValue(installment_price)
 
-    const { data: previousOffer, error: previousError } = await supabase
+    const { data: previousOffer, error: previousError } = await analysisWriter
       .from('offers')
       .select('id, product_id, cash_price, supermarket')
       .eq('id', id)
       .single()
     if (previousError) return res.status(404).json({ error: 'Oferta no encontrada' })
 
-    const { data, error } = await supabase
+    const { data, error } = await analysisWriter
       .from('offers')
       .update({
         supermarket,
@@ -1787,7 +2267,7 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
 
     if (error) {
       console.error('Error updating offer', error)
-      return res.status(500).json({ error: 'Error updating offer' })
+      return res.status(500).json({ error: error.message || 'Error updating offer' })
     }
 
     if (!skipPriceChangeRecording) {
@@ -1824,13 +2304,16 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
 
 app.delete('/offers/:id', requireAdmin, async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { id } = req.params 
-    const { data: offer, error: offerError } = await supabase.from('offers').select('product_id').eq('id', id).maybeSingle()
+    const { data: offer, error: offerError } = await analysisWriter.from('offers').select('product_id').eq('id', id).maybeSingle()
     if (offerError) throw offerError
-    const { error } = await supabase.from('offers').delete().eq('id', id)
+    const { error } = await analysisWriter.from('offers').delete().eq('id', id)
     if (error) {
       console.error('Error deleting offer', error)
-      return res.status(500).json({ error: 'Error deleting offer' })
+      return res.status(500).json({ error: error.message || 'Error deleting offer' })
     }
     invalidateCatalogPageCache()
     if (offer?.product_id) scheduleRelatedPriceStatusRefresh(offer.product_id)
@@ -1972,23 +2455,63 @@ app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body || {}
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
-    const { data, error } = await supabase.from('admins').select('username, password').eq('username', username).single()
-    const isBcryptHash = data?.password?.startsWith('$2')
-    const validPassword = data && (isBcryptHash
-      ? await bcrypt.compare(password, data.password)
-      : data.password === password)
-    const isEmptyAdminTable = error?.code === 'PGRST116'
-    const isLocalDefaultLogin = process.env.NODE_ENV !== 'production'
-      && isEmptyAdminTable
-      && username === (process.env.ADMIN_DEV_USERNAME || 'admin')
-      && password === (process.env.ADMIN_DEV_PASSWORD || '1234')
-    if (!isLocalDefaultLogin && (!data || !validPassword)) {
-      return res.status(401).json({ error: 'Invalid credentials' })
+    const normalizedUsername = String(username).trim()
+    let adminProfile = null
+    if (supabaseAdmin) {
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from('customer_profiles')
+        .select('user_id, username, email, role')
+        .eq('username', normalizedUsername.toLowerCase())
+        .maybeSingle()
+      if (profileError) {
+        console.error('Error checking registered admin account', profileError)
+        return res.status(500).json({ error: 'Unable to verify admin credentials' })
+      }
+      adminProfile = profile
     }
-    if (data && !isBcryptHash) {
-      await supabase.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', username)
+
+    let authenticatedAdmin = ''
+    if (adminProfile) {
+      if (adminProfile.role !== 'administrator') {
+        return res.status(401).json({ error: 'Invalid credentials' })
+      }
+      const { data: authData, error: authError } = await createCustomerAuthClient().auth.signInWithPassword({
+        email: adminProfile.email,
+        password,
+      })
+      if (authError || !authData.session) {
+        return res.status(401).json({ error: 'Invalid credentials' })
+      }
+      authenticatedAdmin = adminProfile.username
+    } else {
+      const { data, error } = await supabase.from('admins').select('username, password').eq('username', normalizedUsername).maybeSingle()
+      if (error) {
+        console.error('Error looking up admin during login', error)
+        return res.status(500).json({ error: 'Unable to verify admin credentials' })
+      }
+      const isEmptyAdminTable = !data
+      const isLocalDefaultLogin = process.env.NODE_ENV !== 'production'
+        && isEmptyAdminTable
+        && normalizedUsername === (process.env.ADMIN_DEV_USERNAME || 'admin')
+        && password === (process.env.ADMIN_DEV_PASSWORD || '1234')
+      authenticatedAdmin = data?.username || (isLocalDefaultLogin ? normalizedUsername : '')
+      if (data) {
+        const isBcryptHash = data.password?.startsWith('$2')
+        const validPassword = isBcryptHash
+          ? await bcrypt.compare(password, data.password)
+          : data.password === password
+        if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' })
+        if (!isBcryptHash) {
+          await supabase.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', normalizedUsername)
+        }
+      } else if (!isLocalDefaultLogin) {
+        if (!supabaseAdmin) {
+          return res.status(503).json({ error: 'Admin account login requires SUPABASE_SERVICE_ROLE_KEY' })
+        }
+        return res.status(401).json({ error: 'Invalid credentials' })
+      }
     }
-    const token = createAdminToken(data?.username || username)
+    const token = createAdminToken(authenticatedAdmin)
     if (!token) return res.status(503).json({ error: 'ADMIN_SESSION_SECRET is not configured' })
     res.json({ success: true, token })
   } catch (e) {
@@ -1999,7 +2522,14 @@ app.post('/login', async (req, res) => {
 
 function createCustomerAuthClient() {
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    auth: {
+      // Recovery emails are issued by the backend, so a PKCE verifier cannot be
+      // persisted in the browser that later opens the email link.
+      flowType: 'implicit',
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
   })
 }
 
@@ -2027,6 +2557,119 @@ function requireCustomerAuthStorage(res) {
   res.status(503).json({ error: 'La autenticación de clientes requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
   return false
 }
+
+function getPasswordRecoveryRedirectUrl(accountType) {
+  const frontendUrl = process.env.FRONTEND_URL || (
+    process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://ar-price.netlify.app'
+  )
+  const redirectUrl = new URL('/restablecer-contrasena', frontendUrl)
+  redirectUrl.searchParams.set('account', accountType)
+  return redirectUrl.toString()
+}
+
+function getCustomerConfirmationRedirectUrl() {
+  const frontendUrl = process.env.FRONTEND_URL || (
+    process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://ar-price.netlify.app'
+  )
+  return new URL('/ingresar?confirmation=success', frontendUrl).toString()
+}
+
+app.post('/auth/customer-password-reset', customerPasswordResetIpRateLimit, async (req, res) => {
+  try {
+    if (!requireCustomerAuthStorage(res)) return
+    const identifier = String(req.body?.identifier || '').trim()
+    if (!identifier) return res.status(400).json({ error: 'Ingresa tu correo o nombre de usuario.' })
+
+    let email = identifier.toLowerCase()
+    if (!email.includes('@')) {
+      const { data: profile, error } = await supabaseAdmin
+        .from('customer_profiles')
+        .select('email')
+        .eq('username', email)
+        .maybeSingle()
+      if (error) {
+        console.error('Customer password recovery lookup failed', error)
+        return res.status(500).json({ error: 'No se pudo procesar la solicitud.' })
+      }
+      email = profile?.email || ''
+    }
+    if (email) {
+      const redirectTo = getPasswordRecoveryRedirectUrl('customer')
+      const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : {})
+      if (error) {
+        console.error('Customer password recovery email failed', error)
+        const failure = getPasswordRecoveryFailure(error)
+        return res.status(failure.status).json({ error: failure.message })
+      }
+    }
+    res.json({ message: 'Si existe una cuenta asociada, recibirás un correo con instrucciones para recuperar tu contraseña.' })
+  } catch (error) {
+    console.error('Customer password recovery failed', error)
+    res.status(500).json({ error: 'No se pudo procesar la solicitud.' })
+  }
+})
+
+app.post('/auth/admin-password-reset', customerPasswordResetIpRateLimit, async (req, res) => {
+  try {
+    if (!requireCustomerAuthStorage(res)) return
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    if (!email) return res.status(400).json({ error: 'Ingresa el correo asociado a la cuenta administradora.' })
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('customer_profiles')
+      .select('email')
+      .eq('email', email)
+      .eq('role', 'administrator')
+      .maybeSingle()
+    if (profileError) {
+      console.error('Admin password recovery lookup failed', profileError)
+      return res.status(500).json({ error: 'No se pudo procesar la solicitud.' })
+    }
+
+    if (profile?.email) {
+      const redirectTo = getPasswordRecoveryRedirectUrl('admin')
+      const { error } = await createCustomerAuthClient().auth.resetPasswordForEmail(profile.email, redirectTo ? { redirectTo } : {})
+      if (error) {
+        console.error('Admin password recovery email failed', error)
+        const failure = getPasswordRecoveryFailure(error)
+        return res.status(failure.status).json({ error: failure.message })
+      }
+    }
+    res.json({ message: 'Si el correo corresponde a una cuenta administradora, recibirás un mensaje con instrucciones.' })
+  } catch (error) {
+    console.error('Admin password recovery failed', error)
+    res.status(500).json({ error: 'No se pudo procesar la solicitud.' })
+  }
+})
+
+app.post('/auth/password-update', customerPasswordResetIpRateLimit, async (req, res) => {
+  try {
+    if (!requireCustomerAuthStorage(res)) return
+    const accessToken = String(req.body?.accessToken || '')
+    const tokenHash = String(req.body?.tokenHash || '')
+    const password = String(req.body?.password || '')
+    if (!accessToken && !tokenHash) return res.status(400).json({ error: 'El enlace de recuperación no es válido.' })
+    if (!/^[a-zA-Z0-9]{4,}$/.test(password)) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres alfanuméricos.' })
+    }
+
+    const authClient = createCustomerAuthClient()
+    const { data: authData, error: authError } = accessToken
+      ? await authClient.auth.getUser(accessToken)
+      : await authClient.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' })
+    if (authError || !authData.user) return res.status(401).json({ error: 'El enlace venció o ya no es válido. Solicita uno nuevo.' })
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(authData.user.id, { password })
+    if (error) {
+      console.error('Password update failed', error)
+      return res.status(503).json({ error: 'No se pudo actualizar la contraseña.' })
+    }
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Password update failed', error)
+    res.status(500).json({ error: 'No se pudo actualizar la contraseña.' })
+  }
+})
 
 app.post('/auth/customer-register', async (req, res) => {
   try {
@@ -2059,10 +2702,14 @@ app.post('/auth/customer-register', async (req, res) => {
     if (existingProfile) return res.status(409).json({ error: 'Este usuario ya se encuentra registrado.' })
 
     const authClient = createCustomerAuthClient()
+    const emailRedirectTo = getCustomerConfirmationRedirectUrl()
     const { data, error } = await authClient.auth.signUp({
       email,
       password,
-      options: { data: { username } },
+      options: {
+        data: { username },
+        emailRedirectTo,
+      },
     })
     if (error) {
       const normalizedMessage = String(error.message || '').toLowerCase()
@@ -2164,6 +2811,133 @@ async function requireCustomerAuth(req, res, next) {
   }
 }
 
+app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
+  try {
+    const { data, error } = await analysisWriter
+      .from('customer_favorites')
+      .select('product_id')
+      .eq('user_id', req.customerUser.id)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return res.json({ ids: (data || []).map((favorite) => String(favorite.product_id)) })
+  } catch (error) {
+    console.error('Customer favorites fetch failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar los favoritos. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
+
+app.post('/customer/price-reports', customerPriceReportIpRateLimit, requireCustomerAuth, async (req, res) => {
+  const reportType = String(req.body?.reportType || '')
+  const productName = String(req.body?.productName || '').trim()
+  const storeName = String(req.body?.storeName || '').trim()
+  const reportedPrice = Number(req.body?.reportedPrice)
+  const city = String(req.body?.city || '').trim()
+  const comments = String(req.body?.comments || '').trim()
+  const validReportTypes = new Set(['oferta', 'sobreprecio', 'actualizacion'])
+
+  if (!validReportTypes.has(reportType)) {
+    return res.status(400).json({ error: 'Selecciona un tipo de reporte válido.' })
+  }
+  if (!productName || productName.length > 160) {
+    return res.status(400).json({ error: 'El producto debe tener entre 1 y 160 caracteres.' })
+  }
+  if (!storeName || storeName.length > 120) {
+    return res.status(400).json({ error: 'El comercio debe tener entre 1 y 120 caracteres.' })
+  }
+  if (!Number.isFinite(reportedPrice) || reportedPrice <= 0 || reportedPrice > 1000000000) {
+    return res.status(400).json({ error: 'Ingresa un precio válido mayor que cero.' })
+  }
+  if (!city || city.length > 100 || comments.length > 1000) {
+    return res.status(400).json({ error: 'La localidad o los detalles adicionales no son válidos.' })
+  }
+
+  try {
+    const profile = await getCustomerProfile(req.customerUser)
+    const reporterUsername = String(profile.username || req.customerUser.user_metadata?.username || '').trim()
+    const reporterEmail = String(profile.email || req.customerUser.email || '').trim()
+    const { data, error } = await supabaseAdmin
+      .from('price_reports')
+      .insert({
+        reporter_user_id: req.customerUser.id,
+        reporter_username: reporterUsername || reporterEmail || 'Usuario',
+        reporter_email: reporterEmail,
+        report_type: reportType,
+        product_name: productName,
+        store_name: storeName,
+        reported_price: reportedPrice,
+        city,
+        comments,
+      })
+      .select('id, created_at')
+      .single()
+    if (error) throw error
+    return res.status(201).json({ report: data })
+  } catch (error) {
+    console.error('Price report submission failed', error)
+    return res.status(503).json({ error: 'No se pudo guardar el reporte. Verifica que la migración de reportes esté aplicada.' })
+  }
+})
+
+app.get('/admin/price-reports', requireAdmin, async (req, res) => {
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'La consulta de reportes requiere SUPABASE_SERVICE_ROLE_KEY.' })
+  }
+
+  try {
+    const { data, count, error } = await supabaseAdmin
+      .from('price_reports')
+      .select('id, reporter_user_id, reporter_username, reporter_email, report_type, product_name, store_name, reported_price, city, comments, status, created_at', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .limit(500)
+    if (error) throw error
+    return res.json({ reports: data || [], totalCount: count || 0 })
+  } catch (error) {
+    console.error('Admin price reports fetch failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar los reportes. Verifica que la migración de reportes esté aplicada.' })
+  }
+})
+
+app.post('/customer/favorites', requireCustomerAuth, async (req, res) => {
+  const productId = String(req.body?.productId || '')
+  if (!/^[1-9]\d*$/.test(productId)) {
+    return res.status(400).json({ error: 'El identificador del producto no es válido.' })
+  }
+
+  try {
+    const { error } = await analysisWriter
+      .from('customer_favorites')
+      .upsert(
+        { user_id: req.customerUser.id, product_id: productId },
+        { onConflict: 'user_id,product_id', ignoreDuplicates: true },
+      )
+    if (error) throw error
+    return res.status(201).json({ success: true })
+  } catch (error) {
+    console.error('Customer favorite save failed', error)
+    return res.status(503).json({ error: 'No se pudo guardar el favorito. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
+
+app.delete('/customer/favorites/:productId', requireCustomerAuth, async (req, res) => {
+  const productId = String(req.params.productId || '')
+  if (!/^[1-9]\d*$/.test(productId)) {
+    return res.status(400).json({ error: 'El identificador del producto no es válido.' })
+  }
+
+  try {
+    const { error } = await analysisWriter
+      .from('customer_favorites')
+      .delete()
+      .eq('user_id', req.customerUser.id)
+      .eq('product_id', productId)
+    if (error) throw error
+    return res.json({ success: true })
+  } catch (error) {
+    console.error('Customer favorite removal failed', error)
+    return res.status(503).json({ error: 'No se pudo quitar el favorito. Verifica que la migración de favoritos esté aplicada en Supabase.' })
+  }
+})
+
 async function requireBusinessStore(req, res, next) {
   try {
     const { data: profile, error: profileError } = await analysisWriter
@@ -2215,6 +2989,73 @@ app.get('/admin/business-accounts', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Business account listing failed', error)
     return res.status(503).json({ error: 'No se pudieron cargar las cuentas. Verifica la migración del catálogo comercial.' })
+  }
+})
+
+app.get('/admin/customer-accounts', requireAdmin, async (req, res) => {
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'La administración de cuentas requiere SUPABASE_SERVICE_ROLE_KEY en el backend.' })
+  }
+
+  const search = String(req.query.search || '').trim().slice(0, 100).replace(/[%_*(),\\]/g, '')
+  const requestedPage = Number(req.query.page || 1)
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0
+    ? Math.min(requestedPage, 1000000)
+    : 1
+  const pageSize = 50
+
+  try {
+    let query = supabaseAdmin
+      .from('customer_profiles')
+      .select('user_id, username, email, role, created_at', { count: 'exact' })
+      .order('username', { ascending: true })
+      .range((page - 1) * pageSize, page * pageSize - 1)
+    if (search) {
+      query = query.or(`username.ilike.%${search}%,email.ilike.%${search}%`)
+    }
+    const { data, error, count } = await query
+    if (error) throw error
+    return res.json({
+      accounts: data || [],
+      total: count || 0,
+      page,
+      pageSize,
+    })
+  } catch (error) {
+    console.error('Registered customer account listing failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar las cuentas registradas.' })
+  }
+})
+
+app.put('/admin/customer-accounts/:userId', requireAdmin, async (req, res) => {
+  const userId = String(req.params.userId || '')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+    return res.status(400).json({ error: 'La cuenta seleccionada no es válida.' })
+  }
+
+  const role = String(req.body?.role || '')
+  if (!['customer', 'administrator', 'business'].includes(role)) {
+    return res.status(400).json({ error: 'El tipo de cuenta no es válido.' })
+  }
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'La administración de cuentas requiere SUPABASE_SERVICE_ROLE_KEY en el backend.' })
+  }
+
+  try {
+    const updates = { role }
+    if (role !== 'business') updates.supermarket_id = null
+    const { data, error } = await supabaseAdmin
+      .from('customer_profiles')
+      .update(updates)
+      .eq('user_id', userId)
+      .select('user_id, username, email, role, created_at')
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'No se encontró la cuenta seleccionada.' })
+    return res.json(data)
+  } catch (error) {
+    console.error('Registered customer account role update failed', error)
+    return res.status(503).json({ error: 'No se pudo actualizar el tipo de cuenta. Verifica que la migración de roles esté aplicada.' })
   }
 })
 
@@ -2550,12 +3391,34 @@ app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
   }
 })
 
+app.delete('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+    if (membership.role !== 'owner') {
+      return res.status(403).json({ error: 'Solo quien creó la lista puede eliminarla.' })
+    }
+
+    const { error, count } = await analysisWriter
+      .from('shared_shopping_lists')
+      .delete({ count: 'exact' })
+      .eq('id', req.params.listId)
+      .eq('owner_user_id', req.customerUser.id)
+    if (error) throw error
+    if (!count) return res.status(404).json({ error: 'No se encontró la lista.' })
+    return res.status(204).end()
+  } catch (error) {
+    console.error('Shared-list deletion failed', error)
+    return res.status(503).json({ error: 'No se pudo eliminar la lista.' })
+  }
+})
+
 app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
 
-    const [{ data: list, error: listError }, { data: items, error: itemsError }, { count: memberCount, error: countError }] = await Promise.all([
+    const [{ data: list, error: listError }, { data: items, error: itemsError }, { data: members, error: membersError }] = await Promise.all([
       analysisWriter
         .from('shared_shopping_lists')
         .select('id, name, owner_user_id, invite_code, created_at, updated_at')
@@ -2568,18 +3431,35 @@ app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
         .order('created_at', { ascending: true }),
       analysisWriter
         .from('shared_shopping_list_members')
-        .select('user_id', { count: 'exact', head: true })
-        .eq('list_id', req.params.listId),
+        .select('user_id, role, joined_at')
+        .eq('list_id', req.params.listId)
+        .order('joined_at', { ascending: true }),
     ])
     if (listError) throw listError
     if (itemsError) throw itemsError
-    if (countError) throw countError
+    if (membersError) throw membersError
     if (!list) return res.status(404).json({ error: 'No se encontró la lista.' })
+
+    const memberUserIds = (members || []).map((member) => member.user_id)
+    const { data: profiles, error: profilesError } = memberUserIds.length
+      ? await analysisWriter
+        .from('customer_profiles')
+        .select('user_id, username')
+        .in('user_id', memberUserIds)
+      : { data: [], error: null }
+    if (profilesError) throw profilesError
+    const usernameByUserId = new Map((profiles || []).map((profile) => [profile.user_id, profile.username]))
 
     return res.json({
       ...list,
       role: membership.role,
-      memberCount: memberCount || 1,
+      memberCount: members?.length || 1,
+      members: (members || []).map((member) => ({
+        user_id: member.user_id,
+        username: usernameByUserId.get(member.user_id) || 'Usuario',
+        role: member.role,
+        joined_at: member.joined_at,
+      })),
       items: items || [],
     })
   } catch (error) {

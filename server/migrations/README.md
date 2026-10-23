@@ -27,9 +27,74 @@ también necesita estas variables configuradas en Render: `SUPABASE_URL`,
 permanecer únicamente en el backend; nunca configurarla como `VITE_*` ni
 incluirla en el frontend.
 
+La URL pública del frontend es `https://ar-price.netlify.app` y está configurada
+como `FRONTEND_URL` en `render.yaml`. En Supabase Auth, agregar
+`https://ar-price.netlify.app/ingresar?confirmation=success` y
+`https://ar-price.netlify.app/restablecer-contrasena` a las Redirect URLs
+permitidas.
+
+Los enlaces de confirmación de registro redirigen a
+`/ingresar?confirmation=success`. El frontend usa una regla SPA para que las
+rutas de la aplicación abran correctamente.
+
 Si la confirmación de correo está habilitada en Supabase Auth, cada usuario
 debe confirmar el correo recibido antes de iniciar sesión. Si está
 deshabilitada, el registro inicia la sesión inmediatamente.
+
+## Favoritos por cuenta
+
+Ejecutar completo `20261021_customer_favorites.sql` en el SQL Editor de
+Supabase para crear la tabla de favoritos asociados al usuario autenticado.
+Los favoritos se consultan y modifican mediante el backend con la sesión del
+cliente; la tabla mantiene RLS habilitado y no guarda datos de favoritos en el
+navegador.
+
+## Reportes de precios
+
+Ejecutar completo `20261022_price_reports.sql` en el SQL Editor de Supabase.
+Los usuarios autenticados envían los reportes al backend; el servidor guarda
+el detalle del precio y una copia del usuario/email asociado al reporte. Solo
+el endpoint autenticado del panel de administración puede consultar los
+reportes; la tabla no expone políticas de lectura o escritura al cliente.
+
+## Tipos de cuenta de usuarios
+
+Ejecutar `20261022_customer_account_roles.sql` en el SQL Editor de Supabase
+para permitir los tipos `customer`, `administrator` y `business` en los
+perfiles. La cuenta nueva conserva `customer` como tipo predeterminado.
+Después de aplicar la migración, las cuentas se pueden buscar y clasificar
+desde la sección Usuarios del panel administrativo. Una cuenta clasificada
+como administrador puede iniciar sesión en el panel con su usuario y
+contraseña de AR-PRICE.
+
+## Recuperación de contraseña
+
+Configurar `FRONTEND_URL` en el backend con la URL pública del sitio
+(localmente, `http://localhost:5173`). Agregar
+`<FRONTEND_URL>/restablecer-contrasena*` a las URL de redirección permitidas
+en Supabase Auth. La recuperación se envía al correo asociado al perfil; para
+administradores, el perfil debe tener el rol `administrator`. Las cuentas
+administradoras antiguas guardadas solo en `public.admins` no tienen un correo
+asociado y no pueden recuperar la clave por email hasta migrarse a un perfil
+con correo.
+## Importación controlada de Carrefour
+
+Para habilitar la vista previa y la importación manual de Carrefour:
+
+1. Aplicar primero `20260826_external_catalog.sql` si aún no se aplicó.
+2. Aplicar `20261023_carrefour_price_history.sql` en Supabase.
+3. Desplegar en el backend las rutas `/admin/import/carrefour/preview` y
+   `/admin/import/carrefour/execute`.
+
+La vista previa solo consulta el catálogo local y la oferta regional de
+Carrefour; no modifica productos, ofertas ni historial. La importación exige
+selección explícita, revalida los datos de Carrefour antes de escribir y limita
+cada lote a cinco productos.
+
+La consulta depende de resolver el código postal a una región de entrega.
+Si Carrefour bloquea esa resolución o no devuelve región, la operación se
+detiene sin usar precios no regionalizados. No importar en producción hasta
+validar primero el flujo en un entorno de staging con base de datos aislada.
 
 ## Estado de precio persistido
 
