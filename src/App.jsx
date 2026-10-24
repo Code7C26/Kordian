@@ -15,7 +15,7 @@ import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
-import { fetchAnalysisProducts } from './services/analysisApi.js';
+import { fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 
@@ -125,7 +125,7 @@ export default function App() {
     () => localStorage.getItem('arprice_selected_category'),
   )
   const catalogReferenceCache = useRef(null)
-  const analysisCache = useRef(null)
+  const analysisCache = useRef(new Map())
   const [productsPage, setProductsPage] = useState(1)
   const productsPageSize = 20
   const initialSearchParams = new URLSearchParams(location.search)
@@ -374,8 +374,6 @@ export default function App() {
         const validProducts = pageData.filter((product) => isValidCatalogProduct(product))
         const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
         const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
-        const analysisByProduct = new Map((analysisCache.current || []).map((item) => [String(item.product?.id), item]))
-
         const enriched = validProducts.map((product) => {
           const offers = (product.offers || [])
             .map((offer) => ({
@@ -392,8 +390,6 @@ export default function App() {
           const avgMarketPrice = offers.length
             ? offers.reduce((sum, offer) => sum + offer.price, 0) / offers.length
             : Number(product.avgMarketPrice || 0)
-          const analysis = analysisByProduct.get(String(product.id))
-
           return {
             ...product,
             brand: product.brand || product.brands?.name || '',
@@ -406,11 +402,9 @@ export default function App() {
             percentageDiff: avgMarketPrice
               ? ((avgMarketPrice - currentPrice) / avgMarketPrice) * 100
               : Number(product.percentageDiff || 0),
-            status: analysis?.classification === 'PRECIO_NORMAL'
-              ? 'EN_PRECIO'
-              : analysis?.classification || product.status || 'EN_PRECIO',
-            analysis: analysis || null,
-            priceHistory: analysis?.priceHistory || product.priceHistory || [],
+            status: product.status || 'EN_PRECIO',
+            analysis: product.analysis || null,
+            priceHistory: product.priceHistory || [],
             otherStores: offers.filter((offer) => offer !== primary),
             unit: product.unit || '',
           }
@@ -432,34 +426,6 @@ export default function App() {
         }))
         setStoresList([...stores.values()])
 
-        if (!analysisCache.current && !filters.searchQuery.trim() && !favoritesOnlyView) {
-          setAnalysisLoadState('loading')
-          fetchAnalysisProducts(apiUrl('/analysis/products'), { signal: controller.signal })
-            .then((analysisResults) => {
-              if (!mounted) return
-              analysisCache.current = analysisResults
-              setAnalysisLoadState('loaded')
-              const resultsByProduct = new Map(analysisResults.map((item) => [String(item.product?.id), item]))
-              setProducts((current) => current.map((product) => {
-                const analysis = resultsByProduct.get(String(product.id))
-                if (!analysis) return product
-                return {
-                  ...product,
-                  analysis,
-                  status: analysis.classification === 'PRECIO_NORMAL'
-                    ? 'EN_PRECIO'
-                    : analysis.classification || product.status,
-                  priceHistory: analysis.priceHistory || product.priceHistory,
-                }
-              }))
-            })
-            .catch((error) => {
-              if (error.name !== 'AbortError') {
-                console.error('Error loading price analysis', error)
-                if (mounted) setAnalysisLoadState('error')
-              }
-            })
-        }
       } catch (error) {
         if (!mounted || error.name === 'AbortError') return
         console.error('Error loading data', error)
@@ -480,6 +446,71 @@ export default function App() {
       clearTimeout(searchTimer)
     }
   }, [filters, productsPage, productsPageSize, selectedCity, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView])
+
+  useEffect(() => {
+    analysisCache.current.clear()
+  }, [catalogRefreshKey])
+
+  const activeAnalysisProductId = selectedProductForExplanation?.id ?? selectedProductForComparison?.id
+  const isExplanationAnalysisActive = Boolean(selectedProductForExplanation)
+
+  useEffect(() => {
+    if (activeAnalysisProductId === undefined || activeAnalysisProductId === null) {
+      setAnalysisLoadState('idle')
+      return
+    }
+
+    const productId = String(activeAnalysisProductId)
+    if (analysisCache.current.has(productId)) {
+      if (isExplanationAnalysisActive) setAnalysisLoadState('loaded')
+      return
+    }
+
+    const controller = new AbortController()
+    let active = true
+    if (isExplanationAnalysisActive) setAnalysisLoadState('loading')
+
+    fetchProductAnalysis(
+      apiUrl(`/analysis/products/${encodeURIComponent(productId)}`),
+      { signal: controller.signal },
+    )
+      .then((analysis) => {
+        if (!active) return
+        analysisCache.current.set(productId, analysis)
+        if (analysis) {
+          const hydrateProduct = (product) => ({
+            ...product,
+            analysis,
+            status: analysis.classification === 'PRECIO_NORMAL'
+              ? 'EN_PRECIO'
+              : analysis.classification || product.status,
+            priceHistory: analysis.priceHistory || product.priceHistory,
+          })
+          setProducts((current) => current.map((product) => (
+            String(product.id) !== productId
+              ? product
+              : hydrateProduct(product)
+          )))
+          setSelectedProductForExplanation((current) => (
+            String(current?.id) === productId ? hydrateProduct(current) : current
+          ))
+          setSelectedProductForComparison((current) => (
+            String(current?.id) === productId ? hydrateProduct(current) : current
+          ))
+        }
+        if (isExplanationAnalysisActive) setAnalysisLoadState('loaded')
+      })
+      .catch((error) => {
+        if (!active || error.name === 'AbortError') return
+        console.error('Error loading product price analysis', error)
+        if (isExplanationAnalysisActive) setAnalysisLoadState('error')
+      })
+
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [activeAnalysisProductId, isExplanationAnalysisActive, catalogRefreshKey])
 
   const toggleFavorite = (product) => {
     setFavorites((prev) =>
@@ -574,6 +605,10 @@ export default function App() {
     );
   const explanationProduct = resolveSelectedAnalysisProduct(
     selectedProductForExplanation,
+    products,
+  );
+  const comparisonProduct = resolveSelectedAnalysisProduct(
+    selectedProductForComparison,
     products,
   );
 
@@ -1052,12 +1087,12 @@ export default function App() {
         </div>
       </footer>
 
-      {selectedProductForComparison && (
+      {comparisonProduct && (
         <ComparisonModal
-          product={selectedProductForComparison}
+          product={comparisonProduct}
           onClose={() => setSelectedProductForComparison(null)}
           onAddToBasket={addToBasket}
-          isInBasket={basket.some((i) => i.product.id === selectedProductForComparison.id)}
+          isInBasket={basket.some((i) => i.product.id === comparisonProduct.id)}
           onExplain={(p) => setSelectedProductForExplanation(p)}
         />
       )}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
 import { MOCK_PRODUCTS } from '../data/mockProducts.js'
 import { apiUrl } from '../config/api.js'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import { fetchProductAnalysis } from '../services/analysisApi.js'
 
 const periods = [
   { label: '1 mes', months: 1 },
@@ -54,8 +55,7 @@ function formatHistoryDate(date, language) {
     : date
 }
 
-function normalizeProducts(products, analyses = []) {
-  const analysisById = new Map(analyses.map((item) => [String(item.product?.id), item]))
+function normalizeProducts(products) {
   return products
     .map((product) => {
       const offers = Array.isArray(product.offers) ? product.offers : []
@@ -63,7 +63,6 @@ function normalizeProducts(products, analyses = []) {
         .map((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price))
         .filter((price) => Number.isFinite(price) && price > 0)
       const currentPrice = Number(product.currentPrice || product.price || Math.min(...offerPrices))
-      const analysis = analysisById.get(String(product.id))
       return {
         ...product,
         currentPrice,
@@ -71,7 +70,7 @@ function normalizeProducts(products, analyses = []) {
         primaryStore: product.primaryStore || {
           name: offers.find((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price) === currentPrice)?.supermarket || '',
         },
-        priceHistory: analysis?.priceHistory || product.priceHistory || [],
+        priceHistory: product.priceHistory || [],
       }
     })
     .filter((product) => product.name && Number.isFinite(product.currentPrice) && product.currentPrice > 0)
@@ -145,6 +144,8 @@ export default function PriceInflationPage() {
   const [usingDemoProducts, setUsingDemoProducts] = useState(true)
   const [catalogError, setCatalogError] = useState('')
   const [historyError, setHistoryError] = useState('')
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const analysisCache = useRef(new Map())
 
   useEffect(() => {
     const controller = new AbortController()
@@ -157,17 +158,7 @@ export default function PriceInflationPage() {
         if (!response.ok) throw new Error('No se pudo cargar el catálogo actual.')
         const payload = await response.json()
         const catalogProducts = Array.isArray(payload) ? payload : payload?.data || []
-        let analyses = []
-        try {
-          const analysisResponse = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
-          if (!analysisResponse.ok) throw new Error('No se pudo cargar el historial de precios.')
-          analyses = await analysisResponse.json()
-        } catch (error) {
-          if (error.name === 'AbortError') throw error
-          console.error('Error loading price history for inflation calculator', error)
-          setHistoryError('No se pudo cargar el historial de precios.')
-        }
-        const loadedProducts = normalizeProducts(catalogProducts, analyses)
+        const loadedProducts = normalizeProducts(catalogProducts)
         if (!loadedProducts.length) throw new Error('El catálogo no tiene productos disponibles para consultar.')
         setProducts(loadedProducts)
         setSelectedProductId(String(loadedProducts[0].id))
@@ -196,8 +187,64 @@ export default function PriceInflationPage() {
   }, [])
 
   const selectedProduct = products.find((product) => String(product.id) === selectedProductId) || products[0]
+  const activeProductId = selectedProduct?.id
+
+  useEffect(() => {
+    if (usingDemoProducts || activeProductId === undefined || activeProductId === null) return
+
+    const productId = String(activeProductId)
+    if (analysisCache.current.has(productId)) {
+      setHistoryLoading(false)
+      setHistoryError('')
+      return
+    }
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      controller.abort(new DOMException('La consulta del historial excedió el tiempo de espera.', 'TimeoutError'))
+    }, 12000)
+    let active = true
+    setHistoryLoading(true)
+    setHistoryError('')
+
+    fetchProductAnalysis(
+      apiUrl(`/analysis/products/${encodeURIComponent(productId)}`),
+      { signal: controller.signal },
+    )
+      .then((analysis) => {
+        if (!active) return
+        analysisCache.current.set(productId, analysis)
+        if (analysis) {
+          setProducts((current) => current.map((product) => (
+            String(product.id) === productId
+              ? { ...product, analysis, priceHistory: analysis.priceHistory || product.priceHistory }
+              : product
+          )))
+        }
+      })
+      .catch((error) => {
+        if (!active || error.name === 'AbortError') return
+        console.error('Error loading product price history for inflation calculator', error)
+        setHistoryError('No se pudo cargar el historial de precios.')
+      })
+      .finally(() => {
+        clearTimeout(timeoutId)
+        if (active) setHistoryLoading(false)
+      })
+
+    return () => {
+      active = false
+      clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [activeProductId, usingDemoProducts])
+
   const history = useMemo(() => getPriceHistory(selectedProduct), [selectedProduct])
   const visibleHistory = useMemo(() => getHistoryForPeriod(history, period), [history, period])
+  useEffect(() => {
+    const rate = getVariation(visibleHistory)
+    if (rate !== null) setVariation(rate.toFixed(1))
+  }, [visibleHistory])
   const observedVariation = visibleHistory.length > 1
     ? getVariation(visibleHistory)
     : null
@@ -305,6 +352,11 @@ export default function PriceInflationPage() {
           {isLoading && (
             <p className="mt-2 text-xs text-stone-500 dark:text-stone-400" role="status">
               {t('Conectando con el catálogo para actualizar los datos...')}
+            </p>
+          )}
+          {historyLoading && (
+            <p className="mt-2 text-xs text-stone-500 dark:text-stone-400" role="status">
+              {t('Cargando el historial de precios del producto...')}
             </p>
           )}
           {selectedProduct && (
