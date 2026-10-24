@@ -1,0 +1,28 @@
+[35mkordian-app movil/Kordian-main/server/migrations/20260822_price_analysis.sql[m[36m:[m[32m6[m[36m:[m[1;31mcreate table[m if not exists supermarkets (
+[35mkordian-app movil/Kordian-main/server/migrations/20260822_price_analysis.sql[m[36m:[m[32m32[m[36m:[m[1;31mcreate table[m if not exists subcategories (
+[35mkordian-app movil/Kordian-main/server/migrations/20260822_price_analysis.sql[m[36m:[m[32m39[m[36m:[m[1;31mcreate table[m if not exists comparable_groups (
+[35mkordian-app movil/Kordian-main/server/migrations/20260822_price_analysis.sql[m[36m:[m[32m52[m[36m:[m[1;31mcreate table[m if not exists price_history (
+[35mkordian-app movil/Kordian-main/server/migrations/20260822_price_analysis.sql[m[36m:[m[32m63[m[36m:[m[1;31mcreate table[m if not exists price_update_log (
+[35mkordian-app movil/Kordian-main/server/migrations/20260822_price_analysis.sql[m[36m:[m[32m89[m[36m:[m[1;31mcreate table[m if not exists [1;31mprice_analysis[m (
+[35mkordian-app movil/Kordian-main/server/migrations/20260822_price_analysis.sql[m[36m:[m[32m101[m[36m:[mcreate index if not exists [1;31mprice_analysis[m_product_date_idx on [1;31mprice_analysis[m(product_id, analyzed_at desc);
+[35mkordian-app movil/Kordian-main/server/migrations/20260824_remove_comparable_groups.sql[m[36m:[m[32m5[m[36m:[m[1;31mdrop table[m if exists comparable_groups;
+[35mserver/migrations/20260822_price_analysis.sql[m[36m:[m[32m6[m[36m:[m[1;31mcreate table[m if not exists supermarkets (
+[35mserver/migrations/20260822_price_analysis.sql[m[36m:[m[32m32[m[36m:[m[1;31mcreate table[m if not exists subcategories (
+[35mserver/migrations/20260822_price_analysis.sql[m[36m:[m[32m39[m[36m:[m[1;31mcreate table[m if not exists comparable_groups (
+[35mserver/migrations/20260822_price_analysis.sql[m[36m:[m[32m52[m[36m:[m[1;31mcreate table[m if not exists price_history (
+[35mserver/migrations/20260822_price_analysis.sql[m[36m:[m[32m63[m[36m:[m[1;31mcreate table[m if not exists price_update_log (
+[35mserver/migrations/20260822_price_analysis.sql[m[36m:[m[32m89[m[36m:[m[1;31mcreate table[m if not exists [1;31mprice_analysis[m (
+[35mserver/migrations/20260822_price_analysis.sql[m[36m:[m[32m101[m[36m:[mcreate index if not exists [1;31mprice_analysis[m_product_date_idx on [1;31mprice_analysis[m(product_id, analyzed_at desc);
+[35mserver/migrations/20260824_remove_comparable_groups.sql[m[36m:[m[32m5[m[36m:[m[1;31mdrop table[m if exists comparable_groups;
+[35mserver/migrations/20260920_enable_catalog_rls.sql[m[36m:[m[32m13[m[36m:[mALTER TABLE [1;31mprice_analysis[m ENABLE ROW LEVEL SECURITY;
+[35mserver/migrations/20260920_enable_catalog_rls.sql[m[36m:[m[32m45[m[36m:[mDROP POLICY IF EXISTS [1;31mprice_analysis[m_public_read ON [1;31mprice_analysis[m;
+[35mserver/migrations/20260920_enable_catalog_rls.sql[m[36m:[m[32m46[m[36m:[mCREATE POLICY [1;31mprice_analysis[m_public_read ON [1;31mprice_analysis[m
+[35mserver/migrations/20261005_cross_source_review_decisions.sql[m[36m:[m[32m3[m[36m:[m[1;31mCREATE TABLE[m IF NOT EXISTS cross_source_review_decisions (
+[35mserver/migrations/20261006_customer_auth.sql[m[36m:[m[32m1[m[36m:[m[1;31mcreate table[m if not exists public.customer_profiles (
+[35mserver/migrations/20261008_product_price_status.sql[m[36m:[m[32m1[m[36m:[m[1;31mcreate table[m if not exists product_price_status (
+[35mserver/migrations/20261012_catalog_pagination.sql[m[36m:[m[32m5[m[36m:[m[1;31mCREATE TABLE[m IF NOT EXISTS catalog_offer_price_summary (
+[35mserver/migrations/20261018_shared_shopping_lists.sql[m[36m:[m[32m3[m[36m:[m[1;31mCREATE TABLE[m IF NOT EXISTS public.shared_shopping_lists (
+[35mserver/migrations/20261018_shared_shopping_lists.sql[m[36m:[m[32m12[m[36m:[m[1;31mCREATE TABLE[m IF NOT EXISTS public.shared_shopping_list_members (
+[35mserver/migrations/20261018_shared_shopping_lists.sql[m[36m:[m[32m20[m[36m:[m[1;31mCREATE TABLE[m IF NOT EXISTS public.shared_shopping_list_items (
+[35mserver/migrations/20261021_customer_favorites.sql[m[36m:[m[32m3[m[36m:[m[1;31mCREATE TABLE[m IF NOT EXISTS public.customer_favorites (
+[35mserver/migrations/20261022_price_reports.sql[m[36m:[m[32m3[m[36m:[m[1;31mCREATE TABLE[m IF NOT EXISTS public.price_reports (
