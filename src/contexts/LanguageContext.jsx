@@ -1,4 +1,24 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { apiUrl } from '../config/api.js';
+import { translateProductName } from '../utils/translateProductName.js';
+
+const PRODUCT_TRANSLATIONS_STORAGE_KEY = 'arprice_product_translations_en';
+const MAX_STORED_PRODUCT_TRANSLATIONS = 2000;
+const PRODUCT_TRANSLATION_BATCH_SIZE = 50;
+
+function readStoredProductTranslations() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PRODUCT_TRANSLATIONS_STORAGE_KEY) || '{}');
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+    return Object.fromEntries(
+      Object.entries(stored)
+        .filter(([original, translated]) => typeof original === 'string' && typeof translated === 'string')
+        .slice(-MAX_STORED_PRODUCT_TRANSLATIONS),
+    );
+  } catch {
+    return {};
+  }
+}
 
 const translations = {
   'Ahorrar no es suerte, es información': 'Saving is no luck; it is information',
@@ -106,6 +126,12 @@ const translations = {
   'No se pudo cargar el historial de precios': 'Could not load price history',
   'El catálogo no tiene productos disponibles para consultar.': 'There are no catalog products available to browse.',
   'No se pudo cargar el historial de precios.': 'Could not load price history.',
+  'Cargando información del producto…': 'Loading product information…',
+  'No se encontró el producto solicitado.': 'The requested product was not found.',
+  'No se pudo cargar la información del producto.': 'Could not load product information.',
+  'No se pudo cargar el historial de precios del producto.': 'Could not load the product price history.',
+  'No se pudieron cargar los comercios del producto.': 'Could not load the product stores.',
+  'Volver a favoritos': 'Back to favorites',
   'Bienvenido a AR-PRICE': 'Welcome to AR-PRICE',
   'Elige un rubro para comparar': 'Choose a category to compare',
   'Primero selecciona la categoría de negocios que quieres explorar. Después podrás consultar precios, ofertas y productos en esa categoría.': 'First, choose the type of business you want to explore. Then browse prices, deals, and products in that category.',
@@ -122,7 +148,6 @@ const translations = {
   ' para cada compra': ' for every purchase',
   'Explorá productos, compará precios y encontrá ofertas en comercios de tu zona.': 'Browse products, compare prices, and find deals at stores near you.',
   'Busca por producto o marca': 'Search by product or brand',
-  'Buscar': 'Search',
   'Búsquedas populares': 'Popular searches',
   'Búsquedas recientes': 'Recent searches',
   'Borrar historial': 'Clear history',
@@ -182,7 +207,6 @@ const translations = {
   'Ordenar Lista Por': 'Sort By',
   'Filtros rápidos:': 'Quick filters:',
   'Todos los comercios': 'All stores',
-  'Favoritos': 'Favorites',
   'Tu selección': 'Your selection',
   'Inicia sesión para ver tus favoritos': 'Sign in to view your favorites',
   'Agrega productos a tu lista de favoritos para verlos aquí.': 'Add products to your favorites to see them here.',
@@ -190,9 +214,6 @@ const translations = {
   'Volver a Categorías': 'Back to Categories',
   'Categoría activa:': 'Active category:',
   'Mis Favoritos': 'My Favorites',
-  'Mostrando ': 'Showing ',
-  ' productos · Página ': ' products · Page ',
-  ' de ': ' of ',
   'Reintentar conexión': 'Retry connection',
   'Estamos actualizando los productos de esta categoría.': 'We are updating products in this category.',
   'Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.': 'Try changing your search terms or resetting the filters to see all products.',
@@ -258,6 +279,7 @@ const translations = {
   'Lista compartida': 'Shared list',
   'Calculadora de precios': 'Price calculator',
   'Cupones y descuentos': 'Coupons and discounts',
+  'Hasta 30%': 'Up to 30%',
   'Configuración': 'Settings',
   'FAQ': 'FAQ',
   'Mis alertas': 'My alerts',
@@ -409,7 +431,6 @@ const translations = {
   'Inicia sesión': 'Sign in',
   'Regístrate': 'Create one',
   'Correo confirmado. Ya puedes iniciar sesión.': 'Email confirmed. You can now sign in.',
-  'Contraseña actualizada. Ya puedes iniciar sesión.': 'Password updated. You can now sign in.',
   'Revisa los campos marcados antes de continuar.': 'Review the highlighted fields before continuing.',
   'Ingresa tu correo o usuario y una contraseña de 4 caracteres como mínimo.': 'Enter your email or username and a password of at least 4 characters.',
   'Completa tus credenciales para ingresar.': 'Enter your sign-in credentials.',
@@ -418,7 +439,6 @@ const translations = {
   'Este usuario ya se encuentra registrado o no es válido.': 'This username is already registered or invalid.',
   'No se pudo crear el perfil. Revisa si el usuario ya está registrado e inténtalo nuevamente.': 'Could not create your profile. Check whether the username is already registered and try again.',
   'Credenciales inválidas.': 'Invalid credentials.',
-  'No se pudo completar la solicitud.': 'Could not complete the request.',
   'Este usuario ya se encuentra registrado.': 'This username is already registered.',
   'Ingresa tu correo o nombre de usuario.': 'Enter your email or username.',
   'No se pudo solicitar la recuperación.': 'Could not request a password reset.',
@@ -426,7 +446,6 @@ const translations = {
   'Ingresa un correo electrónico válido.': 'Enter a valid email address.',
   'La contraseña debe tener al menos 4 caracteres alfanuméricos.': 'Password must contain at least 4 alphanumeric characters.',
   'Las contraseñas no coinciden.': 'Passwords do not match.',
-  'Cargando cuenta…': 'Loading account…',
   'Tus productos favoritos se guardan en tu cuenta y no se comparten con otras cuentas.': 'Your favorite products are saved to your account and are not shared with other accounts.',
   'Cargando favoritos': 'Loading favorites',
   'Recuperando tu lista de productos.': 'Retrieving your product list.',
@@ -463,7 +482,6 @@ const translations = {
   'Guardar ubicación': 'Save location',
   'Ubicación guardada.': 'Location saved.',
   'El catálogo todavía no filtra productos por ubicación.': 'The catalog does not filter products by location yet.',
-  'Mi cuenta': 'My account',
   'Consulta los datos de tu cuenta.': 'View your account details.',
   'Panel de gestión para comercio': 'Business management dashboard',
   'Administra el catálogo de tu comercio.': 'Manage your store catalog.',
@@ -491,23 +509,267 @@ const translations = {
   'La carga del catálogo tomó demasiado tiempo': 'Loading the catalog took too long.',
   'No se pudieron cargar los productos': 'Could not load the products.',
   'No se pudo actualizar el favorito.': 'Could not update the favorite.',
+  'Selección Rápida de Categorías': 'Quick Category Selection',
+  '¿Qué estás buscando comparar hoy?': 'What would you like to compare today?',
+  'Selecciona una categoría para comenzar a comparar precios y descubrir ofertas reales en tu zona.': 'Choose a category to compare prices and find real deals near you.',
+  'Todas las Categorías': 'All Categories',
+  'Explora todos los productos, aplica filtros avanzados y busca directamente.': 'Browse all products, apply advanced filters, and search directly.',
+  'Ar-Price Argentina • Selección rápida de categorías para comparación de precios': 'Ar-Price Argentina • Quick category selection for price comparison',
+  'Selección rápida de categorías para comparación de precios': 'Quick category selection for price comparison',
+  'Mi cuenta': 'My account',
+  'Datos de tu cuenta de Ar-Price.': 'Your Ar-Price account details.',
+  'Aquí se mostrarán las alertas de precios asociadas a tu cuenta.': 'Price alerts associated with your account will appear here.',
+  'Administra el catálogo y revisa la actividad de tu comercio.': 'Manage your catalog and review your store activity.',
+  'Cargando cuenta…': 'Loading account…',
+  'Debes iniciar sesión en tu cuenta para acceder a este menú.': 'You must sign in to your account to access this section.',
+  '¿Todavía no tienes cuenta?': 'Don’t have an account yet?',
+  'Tipo de cuenta': 'Account type',
+  'Administrador': 'Administrator',
+  'Comercio': 'Business',
+  'Actualizando…': 'Updating…',
+  'No tienes alertas guardadas por el momento.': 'You do not have any saved alerts yet.',
+  'Compras colaborativas': 'Collaborative shopping',
+  'Listas compartidas': 'Shared lists',
+  'Crea una lista, invita a otras personas con un enlace privado y editen juntos los artículos y cantidades. Los cambios se sincronizan automáticamente.': 'Create a list, invite others with a private link, and edit items and quantities together. Changes sync automatically.',
+  'Crear una lista': 'Create a list',
+  'Nombre de la lista': 'List name',
+  'Ej.: Compra del fin de semana': 'E.g. Weekend shopping',
+  'Crear lista': 'Create list',
+  'Unirme con invitación': 'Join with an invite',
+  'Código de invitación': 'Invite code',
+  'Pega el enlace o código': 'Paste the link or code',
+  'Unirme': 'Join',
+  'Mis listas': 'My lists',
+  'Cargando listas…': 'Loading lists…',
+  'Propietario': 'Owner',
+  'Compartida': 'Shared',
+  'Eliminar lista': 'Delete list',
+  'Todavía no tienes listas compartidas.': 'You do not have any shared lists yet.',
+  'participante': 'participant',
+  'participantes': 'participants',
+  'Sincroniza automáticamente': 'Syncs automatically',
+  'Participantes de la lista': 'List participants',
+  'Participantes': 'Participants',
+  'Creador': 'Creator',
+  'Artículo': 'Item',
+  'Agregar artículo': 'Add an item',
+  'La lista está vacía. Agrega el primer artículo.': 'This list is empty. Add the first item.',
+  'Invitación privada · Código:': 'Private invite · Code:',
+  'Copiar código': 'Copy code',
+  'Invita a otras personas para que puedan agregar, marcar y actualizar artículos junto a ti.': 'Invite others to add, check off, and update items with you.',
+  'Unirse a mi lista de compras de AR-PRICE': 'Join my AR-PRICE shopping list',
+  'No se pudo completar la operación.': 'Could not complete the operation.',
+  'No se pudo compartir el enlace. Copia el código de invitación manualmente.': 'Could not share the link. Copy the invite code manually.',
+  'Enlace privado copiado o compartido. Solo pueden unirse usuarios con cuenta.': 'Private link copied or shared. Only account holders can join.',
+  'Código copiado.': 'Code copied.',
+  'No se pudo copiar el código. Selecciónalo y cópialo manualmente.': 'Could not copy the code. Select and copy it manually.',
+  'Supermercado asignado': 'Assigned supermarket',
+  'Publicá productos del catálogo general y actualizá su precio o disponibilidad únicamente para este supermercado.': 'Publish products from the general catalog and update their price or availability for this supermarket only.',
+  'Buscar productos del catálogo': 'Search catalog products',
+  'Buscar un producto del catálogo': 'Search the catalog',
+  'Buscar': 'Search',
+  'Cargando catálogo…': 'Loading catalog…',
+  'No encontramos productos con esa búsqueda.': 'No products match that search.',
+  'Todavía no hay productos publicados. Busca un producto para incorporarlo a tu catálogo.': 'No products have been published yet. Search for a product to add it to your catalog.',
+  'Disponible en tu supermercado': 'Available at your supermarket',
+  'No publicado en tu supermercado': 'Not listed at your supermarket',
+  'Precio de ': 'Price for ',
+  'Precio ARS': 'Price in ARS',
+  'Guardar precio': 'Save price',
+  'Quitar': 'Remove',
+  'Publicar': 'Publish',
+  'Ingresa un precio válido mayor que cero para publicar el producto.': 'Enter a valid price greater than zero to publish this product.',
+  'No se pudo guardar la asignación.': 'Could not save the assignment.',
+  'No se pudo actualizar el tipo de cuenta.': 'Could not update the account type.',
+  'Espacio comercial': 'Business workspace',
+  'Gestiona tu comercio': 'Manage your store',
+  'Administra la presencia de tu tienda en AR-PRICE y mantén actualizado el catálogo que consultan tus clientes.': 'Manage your store’s presence on AR-PRICE and keep the catalog your customers browse up to date.',
+  'Panel del comercio': 'Business dashboard',
+  'Estado de cuenta': 'Account status',
+  'Productos publicados': 'Published products',
+  '+8 este mes': '+8 this month',
+  'Precios actualizados': 'Prices updated',
+  'Últimos 30 días': 'Last 30 days',
+  'Ofertas activas': 'Active deals',
+  'En tu catálogo': 'In your catalog',
+  'Accesos rápidos': 'Quick links',
+  'Herramientas del comercio': 'Business tools',
+  'Vista de muestra': 'Sample view',
+  'Catálogo de productos': 'Product catalog',
+  'Publica productos y actualiza su precio.': 'Publish products and update their prices.',
+  'Precios y ofertas': 'Prices and deals',
+  'Revisa la información visible para clientes.': 'Review the information visible to customers.',
+  'Datos del comercio': 'Business details',
+  'Consulta el perfil asignado a tu cuenta.': 'View the business profile assigned to your account.',
+  'Gestión de catálogo': 'Catalog management',
+  'Productos de tu comercio': 'Your store’s products',
+  'Cargando sesión…': 'Loading session…',
+  'Una lista': 'A list',
+  'No se pudo completar la solicitud.': 'Could not complete the request.',
+  'No se pudieron cargar los logos de supermercados.': 'Could not load supermarket logos.',
+  'Error loading supermarket logos for inflation calculator': 'Error loading supermarket logos for inflation calculator',
+  'Error:': 'Error:',
+  'no especificado': 'not specified',
+  'Aplicado:': 'Applied:',
+  ' precios': ' prices',
+  'Elige al menos un filtro': 'Choose at least one filter',
+  'Error de red': 'Network error',
+  'Selecciona el idioma de la aplicación.': 'Choose the application language.',
+  'Accede al panel': 'Access the dashboard',
+  'Inicia sesión para administrar categorías, marcas y precios.': 'Sign in to manage categories, brands, and prices.',
+  'Ingresa el correo asociado a tu cuenta administradora. Te enviaremos un enlace para cambiar la contraseña. Las cuentas antiguas sin correo asociado no pueden recuperarse por este medio.': 'Enter the email address associated with your administrator account. We will send you a link to change your password. Older accounts without an associated email cannot be recovered this way.',
+  'Correo electrónico': 'Email address',
+  'Ingresando…': 'Signing in…',
+  'Ingresar': 'Sign in',
+  'Usuario local por defecto:': 'Default local username:',
+  'Contraseña actualizada. Ya puedes iniciar sesión.': 'Password updated. You can now sign in.',
+  'Usuario o contraseña incorrectos. En producción necesitas una cuenta registrada con rol Administrador; las credenciales de desarrollo local no están habilitadas.': 'Incorrect username or password. In production, you need an account registered with the Administrator role; local development credentials are disabled.',
+  'Error al autenticar': 'Authentication failed',
+  'El servidor no devolvió un token de acceso.': 'The server did not return an access token.',
+  'No se pudo conectar con el servidor de autenticación.': 'Could not connect to the authentication server.',
+  'Ingresa el correo asociado a la cuenta administradora.': 'Enter the email address associated with the administrator account.',
+  'Panel Admin': 'Admin Dashboard',
+  'Aquí puedes administrar productos, categorías, marcas, supermercados y actualizaciones de precios.': 'Manage products, categories, brands, supermarkets, and price updates here.',
+  'Secciones de administración': 'Administration sections',
+  'Árbol': 'Category tree',
+  'Acciones': 'Actions',
+  'Producto': 'Product',
+  'Registro de actualizaciones': 'Update history',
+  'Reportes de precios': 'Price reports',
+  'Vista previa': 'Preview',
+  'Agrupación': 'Grouping',
+  'Comercios': 'Stores',
+  'reportes de precios': 'price reports',
+  'Favoritos': 'Favorites',
+  'Mostrando ': 'Showing ',
+  ' productos · Página ': ' products · Page ',
+  ' de ': ' of ',
+  'Cargando categorías': 'Loading categories',
+  'Página': 'Page',
+  'Cantidad': 'Quantity',
+  'Agregar': 'Add',
+  'Invitar': 'Invite',
+  'Marcar': 'Mark',
+  'como': 'as',
+  'pendiente': 'pending',
+  'comprado': 'purchased',
+  'Cantidad de': 'Quantity of',
+  'Selecciona o crea una lista': 'Select or create a list',
+  'Se creó': 'Created',
+  'Te uniste a': 'You joined',
+  'Se eliminó': 'Deleted',
+  'Lista compartida:': 'Shared list:',
+  'Se creó ': 'Created ',
+  'Disponible en': 'Available at',
+  'está disponible en': 'is available at',
+  'ya no figura disponible.': 'is no longer listed as available.',
 };
 
 const LanguageContext = createContext(null);
 
 export function LanguageProvider({ children }) {
   const [language, setLanguage] = useState(() => localStorage.getItem('arprice_language') === 'en' ? 'en' : 'es');
+  const [remoteProductTranslations, setRemoteProductTranslations] = useState(readStoredProductTranslations);
+  const pendingProductTranslations = useRef(new Set());
+  const failedProductTranslations = useRef(new Set());
+  const translationFlushTimer = useRef(null);
+  const translationServiceUnavailable = useRef(false);
 
   const changeLanguage = (nextLanguage) => {
     localStorage.setItem('arprice_language', nextLanguage);
     setLanguage(nextLanguage);
   };
 
+  const requestProductTranslations = useCallback((names) => {
+    if (language !== 'en' || translationServiceUnavailable.current) return;
+
+    for (const name of names) {
+      if (
+        typeof name === 'string'
+        && name.trim()
+        && !remoteProductTranslations[name]
+        && !pendingProductTranslations.current.has(name)
+        && !failedProductTranslations.current.has(name)
+      ) {
+        pendingProductTranslations.current.add(name);
+      }
+    }
+
+    if (!pendingProductTranslations.current.size || translationFlushTimer.current !== null) return;
+    const flushBatch = async () => {
+      translationFlushTimer.current = null;
+      const batch = [...pendingProductTranslations.current].slice(0, PRODUCT_TRANSLATION_BATCH_SIZE);
+      batch.forEach((name) => pendingProductTranslations.current.delete(name));
+      try {
+        const response = await fetch(apiUrl('/translate/products'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ names: batch }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          if (response.status === 503) translationServiceUnavailable.current = true;
+          throw new Error(payload.error || `Product translation failed (HTTP ${response.status}).`);
+        }
+
+        const payload = await response.json();
+        const receivedTranslations = Array.isArray(payload.translations) ? payload.translations : [];
+        const translationsToStore = Object.fromEntries(
+          receivedTranslations
+            .filter(({ original, translated }) => (
+              typeof original === 'string'
+              && typeof translated === 'string'
+              && batch.includes(original)
+              && translated.trim()
+            ))
+            .map(({ original, translated }) => [original, translated.trim()]),
+        );
+        for (const name of batch) {
+          if (!translationsToStore[name]) failedProductTranslations.current.add(name);
+        }
+        if (Object.keys(translationsToStore).length) {
+          setRemoteProductTranslations((current) => ({
+            ...current,
+            ...translationsToStore,
+          }));
+        }
+      } catch (error) {
+        batch.forEach((name) => failedProductTranslations.current.add(name));
+        console.error('Product names could not be translated by the configured service:', error.message);
+      }
+
+      if (pendingProductTranslations.current.size && !translationServiceUnavailable.current) {
+        translationFlushTimer.current = window.setTimeout(flushBatch, 80);
+      }
+    };
+    translationFlushTimer.current = window.setTimeout(flushBatch, 80);
+  }, [language, remoteProductTranslations]);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
+  useEffect(() => {
+    try {
+      const entries = Object.entries(remoteProductTranslations).slice(-MAX_STORED_PRODUCT_TRANSLATIONS);
+      localStorage.setItem(PRODUCT_TRANSLATIONS_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch (error) {
+      console.warn('Product translation cache could not be saved in this browser:', error.message);
+    }
+  }, [remoteProductTranslations]);
+
+  useEffect(() => () => {
+    if (translationFlushTimer.current !== null) window.clearTimeout(translationFlushTimer.current);
+  }, []);
+
   const value = useMemo(() => ({
     language,
     setLanguage: changeLanguage,
     t: (text) => language === 'en' ? translations[text] || text : text,
-  }), [language]);
+    translateProductName: (name) => translateProductName(name, language),
+    remoteProductTranslations,
+    requestProductTranslations,
+  }), [language, remoteProductTranslations, requestProductTranslations]);
 
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }
@@ -516,4 +778,24 @@ export function useLanguage() {
   const context = useContext(LanguageContext);
   if (!context) throw new Error('useLanguage must be used within LanguageProvider');
   return context;
+}
+
+export function useProductNameTranslator(names) {
+  const {
+    language,
+    remoteProductTranslations,
+    requestProductTranslations,
+    translateProductName,
+  } = useLanguage();
+  const namesKey = JSON.stringify(Array.isArray(names) ? names : [names]);
+
+  useEffect(() => {
+    requestProductTranslations(JSON.parse(namesKey));
+  }, [language, namesKey, requestProductTranslations]);
+
+  return useCallback((name) => (
+    language === 'en'
+      ? remoteProductTranslations[name] || translateProductName(name)
+      : name
+  ), [language, remoteProductTranslations, translateProductName]);
 }

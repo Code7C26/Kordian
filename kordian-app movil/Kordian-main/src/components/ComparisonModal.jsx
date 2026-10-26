@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, TrendingDown, Store, Calendar, Info } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { ProductImage } from './ProductImage';
+import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, onExplain }) {
   const [added, setAdded] = useState(false);
@@ -115,7 +116,14 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
               </div>
               <div>
                 <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Brecha Máxima de Ahorro</p>
-                <p className="text-lg font-black text-stone-900 dark:text-white">Ahorra {formatCurrency(maxSavings)} ({savingsPercentage}%) comprando en {cheapestStore.supermarket || cheapestStore.storeName || '—'}</p>
+                <div className="flex items-center gap-3">
+                  <p className="text-lg font-black text-stone-900 dark:text-white">Ahorra {formatCurrency(maxSavings)} ({savingsPercentage}%) comprando en</p>
+                  <SupermarketLogo
+                    name={cheapestStore.supermarket || cheapestStore.storeName}
+                    image={cheapestStore.image}
+                    className="h-8 max-w-20"
+                  />
+                </div>
               </div>
             </div>
 
@@ -161,14 +169,13 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      {store.image ? (
-                        <img src={store.image} alt="" className="w-10 h-10 rounded-xl object-contain shrink-0 bg-white" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl font-black text-xs flex items-center justify-center shrink-0 bg-stone-200 dark:bg-stone-700">{(store.supermarket || '').slice(0, 1).toUpperCase()}</div>
-                      )}
+                      <SupermarketLogo
+                        name={store.supermarket || store.storeName || 'Sin nombre'}
+                        image={store.image}
+                        className="h-10 w-16"
+                      />
                       <div className="flex-1 text-center">
                         <div className="flex items-center justify-center gap-2 flex-wrap">
-                          <span className="font-bold text-stone-900 dark:text-white text-sm">{store.supermarket || store.storeName || 'Sin nombre'}</span>
                           {isCheapest && <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-extrabold text-[10px]">MÁS BARATO</span>}
                           {isMostExpensive && <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-extrabold text-[10px]">MÁS CARO</span>}
                         </div>

@@ -3,10 +3,10 @@ import {
   BarChart3, 
   Heart, 
   ShoppingBag, 
-  Store,
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { ProductImage } from './ProductImage';
+import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 export function ProductCard({
   product,
@@ -41,7 +41,14 @@ export function ProductCard({
   const handleAddToBasket = () => {
     // Always add the best (cheapest) available offer when clicking +Canasta
     const best = sortedStores.length ? sortedStores[0] : null;
-    const offerToAdd = best ? { id: best.id, price: best.price, supermarket: best.supermarket || best.storeName } : selectedOffer || undefined;
+    const offerToAdd = best
+      ? {
+          id: best.id,
+          price: best.price,
+          supermarket: best.supermarket || best.storeName,
+          image: best.image || '',
+        }
+      : selectedOffer || undefined;
     onAddToBasket(product, offerToAdd);
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 250);
@@ -85,10 +92,6 @@ export function ProductCard({
           <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
         </button>
 
-        <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900/80 text-white backdrop-blur-sm text-[10px] font-medium">
-          <Store className="w-3 h-3 text-sky-400" />
-          <span>{product.primaryStore.name}</span>
-        </div>
       </div>
 
       <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
@@ -113,9 +116,11 @@ export function ProductCard({
             <span className="text-2xl font-black text-stone-900 dark:text-white tracking-tight">
               {formatCurrency(product.currentPrice)}
             </span>
-            <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-700 shadow-xs max-w-[52%] truncate">
-              {product.primaryStore?.name || 'Sin supermercado'}
-            </span>
+            <SupermarketLogo
+              name={product.primaryStore?.name || 'Sin supermercado'}
+              image={product.primaryStore?.image}
+              className="h-8 max-w-[38%]"
+            />
           </div>
         </div>
 

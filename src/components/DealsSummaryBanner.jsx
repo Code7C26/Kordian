@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Percent, TrendingUp } from 'lucide-react';
-import { formatCurrency, formatPercentage } from '../utils/formatters';
+import { formatCurrency } from '../utils/formatters';
 import { ProductImage } from './ProductImage';
-import { useLanguage } from '../contexts/LanguageContext.jsx';
+import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
+import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 const cleanProductName = (name) => (name || 'Producto')
   .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
@@ -23,6 +24,7 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
     .slice(0, 4);
 
   const displayedList = activeTab === 'ofertas' ? topDeals : topInflated;
+  const translateProductName = useProductNameTranslator(displayedList.map((product) => product.name));
 
   return (
     <div className="bg-white dark:bg-stone-800 rounded-3xl border border-stone-200/80 dark:border-stone-700/80 p-5 shadow-sm space-y-4">
@@ -60,6 +62,7 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {displayedList.map((product) => {
+          const displayName = translateProductName(product.name);
           return (
           <button
             key={product.id}
@@ -69,32 +72,25 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
           >
             <ProductImage
               src={product.image}
-              alt={product.name}
-              productName={cleanProductName(product.name)}
+              alt={displayName}
+              productName={cleanProductName(displayName)}
               productCategory={product.categories?.name || product.category?.name || product.category || product.subcategory}
               iconSize="medium"
               className="w-14 h-14 rounded-xl border border-stone-200 dark:border-stone-700 shrink-0 group-hover:scale-105 transition-transform"
             />
             <div className="flex-1 min-w-0">
-              <span
-                className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase mb-1 ${
-                  activeTab === 'ofertas'
-                    ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
-                }`}
-              >
-                {formatPercentage(product.percentageDiff)}
-              </span>
               <h4 className="text-xs font-bold text-stone-900 dark:text-white truncate">
-                {product.name}
+                {displayName}
               </h4>
               <div className="flex items-center justify-between text-[11px] mt-1">
                 <span className="font-extrabold text-stone-900 dark:text-white">
                   {formatCurrency(product.currentPrice)}
                 </span>
-                <span className="text-stone-400 truncate max-w-[80px]">
-                  {product.primaryStore.name}
-                </span>
+                <SupermarketLogo
+                  name={product.primaryStore?.name || t('Supermercado')}
+                  image={product.primaryStore?.image}
+                  className="h-6 max-w-[80px]"
+                />
               </div>
             </div>
           </button>

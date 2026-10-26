@@ -70,13 +70,16 @@ contraseña de AR-PRICE.
 ## Recuperación de contraseña
 
 Configurar `FRONTEND_URL` en el backend con la URL pública del sitio
-(localmente, `http://localhost:5173`). Agregar
+(`https://ar-price.netlify.app` en producción). Si se prueba localmente, se
+puede configurar explícitamente `http://localhost:5173`. Agregar
 `<FRONTEND_URL>/restablecer-contrasena*` a las URL de redirección permitidas
 en Supabase Auth. La recuperación se envía al correo asociado al perfil; para
 administradores, el perfil debe tener el rol `administrator`. Las cuentas
 administradoras antiguas guardadas solo en `public.admins` no tienen un correo
 asociado y no pueden recuperar la clave por email hasta migrarse a un perfil
-con correo.
+con correo. Netlify debe servir `index.html` para rutas de la aplicación para
+que el enlace directo a `/restablecer-contrasena` cargue la pantalla de cambio
+de contraseña.
 ## Importación controlada de Carrefour
 
 Para habilitar la vista previa y la importación manual de Carrefour:

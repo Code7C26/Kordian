@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, BadgePercent, Check, Clock3, Tag, TicketPercent } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import BrandHeader from '../components/BrandHeader.jsx'
 
 const promotions = [
   { store: 'Carrefour', type: 'Descuento en seleccionados', value: 'Hasta 30%', color: 'from-sky-600 to-blue-700', initials: 'C', tag: 'Destacado' },
@@ -14,12 +15,11 @@ export default function CouponsPage() {
   return (
     <main className="min-h-screen bg-stone-50 px-4 py-6 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
       <div className="mx-auto max-w-6xl">
-        <header className="flex items-center justify-between border-b border-stone-200 pb-4 dark:border-stone-800">
-          <Link to="/" className="font-black tracking-tight text-sky-700 dark:text-sky-300">AR-PRICE</Link>
+        <BrandHeader>
           <Link to="/buscar" className="inline-flex items-center gap-2 text-sm font-semibold text-stone-600 hover:text-sky-700 dark:text-stone-300 dark:hover:text-sky-300">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('Volver a productos')}
           </Link>
-        </header>
+        </BrandHeader>
 
         <section className="relative mt-7 overflow-hidden rounded-3xl bg-gradient-to-r from-sky-700 via-blue-700 to-indigo-800 p-6 text-white shadow-lg sm:p-9">
           <div className="relative z-10 max-w-2xl">
@@ -65,7 +65,7 @@ export default function CouponsPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t(promotion.type)}</p>
-                      <p className="mt-1 text-2xl font-black text-sky-700 dark:text-sky-300">{promotion.value}</p>
+                      <p className="mt-1 text-2xl font-black text-sky-700 dark:text-sky-300">{t(promotion.value)}</p>
                     </div>
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                       <Check className="h-3.5 w-3.5" aria-hidden="true" /> {t('Beneficio disponible')}

@@ -4,9 +4,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config/api.js';
 import { buildProductsQuery } from '../utils/catalogQuery.js';
 import { Header } from '../components/Header.jsx';
+import { SupermarketLogo } from '../components/SupermarketLogo.jsx';
+import { fetchCachedCatalogResponse, readCachedCatalogResponse } from '../services/catalogResponseCache.js';
 import { useSelectedCity } from '../contexts/SelectedCityContext.jsx';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
-import { useLanguage } from '../contexts/LanguageContext.jsx';
+import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
 
@@ -18,23 +20,29 @@ export default function FavoritesPage() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('arprice_theme') === 'dark');
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [supermarkets, setSupermarkets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const favoriteIdsKey = favorites.join(',');
+  const translateProductName = useProductNameTranslator(products.map((product) => product.name));
 
   useEffect(() => {
     let cancelled = false;
 
-    fetch(apiUrl('/categories'))
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
+    fetchCachedCatalogResponse(apiUrl('/categories'), { ttlMs: 300_000 })
       .then((result) => {
         if (!cancelled) setCategories(Array.isArray(result) ? result : []);
       })
       .catch((categoryError) => {
         console.error('Categories could not be loaded on the favorites page', categoryError);
+      });
+
+    fetchCachedCatalogResponse(apiUrl('/supermarkets'), { ttlMs: 300_000 })
+      .then((result) => {
+        if (!cancelled) setSupermarkets(Array.isArray(result) ? result : []);
+      })
+      .catch((supermarketError) => {
+        console.error('Supermarkets could not be loaded on the favorites page', supermarketError);
       });
 
     return () => {
@@ -58,7 +66,16 @@ export default function FavoritesPage() {
       };
     }
 
-    setIsLoading(true);
+    const query = buildProductsQuery({ limit: 100, favoritesOnly: true, favoriteIds: favoriteIdsKey.split(',') });
+    const productsUrl = apiUrl(`/products?${query.toString()}`);
+    const cachedPayload = readCachedCatalogResponse(productsUrl);
+    const cachedProducts = Array.isArray(cachedPayload) ? cachedPayload : cachedPayload?.data || [];
+    if (cachedPayload !== null) {
+      setProducts(cachedProducts);
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
     setError('');
     const timeoutId = window.setTimeout(() => {
       if (!cancelled) {
@@ -69,10 +86,7 @@ export default function FavoritesPage() {
 
     async function loadProducts() {
       try {
-        const query = buildProductsQuery({ limit: 2000, favoritesOnly: true, favoriteIds: favoriteIdsKey.split(',') });
-        const response = await fetch(apiUrl(`/products?${query.toString()}`));
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
+        const payload = await fetchCachedCatalogResponse(productsUrl);
         const catalog = Array.isArray(payload) ? payload : payload?.data || [];
         if (!cancelled) setProducts(catalog);
       } catch (loadError) {
@@ -178,29 +192,52 @@ export default function FavoritesPage() {
           </section>
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {favoriteProducts.map((product) => (
-              <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-stone-700 dark:bg-stone-800">
-                <div className="aspect-square bg-stone-100 p-4 dark:bg-stone-900">
-                  <img src={product.image || product.image_url || ''} alt={product.name || 'Producto'} className="h-full w-full object-contain" />
-                </div>
-                <div className="space-y-4 p-4">
-                  <div>
-                    <p className="text-xs font-bold text-sky-600 dark:text-sky-400">{product.brand || t('Marca no disponible')}</p>
-                    <h3 className="mt-1 line-clamp-2 text-sm font-bold">{product.name}</h3>
+            {favoriteProducts.map((product) => {
+              const displayName = translateProductName(product.name);
+              const cheapestOffer = (product.offers || [])
+                .map((offer) => ({
+                  ...offer,
+                  price: Number(offer.cash_price ?? offer.cashPrice ?? offer.price ?? 0),
+                  supermarket: offer.supermarket || offer.supermarket_name || offer.storeName || '',
+                }))
+                .filter((offer) => Number.isFinite(offer.price) && offer.price > 0 && offer.supermarket)
+                .sort((first, second) => first.price - second.price)[0];
+              const supermarket = supermarkets.find((store) => store.name === cheapestOffer?.supermarket);
+              return (
+                <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-stone-700 dark:bg-stone-800">
+                  <div className="aspect-square bg-stone-100 p-4 dark:bg-stone-900">
+                    <img src={product.image || product.image_url || ''} alt={displayName || t('Producto')} className="h-full w-full object-contain" />
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => removeFavorite(product.id)}
-                      className="ml-auto rounded-full bg-rose-50 p-2 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300"
-                      aria-label={t('Eliminar de favoritos')}
-                    >
-                      <Heart className="h-4 w-4 fill-current" />
-                    </button>
+                  <div className="space-y-4 p-4">
+                    <div>
+                      <p className="text-xs font-bold text-sky-600 dark:text-sky-400">{product.brand || product.brands?.name || t('Marca no disponible')}</p>
+                      <h3 className="mt-1 line-clamp-2 text-sm font-bold">{displayName}</h3>
+                    </div>
+                    {cheapestOffer && (
+                      <div className="flex items-center gap-2 border-t border-stone-100 pt-3 dark:border-stone-700">
+                        <SupermarketLogo
+                          name={cheapestOffer.supermarket}
+                          image={supermarket?.image || cheapestOffer.image}
+                          className="h-8 w-12"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-stone-600 dark:text-stone-300">{cheapestOffer.supermarket}</span>
+                        <span className="text-sm font-black text-stone-900 dark:text-stone-100">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(cheapestOffer.price)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => removeFavorite(product.id)}
+                        className="ml-auto rounded-full bg-rose-50 p-2 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300"
+                        aria-label={t('Eliminar de favoritos')}
+                      >
+                        <Heart className="h-4 w-4 fill-current" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </section>
         )}
         </div>
@@ -233,6 +270,7 @@ export default function FavoritesPage() {
           </div>
         </div>
       </footer>
+
     </div>
   );
 }

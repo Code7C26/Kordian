@@ -12,6 +12,9 @@ import {
 } from 'lucide-react'
 import { MOCK_PRODUCTS } from '../data/mockProducts.js'
 import { apiUrl } from '../config/api.js'
+import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
+import { SupermarketLogo } from '../components/SupermarketLogo.jsx'
+import BrandHeader from '../components/BrandHeader.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import { fetchProductAnalysis } from '../services/analysisApi.js'
 
@@ -55,6 +58,8 @@ function formatHistoryDate(date, language) {
     : date
 }
 
+function normalizeProducts(products, analyses = [], supermarketImages = new Map()) {
+  const analysisById = new Map(analyses.map((item) => [String(item.product?.id), item]))
 function normalizeProducts(products) {
   return products
     .map((product) => {
@@ -63,12 +68,17 @@ function normalizeProducts(products) {
         .map((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price))
         .filter((price) => Number.isFinite(price) && price > 0)
       const currentPrice = Number(product.currentPrice || product.price || Math.min(...offerPrices))
+      const analysis = analysisById.get(String(product.id))
+      const primaryOffer = offers.find((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price) === currentPrice)
+      const primaryStoreName = product.primaryStore?.name || primaryOffer?.supermarket || ''
       return {
         ...product,
         currentPrice,
         brand: product.brand || product.brands?.name || '',
-        primaryStore: product.primaryStore || {
-          name: offers.find((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price) === currentPrice)?.supermarket || '',
+        primaryStore: {
+          ...product.primaryStore,
+          name: primaryStoreName,
+          image: product.primaryStore?.image || supermarketImages.get(primaryStoreName) || '',
         },
         priceHistory: product.priceHistory || [],
       }
@@ -144,6 +154,7 @@ export default function PriceInflationPage() {
   const [usingDemoProducts, setUsingDemoProducts] = useState(true)
   const [catalogError, setCatalogError] = useState('')
   const [historyError, setHistoryError] = useState('')
+  const translateProductName = useProductNameTranslator(products.map((product) => product.name))
   const [historyLoading, setHistoryLoading] = useState(false)
   const analysisCache = useRef(new Map())
 
@@ -158,6 +169,27 @@ export default function PriceInflationPage() {
         if (!response.ok) throw new Error('No se pudo cargar el catálogo actual.')
         const payload = await response.json()
         const catalogProducts = Array.isArray(payload) ? payload : payload?.data || []
+        let supermarketImages = new Map()
+        try {
+          const supermarketsResponse = await fetch(apiUrl('/supermarkets'), { signal: controller.signal })
+          if (!supermarketsResponse.ok) throw new Error('No se pudieron cargar los logos de supermercados.')
+          const supermarkets = await supermarketsResponse.json()
+          supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+        } catch (error) {
+          if (error.name === 'AbortError') throw error
+          console.error('Error loading supermarket logos for inflation calculator', error)
+        }
+        let analyses = []
+        try {
+          const analysisResponse = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
+          if (!analysisResponse.ok) throw new Error('No se pudo cargar el historial de precios.')
+          analyses = await analysisResponse.json()
+        } catch (error) {
+          if (error.name === 'AbortError') throw error
+          console.error('Error loading price history for inflation calculator', error)
+          setHistoryError('No se pudo cargar el historial de precios.')
+        }
+        const loadedProducts = normalizeProducts(catalogProducts, analyses, supermarketImages)
         const loadedProducts = normalizeProducts(catalogProducts)
         if (!loadedProducts.length) throw new Error('El catálogo no tiene productos disponibles para consultar.')
         setProducts(loadedProducts)
@@ -280,12 +312,11 @@ export default function PriceInflationPage() {
   return (
     <main className="min-h-screen bg-stone-50 px-4 py-6 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
       <div className="mx-auto max-w-7xl">
-        <header className="flex items-center justify-between border-b border-stone-200 pb-4 dark:border-stone-800">
-          <Link to="/" className="font-black tracking-tight text-sky-700 dark:text-sky-300">AR-PRICE</Link>
+        <BrandHeader>
           <Link to="/buscar" className="inline-flex items-center gap-2 text-sm font-semibold text-stone-600 hover:text-sky-700 dark:text-stone-300 dark:hover:text-sky-300">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('Volver a productos')}
           </Link>
-        </header>
+        </BrandHeader>
 
         <section className="py-8 sm:py-10">
           <div className="flex items-start gap-4">
@@ -344,7 +375,7 @@ export default function PriceInflationPage() {
                 {isLoading && <option value="">{t('Cargando productos...')}</option>}
                 {!isLoading && filteredProducts.length === 0 && <option value="">{t('No hay productos con esa búsqueda')}</option>}
                 {filteredProducts.map((product) => (
-                  <option key={product.id} value={String(product.id)}>{product.name}</option>
+                  <option key={product.id} value={String(product.id)}>{translateProductName(product.name)}</option>
                 ))}
               </select>
             </label>
@@ -363,8 +394,20 @@ export default function PriceInflationPage() {
             <div className="mt-4 flex min-w-0 items-center gap-3 rounded-xl bg-stone-50 p-3 dark:bg-stone-800">
               {selectedProduct.image && <img src={selectedProduct.image} alt="" className="h-12 w-12 shrink-0 rounded-lg bg-white object-contain p-1 dark:bg-stone-700" />}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold">{selectedProduct.name}</p>
-                <p className="text-xs text-stone-500 dark:text-stone-400">{selectedProduct.brand || selectedProduct.primaryStore?.name || t('Precio actual')}</p>
+                <p className="truncate text-sm font-bold">{translateProductName(selectedProduct.name)}</p>
+                <div className="flex items-center gap-2">
+                  {selectedProduct.brand ? (
+                    <p className="text-xs text-stone-500 dark:text-stone-400">{selectedProduct.brand}</p>
+                  ) : selectedProduct.primaryStore?.name ? (
+                    <SupermarketLogo
+                      name={selectedProduct.primaryStore.name}
+                      image={selectedProduct.primaryStore.image}
+                      className="h-7 max-w-16"
+                    />
+                  ) : (
+                    <p className="text-xs text-stone-500 dark:text-stone-400">{t('Precio actual')}</p>
+                  )}
+                </div>
               </div>
               <div className="shrink-0 text-right">
                 <p className="text-xs text-stone-500 dark:text-stone-400">{t('Precio actual')}</p>

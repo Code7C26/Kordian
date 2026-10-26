@@ -366,7 +366,7 @@ export function Header({
                                 : 'hover:bg-stone-100 dark:hover:bg-stone-800'
                             }`}
                           >
-                            {option.label}
+                            {t(option.label)}
                           </button>
                         ))}
                       </div>
@@ -379,13 +379,28 @@ export function Header({
 
           {/* Admin action button in header */}
           {isAdminHeader && (
-            <button
-              onClick={() => toggleExclusiveMenu('admin')}
-              className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold bg-yellow-500 text-black rounded-2xl hover:brightness-90 transition-all duration-150 ml-2"
-              title={t('Abrir panel rápido de actualización de precios')}
-            >
-              {t('Actualizar Precios')}
-            </button>
+            <>
+              <div className="inline-flex items-center gap-1 rounded-xl bg-white/15 p-1" role="group" aria-label={t('Idioma')}>
+                {[{ value: 'es', label: 'Español' }, { value: 'en', label: 'English' }].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={language === option.value}
+                    onClick={() => setLanguage(option.value)}
+                    className={`rounded-lg px-2 py-1.5 text-xs font-bold ${language === option.value ? 'bg-white text-sky-800' : 'text-white hover:bg-white/20'}`}
+                  >
+                    {t(option.label)}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => toggleExclusiveMenu('admin')}
+                className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold bg-yellow-500 text-black rounded-2xl hover:brightness-90 transition-all duration-150 ml-2"
+                title={t('Abrir panel rápido de actualización de precios')}
+              >
+                {t('Actualizar Precios')}
+              </button>
+            </>
           )}
 
           <button
@@ -473,7 +488,7 @@ export function Header({
             <label className="block">{t('Filtros de actualización')}</label>
             <select value={panelCategoryId} onChange={(e) => setPanelCategoryId(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
               <option value="">{t('Todas las categorías')}</option>
-              {panelCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {panelCategories.map((c) => <option key={c.id} value={c.id}>{t(c.name)}</option>)}
             </select>
 
             <select value={panelBrandId} onChange={(e) => setPanelBrandId(e.target.value)} className="w-full px-2 py-1 rounded border bg-white dark:bg-stone-900">
@@ -493,7 +508,7 @@ export function Header({
 
             <div className="flex gap-2">
               <button onClick={async () => {
-                if (!panelCategoryId && !panelBrandId && !panelSupermarket) { alert('Elige al menos un filtro'); return }
+                if (!panelCategoryId && !panelBrandId && !panelSupermarket) { alert(t('Elige al menos un filtro')); return }
                 try {
                   const body = { percentage: Number(panelPercentage) }
                   if (panelCategoryId) body.categoryId = panelCategoryId
@@ -502,12 +517,12 @@ export function Header({
                   body.updatedAt = panelUpdatedAt
                   const res = await adminFetch('/admin/update-prices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
                   const data = await res.json()
-                  if (!res.ok) alert('Error: ' + (data.error || 'no especificado'))
+                  if (!res.ok) alert(`${t('Error:')} ${t(data.error || 'no especificado')}`)
                   else {
                     window.dispatchEvent(new Event('price-updates-changed'))
-                    alert('Aplicado: ' + (data.updated || 0) + ' precios')
+                    alert(`${t('Aplicado:')} ${data.updated || 0}${t(' precios')}`)
                   }
-                } catch (e) { console.error(e); alert('Error de red') }
+                } catch (e) { console.error(e); alert(t('Error de red')) }
               }} className="flex-1 px-3 py-1 bg-emerald-600 text-white rounded">{t('Aplicar')}</button>
               <button onClick={() => { setPanelCategoryId(''); setPanelBrandId(''); setPanelSupermarket(''); setPanelPercentage(5) }} className="px-3 py-1 bg-stone-900 text-white dark:bg-stone-200 dark:text-stone-900 rounded">{t('Limpiar')}</button>
             </div>

@@ -5,9 +5,10 @@ import { useSelectedCity } from '../contexts/SelectedCityContext.jsx'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { CITIES_LIST } from '../data/mockProducts.js'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import BrandHeader from '../components/BrandHeader.jsx'
 
 export default function SettingsPage() {
-  const { t } = useLanguage()
+  const { language, setLanguage, t } = useLanguage()
   const { selectedCity, setSelectedCity } = useSelectedCity()
   const { loading: authLoading, profile, user } = useCustomerAuth()
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('arprice_theme') === 'dark')
@@ -35,9 +36,7 @@ export default function SettingsPage() {
   return (
     <main className="min-h-screen bg-stone-100 px-4 py-6 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
       <div className="mx-auto max-w-3xl">
-        <header className="border-b border-stone-300 pb-4 dark:border-stone-800">
-          <Link to="/" className="text-lg font-black text-sky-800 dark:text-sky-300">AR-Price</Link>
-        </header>
+        <BrandHeader />
 
         <section className="py-8">
           <Link to="/buscar" className="inline-flex items-center gap-2 text-sm font-semibold text-sky-700 dark:text-sky-300">
@@ -67,6 +66,26 @@ export default function SettingsPage() {
                 <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition-transform ${darkMode ? 'translate-x-5' : 'translate-x-0'}`} />
                 <span className="sr-only">{t('Activar modo oscuro')}</span>
               </button>
+            </section>
+
+            <section className="flex flex-wrap items-center justify-between gap-4 py-5">
+              <div>
+                <h2 className="text-sm font-bold">{t('Idioma')}</h2>
+                <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">{t('Selecciona el idioma de la aplicación.')}</p>
+              </div>
+              <div className="flex gap-2" role="group" aria-label={t('Idioma')}>
+                {[{ value: 'es', label: 'Español' }, { value: 'en', label: 'English' }].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={language === option.value}
+                    onClick={() => setLanguage(option.value)}
+                    className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${language === option.value ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-300 bg-white text-stone-700 hover:border-sky-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200'}`}
+                  >
+                    {t(option.label)}
+                  </button>
+                ))}
+              </div>
             </section>
 
             <section className="py-5">

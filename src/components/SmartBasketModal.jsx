@@ -8,10 +8,12 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { ProductImage } from './ProductImage';
-import { useLanguage } from '../contexts/LanguageContext.jsx';
+import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
+import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveItem, onClearBasket }) {
   const { t } = useLanguage();
+  const translateProductName = useProductNameTranslator(basket.map((item) => item.product.name));
   if (basket.length === 0) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-sm animate-fade-in">
@@ -82,14 +84,20 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
               <div className="space-y-4">
               {Object.entries(
                 basket.reduce((groups, item) => {
-                  const storeName = item.selectedOffer?.storeName || item.product.primaryStore?.name || 'Precio actual';
+                  const storeName = item.selectedOffer?.supermarket || item.selectedOffer?.storeName || item.product.primaryStore?.name || 'Precio actual';
                   if (!groups[storeName]) {
-                    groups[storeName] = [];
+                    groups[storeName] = {
+                      image: item.selectedOffer?.image || item.product.primaryStore?.image || '',
+                      items: [],
+                    };
+                  } else if (!groups[storeName].image) {
+                    groups[storeName].image = item.selectedOffer?.image || item.product.primaryStore?.image || '';
                   }
-                  groups[storeName].push(item);
+                  groups[storeName].items.push(item);
                   return groups;
                 }, {})
-              ).map(([storeName, items]) => {
+              ).map(([storeName, group]) => {
+                const { image, items } = group
                 const groupTotal = items.reduce((acc, item) => {
                   const price = Number(item.selectedOffer?.price || item.product.currentPrice || 0) || 0;
                   return acc + price * Number(item.quantity || 0);
@@ -98,8 +106,8 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
                 return (
                   <div key={storeName} className="space-y-3">
                     <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-700">
-                      <div>
-                        <p className="text-sm font-semibold text-sky-700 dark:text-sky-200">{storeName}</p>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <SupermarketLogo name={storeName} image={image} className="h-8 max-w-24" />
                         <p className="text-xs text-stone-500 dark:text-stone-400">
                           {items.length} {t(items.length === 1 ? 'producto' : 'productos')} • {t('Subtotal')}
                         </p>
@@ -107,33 +115,36 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
                       <p className="text-sm font-bold text-stone-900 dark:text-white">{formatCurrency(groupTotal)}</p>
                     </div>
                     <div className="space-y-2">
-                      {items.map((item) => (
-                        <div key={item.id} className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-900/60 border border-stone-200/80 dark:border-stone-800 flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <ProductImage src={item.product.image} alt={item.product.name} productName={item.product.name} productCategory={item.product.categories?.name || item.product.category?.name || item.product.category || item.product.subcategory} className="w-12 h-12 rounded-xl border border-stone-200 dark:border-stone-700" />
-                            <div>
-                              <h4 className="font-bold text-stone-900 dark:text-white text-sm line-clamp-1">{item.product.name}</h4>
-                              <p className="text-xs text-stone-500 dark:text-stone-400">
-                                {formatCurrency(item.selectedOffer?.price || item.product.currentPrice)} c/u
-                              </p>
+                      {items.map((item) => {
+                        const displayName = translateProductName(item.product.name);
+                        return (
+                          <div key={item.id} className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-900/60 border border-stone-200/80 dark:border-stone-800 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <ProductImage src={item.product.image} alt={displayName} productName={displayName} productCategory={item.product.categories?.name || item.product.category?.name || item.product.category || item.product.subcategory} className="w-12 h-12 rounded-xl border border-stone-200 dark:border-stone-700" />
+                              <div>
+                                <h4 className="font-bold text-stone-900 dark:text-white text-sm line-clamp-1">{displayName}</h4>
+                                <p className="text-xs text-stone-500 dark:text-stone-400">
+                                  {formatCurrency(item.selectedOffer?.price || item.product.currentPrice)} c/u
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-1 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-lg p-1">
+                                <button onClick={() => onUpdateQuantity(item.id, -1)} className="p-1 hover:bg-stone-100 dark:hover:bg-stone-700 rounded text-stone-600 dark:text-stone-300 cursor-pointer">
+                                  <Minus className="w-3.5 h-3.5" />
+                                </button>
+                                <span className="w-6 text-center font-bold text-xs text-stone-900 dark:text-white">{item.quantity}</span>
+                                <button onClick={() => onUpdateQuantity(item.id, 1)} className="p-1 hover:bg-stone-100 dark:hover:bg-stone-700 rounded text-stone-600 dark:text-stone-300 cursor-pointer">
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                              <button onClick={() => onRemoveItem(item.id)} className="p-1.5 text-stone-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer" title={t('Eliminar de la lista')}>
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-1 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-lg p-1">
-                              <button onClick={() => onUpdateQuantity(item.id, -1)} className="p-1 hover:bg-stone-100 dark:hover:bg-stone-700 rounded text-stone-600 dark:text-stone-300 cursor-pointer">
-                                <Minus className="w-3.5 h-3.5" />
-                              </button>
-                              <span className="w-6 text-center font-bold text-xs text-stone-900 dark:text-white">{item.quantity}</span>
-                              <button onClick={() => onUpdateQuantity(item.id, 1)} className="p-1 hover:bg-stone-100 dark:hover:bg-stone-700 rounded text-stone-600 dark:text-stone-300 cursor-pointer">
-                                <Plus className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <button onClick={() => onRemoveItem(item.id)} className="p-1.5 text-stone-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer" title={t('Eliminar de la lista')}>
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )

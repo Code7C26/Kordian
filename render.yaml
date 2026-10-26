@@ -18,5 +18,9 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://ar-price.netlify.app
+      - key: TRANSLATION_SERVICE_URL
+        sync: false
+      - key: TRANSLATION_SERVICE_API_KEY
+        sync: false
       - key: ADMIN_SESSION_SECRET
         generateValue: true

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Check, LoaderCircle, Search, Store, X } from 'lucide-react'
 import { apiUrl } from '../config/api.js'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
+import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
 
 async function readPayload(response) {
   const payload = await response.json().catch(() => ({}))
@@ -11,6 +12,7 @@ async function readPayload(response) {
 
 export default function BusinessCatalogPanel() {
   const { accessToken } = useCustomerAuth()
+  const { t } = useLanguage()
   const [products, setProducts] = useState([])
   const [storeName, setStoreName] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -23,6 +25,7 @@ export default function BusinessCatalogPanel() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const translateProductName = useProductNameTranslator(products.map((product) => product.name))
 
   useEffect(() => {
     const controller = new AbortController()
@@ -66,9 +69,10 @@ export default function BusinessCatalogPanel() {
   }
 
   const updateAvailability = async (product, available) => {
+    const displayName = translateProductName(product.name)
     const cashPrice = Number(priceDrafts[product.id])
     if (available && (!Number.isFinite(cashPrice) || cashPrice <= 0)) {
-      setError('Ingresa un precio válido mayor que cero para publicar el producto.')
+      setError(t('Ingresa un precio válido mayor que cero para publicar el producto.'))
       return
     }
 
@@ -85,7 +89,9 @@ export default function BusinessCatalogPanel() {
         body: JSON.stringify({ available, cashPrice }),
       })
       await readPayload(response)
-      setNotice(available ? `${product.name} está disponible en ${storeName}.` : `${product.name} ya no figura disponible.`)
+      setNotice(available
+        ? `${displayName} ${t('está disponible en')} ${storeName}.`
+        : `${displayName} ${t('ya no figura disponible.')}`)
       setRefreshKey((current) => current + 1)
     } catch (updateError) {
       setError(updateError.message)
@@ -102,40 +108,40 @@ export default function BusinessCatalogPanel() {
             <Store className="h-5 w-5" aria-hidden="true" />
           </span>
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Supermercado asignado</p>
-            <p className="font-black text-stone-900 dark:text-white">{storeName || 'Cargando…'}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">{t('Supermercado asignado')}</p>
+            <p className="font-black text-stone-900 dark:text-white">{storeName || t('Cargando…')}</p>
           </div>
         </div>
         <p className="max-w-xl text-xs text-stone-600 dark:text-stone-300">
-          Publicá productos del catálogo general y actualizá su precio o disponibilidad únicamente para este supermercado.
+          {t('Publicá productos del catálogo general y actualizá su precio o disponibilidad únicamente para este supermercado.')}
         </p>
       </div>
 
       <form onSubmit={submitSearch} className="flex gap-2">
-        <label className="sr-only" htmlFor="business-catalog-search">Buscar productos del catálogo</label>
+        <label className="sr-only" htmlFor="business-catalog-search">{t('Buscar productos del catálogo')}</label>
         <input
           id="business-catalog-search"
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
-          placeholder="Buscar un producto del catálogo"
+          placeholder={t('Buscar un producto del catálogo')}
           className="min-w-0 flex-1 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-white"
         />
         <button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-bold text-white hover:bg-sky-500">
           <Search className="h-4 w-4" aria-hidden="true" />
-          Buscar
+          {t('Buscar')}
         </button>
       </form>
 
-      {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{error}</p>}
+      {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{t(error)}</p>}
       {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">{notice}</p>}
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 rounded-2xl bg-white p-10 text-sm font-semibold text-stone-500 dark:bg-stone-800 dark:text-stone-300" role="status">
-          <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> Cargando catálogo…
+          <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> {t('Cargando catálogo…')}
         </div>
       ) : products.length === 0 ? (
         <div className="rounded-2xl border border-stone-200 bg-white p-8 text-center text-sm text-stone-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
-          {search ? 'No encontramos productos con esa búsqueda.' : 'Todavía no hay productos publicados. Busca un producto para incorporarlo a tu catálogo.'}
+          {t(search ? 'No encontramos productos con esa búsqueda.' : 'Todavía no hay productos publicados. Busca un producto para incorporarlo a tu catálogo.')}
         </div>
       ) : (
         <div className="space-y-3">
@@ -150,15 +156,15 @@ export default function BusinessCatalogPanel() {
                     <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-400 dark:bg-stone-900"><Store className="h-6 w-6" aria-hidden="true" /></span>
                   )}
                   <div className="min-w-0">
-                    <h2 className="truncate font-bold text-stone-900 dark:text-white">{product.name}</h2>
+                    <h2 className="truncate font-bold text-stone-900 dark:text-white">{translateProductName(product.name)}</h2>
                     <p className={`mt-1 text-xs font-bold ${product.available ? 'text-emerald-700 dark:text-emerald-300' : 'text-stone-500 dark:text-stone-400'}`}>
-                      {product.available ? 'Disponible en tu supermercado' : 'No publicado en tu supermercado'}
+                      {t(product.available ? 'Disponible en tu supermercado' : 'No publicado en tu supermercado')}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="sr-only" htmlFor={`business-price-${product.id}`}>Precio de {product.name}</label>
+                  <label className="sr-only" htmlFor={`business-price-${product.id}`}>{t('Precio de ')}{translateProductName(product.name)}</label>
                   <input
                     id={`business-price-${product.id}`}
                     type="number"
@@ -167,22 +173,22 @@ export default function BusinessCatalogPanel() {
                     inputMode="decimal"
                     value={priceDrafts[product.id] ?? ''}
                     onChange={(event) => setPriceDrafts((current) => ({ ...current, [product.id]: event.target.value }))}
-                    placeholder="Precio ARS"
+                    placeholder={t('Precio ARS')}
                     className="w-32 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm dark:border-stone-600 dark:bg-stone-900 dark:text-white"
                   />
                   {product.available ? (
                     <>
                       <button type="button" disabled={busy} onClick={() => updateAvailability(product, true)} className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
-                        <Check className="h-4 w-4" aria-hidden="true" /> Guardar precio
+                        <Check className="h-4 w-4" aria-hidden="true" /> {t('Guardar precio')}
                       </button>
                       <button type="button" disabled={busy} onClick={() => updateAvailability(product, false)} className="inline-flex items-center gap-1.5 rounded-lg bg-rose-100 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-200 disabled:opacity-50 dark:bg-rose-950 dark:text-rose-200">
-                        <X className="h-4 w-4" aria-hidden="true" /> Quitar
+                        <X className="h-4 w-4" aria-hidden="true" /> {t('Quitar')}
                       </button>
                     </>
                   ) : (
                     <button type="button" disabled={busy} onClick={() => updateAvailability(product, true)} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50">
                       {busy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
-                      Publicar
+                      {t('Publicar')}
                     </button>
                   )}
                 </div>
@@ -193,9 +199,9 @@ export default function BusinessCatalogPanel() {
       )}
 
       <div className="flex items-center justify-between">
-        <button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => current - 1)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold disabled:opacity-40 dark:border-stone-700">Anterior</button>
-        <span className="text-xs font-semibold text-stone-500 dark:text-stone-400">Página {page}</span>
-        <button type="button" disabled={!hasMore || loading} onClick={() => setPage((current) => current + 1)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold disabled:opacity-40 dark:border-stone-700">Siguiente</button>
+        <button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => current - 1)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold disabled:opacity-40 dark:border-stone-700">{t('Anterior')}</button>
+        <span className="text-xs font-semibold text-stone-500 dark:text-stone-400">{t('Página')} {page}</span>
+        <button type="button" disabled={!hasMore || loading} onClick={() => setPage((current) => current + 1)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold disabled:opacity-40 dark:border-stone-700">{t('Siguiente')}</button>
       </div>
     </section>
   )

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { ProductImage } from './ProductImage';
+import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveItem, onClearBasket }) {
   if (basket.length === 0) {
@@ -80,14 +81,20 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
               <div className="space-y-4">
               {Object.entries(
                 basket.reduce((groups, item) => {
-                  const storeName = item.selectedOffer?.storeName || item.product.primaryStore?.name || 'Precio actual';
+                  const storeName = item.selectedOffer?.supermarket || item.selectedOffer?.storeName || item.product.primaryStore?.name || 'Precio actual';
                   if (!groups[storeName]) {
-                    groups[storeName] = [];
+                    groups[storeName] = {
+                      image: item.selectedOffer?.image || item.product.primaryStore?.image || '',
+                      items: [],
+                    };
+                  } else if (!groups[storeName].image) {
+                    groups[storeName].image = item.selectedOffer?.image || item.product.primaryStore?.image || '';
                   }
-                  groups[storeName].push(item);
+                  groups[storeName].items.push(item);
                   return groups;
                 }, {})
-              ).map(([storeName, items]) => {
+              ).map(([storeName, group]) => {
+                const { image, items } = group
                 const groupTotal = items.reduce((acc, item) => {
                   const price = Number(item.selectedOffer?.price || item.product.currentPrice || 0) || 0;
                   return acc + price * Number(item.quantity || 0);
@@ -96,8 +103,8 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
                 return (
                   <div key={storeName} className="space-y-3">
                     <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-700">
-                      <div>
-                        <p className="text-sm font-semibold text-sky-700 dark:text-sky-200">{storeName}</p>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <SupermarketLogo name={storeName} image={image} className="h-8 max-w-24" />
                         <p className="text-xs text-stone-500 dark:text-stone-400">
                           {items.length} producto{items.length === 1 ? '' : 's'} • Subtotal
                         </p>
