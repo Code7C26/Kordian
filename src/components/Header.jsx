@@ -162,14 +162,11 @@ export function Header({
             title={t('Ir al inicio de Ar-Price')}
           >
             <div className="relative flex items-center gap-3">
-              <div className="relative rounded-xl p-1.5 bg-white dark:bg-black shadow-[0_6px_16px_rgba(14,116,144,0.18)] ring-1 ring-sky-300/40 dark:ring-sky-700/60 backdrop-blur-sm">
+              <div className="relative flex items-center rounded-xl bg-white p-1.5 ring-1 ring-sky-300/70 shadow-[0_0_14px_rgba(14,165,233,0.24)] dark:bg-transparent dark:ring-sky-500/70">
                 <img
                   src={darkMode ? brandLogoDark : brandLogo}
                   alt="Ar-Price"
-                  className="h-8 md:h-10 w-auto object-contain drop-shadow-[0_6px_10px_rgba(37,99,235,0.25)] transition-transform duration-200 group-hover:scale-[1.03] filter drop-shadow-lg"
-                  style={{
-                    filter: 'drop-shadow(0 4px 8px rgba(14, 116, 144, 0.2)) drop-shadow(0 0 1px rgba(37, 99, 235, 0.1))'
-                  }}
+                  className="h-8 w-auto object-contain transition-transform duration-200 group-hover:scale-[1.03] md:h-10"
                 />
               </div>
               <div className="flex flex-col gap-0.5">

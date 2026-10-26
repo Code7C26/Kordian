@@ -1,88 +1,193 @@
-import { ArrowUpRight, BarChart3, Boxes, CircleDollarSign, PackageCheck, Store, Tags, UsersRound } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  ArrowLeft,
+  BriefcaseBusiness,
+  ChartNoAxesCombined,
+  CircleHelp,
+  Clock3,
+  LayoutDashboard,
+  LogOut,
+  PackagePlus,
+  Store,
+} from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import BusinessCatalogPanel from './BusinessCatalogPanel.jsx'
+import BusinessPriceHistoryPanel from './BusinessPriceHistoryPanel.jsx'
 
-const overview = [
-  { label: 'Productos publicados', value: '128', detail: '+8 este mes', icon: Boxes, color: 'sky' },
-  { label: 'Precios actualizados', value: '96', detail: 'Últimos 30 días', icon: CircleDollarSign, color: 'emerald' },
-  { label: 'Ofertas activas', value: '14', detail: 'En tu catálogo', icon: Tags, color: 'amber' },
+const modules = [
+  { id: 'overview', label: 'Resumen', icon: LayoutDashboard },
+  { id: 'store', label: 'Datos de Sucursal', icon: Store },
+  { id: 'catalog', label: 'Carga de Productos', icon: PackagePlus },
+  { id: 'history', label: 'Historial de Precios', icon: Clock3 },
 ]
 
-const shortcuts = [
-  { title: 'Catálogo de productos', description: 'Publica productos y actualiza su precio.', icon: PackageCheck },
-  { title: 'Precios y ofertas', description: 'Revisa la información visible para clientes.', icon: BarChart3 },
-  { title: 'Datos del comercio', description: 'Consulta el perfil asignado a tu cuenta.', icon: Store },
-]
-
-export default function BusinessPortalPage({ children }) {
+export default function BusinessPortalPage({ user, onSignOut }) {
   const { t } = useLanguage()
+  const [activeModule, setActiveModule] = useState('overview')
+  const [storeState, setStoreState] = useState({ status: 'loading', store: null, error: '' })
+  const reportStoreState = useCallback((status, store = null, error = '') => {
+    setStoreState({ status, store, error })
+  }, [])
+
+  const assignedStore = storeState.store
+  const moduleTitle = modules.find((module) => module.id === activeModule)?.label || 'Resumen'
+
   return (
-    <section className="mt-7 space-y-6">
-      <div className="overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-700 via-teal-700 to-sky-800 p-6 text-white shadow-lg sm:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div className="max-w-2xl">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-bold">
-              <Store className="h-4 w-4" aria-hidden="true" /> {t('Espacio comercial')}
+    <main className="dark min-h-screen bg-[#0b0a09] text-stone-100">
+      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col md:flex-row">
+        <aside className="flex w-full shrink-0 flex-col border-b border-slate-800 bg-[#070d1b] px-4 py-4 md:min-h-screen md:w-64 md:border-b-0 md:border-r md:px-3">
+          <Link to="/" className="flex items-center gap-3 rounded-xl border border-sky-900/50 bg-sky-950/40 p-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white">
+              <BriefcaseBusiness className="h-5 w-5" aria-hidden="true" />
             </span>
-            <h2 className="mt-4 text-2xl font-black sm:text-3xl">{t('Gestiona tu comercio')}</h2>
-            <p className="mt-2 text-sm leading-6 text-emerald-50">
-              {t('Administra la presencia de tu tienda en AR-PRICE y mantén actualizado el catálogo que consultan tus clientes.')}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold">
-            <span className="block text-xs font-medium text-emerald-100">{t('Panel del comercio')}</span>
-            <span className="mt-1 inline-flex items-center gap-2">{t('Estado de cuenta')} <span className="h-2 w-2 rounded-full bg-emerald-300" /></span>
-          </div>
-        </div>
-      </div>
+            <span className="min-w-0">
+              <span className="block text-sm font-black text-white">{t('Comercio')}</span>
+              <span className="block truncate text-[11px] text-slate-400">{t('Espacio privado')}</span>
+            </span>
+          </Link>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {overview.map(({ label, value, detail, icon: Icon, color }) => (
-          <article key={label} className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm dark:border-stone-800 dark:bg-stone-900">
-            <div className="flex items-start justify-between">
-              <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${color === 'sky' ? 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300' : color === 'emerald' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'}`}>
-                <Icon className="h-5 w-5" aria-hidden="true" />
-              </span>
-              <ArrowUpRight className="h-4 w-4 text-stone-400" aria-hidden="true" />
+          <p className="mb-2 mt-6 px-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-500">
+            {t('Gestión comercial')}
+          </p>
+          <nav aria-label={t('Módulos del comercio')} className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
+            {modules.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                aria-current={activeModule === id ? 'page' : undefined}
+                onClick={() => setActiveModule(id)}
+                className={`flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-semibold transition-colors md:w-full ${
+                  activeModule === id
+                    ? 'bg-sky-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                {t(label)}
+              </button>
+            ))}
+          </nav>
+
+          <div className="mt-auto hidden pt-6 md:block">
+            <Link to="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white">
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('Volver al sitio')}
+            </Link>
+            <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+              <p className="flex items-center gap-2 text-xs font-bold text-white">
+                <CircleHelp className="h-4 w-4 text-sky-400" aria-hidden="true" /> {t('¿Necesitas ayuda?')}
+              </p>
+              <p className="mt-2 break-all text-[11px] leading-5 text-slate-400">{user.email}</p>
             </div>
-            <p className="mt-5 text-3xl font-black">{value}</p>
-            <p className="mt-1 text-sm font-bold">{t(label)}</p>
-            <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">{t(detail)}</p>
-          </article>
-        ))}
-      </div>
-
-      <section>
-        <div className="mb-4 flex items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">{t('Accesos rápidos')}</p>
-            <h3 className="mt-1 text-xl font-black">{t('Herramientas del comercio')}</h3>
           </div>
-          <span className="hidden items-center gap-2 text-xs font-semibold text-stone-500 dark:text-stone-400 sm:inline-flex">
-            <UsersRound className="h-4 w-4" aria-hidden="true" /> {t('Vista de muestra')}
-          </span>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          {shortcuts.map(({ title, description, icon: Icon }) => (
-            <article key={title} className="flex items-start gap-3 rounded-2xl border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-200">
-                <Icon className="h-5 w-5" aria-hidden="true" />
-              </span>
-              <div>
-                <h4 className="text-sm font-extrabold">{t(title)}</h4>
-                <p className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">{t(description)}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+        </aside>
 
-      <section>
-        <div className="mb-4">
-          <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-sky-700 dark:text-sky-300">{t('Gestión de catálogo')}</p>
-          <h3 className="mt-1 text-xl font-black">{t('Productos de tu comercio')}</h3>
-        </div>
-        {children}
-      </section>
-    </section>
+        <section className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
+          <header className="mb-7 flex flex-wrap items-center justify-between gap-4 border-b border-stone-800 pb-5">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-sky-400">{t('Panel para comercios')}</p>
+              <h1 className="mt-1 text-2xl font-black text-white">{t(moduleTitle)}</h1>
+              <p className="mt-1 text-xs text-stone-400">{t('Administra la información de tu comercio y la sucursal.')}</p>
+            </div>
+            <button type="button" onClick={onSignOut} className="inline-flex items-center gap-2 rounded-lg border border-stone-700 px-3 py-2 text-xs font-semibold text-stone-300 transition hover:border-stone-500 hover:text-white">
+              <LogOut className="h-4 w-4" aria-hidden="true" /> {t('Cerrar sesión')}
+            </button>
+          </header>
+
+          {storeState.status === 'error' && (
+            <p role="alert" className="mb-5 rounded-lg border border-rose-900 bg-rose-950/50 px-4 py-3 text-xs text-rose-200">
+              {t(storeState.error)}
+            </p>
+          )}
+
+          {activeModule === 'overview' && (
+            <div className="space-y-5">
+              {storeState.status === 'ready' && !assignedStore && (
+                <p role="status" className="rounded-lg border border-rose-900 bg-rose-950/50 px-4 py-3 text-xs text-rose-200">
+                  {t('Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.')}
+                </p>
+              )}
+              <section className="rounded-xl border border-stone-800 bg-[#1c1917] p-5 sm:p-6">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-sky-400">{t('Panel para comercios')}</p>
+                    <h2 className="mt-2 text-xl font-black text-white">{t('Resumen')}</h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-400">
+                      {t('Administra la presencia de tu comercio, actualiza los precios de tus productos y consulta su historial.')}
+                    </p>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                    assignedStore
+                      ? 'border-emerald-900 bg-emerald-950/50 text-emerald-300'
+                      : 'border-stone-700 bg-stone-900 text-stone-300'
+                  }`}>
+                    {storeState.status === 'loading'
+                      ? t('Verificando cuenta…')
+                      : assignedStore
+                        ? assignedStore.name
+                        : t('Pendiente de asignación')}
+                  </span>
+                </div>
+              </section>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  { id: 'store', title: 'Datos de Sucursal', description: assignedStore?.name || 'Consulta la sucursal asignada a tu cuenta.', icon: Store },
+                  { id: 'catalog', title: 'Carga de Productos', description: 'Actualiza disponibilidad y precios del catálogo.', icon: PackagePlus },
+                  { id: 'history', title: 'Historial de Precios', description: 'Revisa los cambios registrados en tu sucursal.', icon: ChartNoAxesCombined },
+                ].map(({ id, title, description, icon: Icon }) => (
+                  <button key={id} type="button" onClick={() => setActiveModule(id)} className="group flex min-h-32 items-start gap-3 rounded-xl border border-stone-800 bg-[#1c1917] p-4 text-left transition hover:border-sky-700 hover:bg-[#211e1c]">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-950 text-sky-400">
+                      <Icon className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    <span>
+                      <span className="block text-sm font-bold text-white">{t(title)}</span>
+                      <span className="mt-1 block text-xs leading-5 text-stone-400">{t(description)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeModule === 'store' && (
+            <section className="rounded-xl border border-stone-800 bg-[#1c1917] p-5 sm:p-6">
+              <h2 className="text-base font-black text-white">{t('Datos de Sucursal')}</h2>
+              <p className="mt-1 text-xs text-stone-400">{t('Información de la sucursal asignada a tu cuenta.')}</p>
+              {storeState.status === 'loading' ? (
+                <p className="mt-6 text-sm text-stone-400" role="status">{t('Cargando…')}</p>
+              ) : assignedStore ? (
+                <dl className="mt-5 divide-y divide-stone-800 border-y border-stone-800">
+                  <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr]">
+                    <dt className="text-xs font-semibold text-stone-400">{t('Nombre de sucursal')}</dt>
+                    <dd className="text-sm font-bold text-white">{assignedStore.name}</dd>
+                  </div>
+                  <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr]">
+                    <dt className="text-xs font-semibold text-stone-400">{t('Estado de asignación')}</dt>
+                    <dd className="text-sm font-bold text-emerald-300">{t('Asignada')}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p role="status" className="mt-5 rounded-lg border border-amber-900 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
+                  {t('Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.')}
+                </p>
+              )}
+            </section>
+          )}
+
+          <div hidden={activeModule !== 'catalog'} className="business-dark-panel">
+            <BusinessCatalogPanel onStoreStateChange={reportStoreState} />
+          </div>
+
+          {activeModule === 'history' && <BusinessPriceHistoryPanel />}
+
+          <div className="mt-8 md:hidden">
+            <Link to="/" className="inline-flex items-center gap-2 text-xs font-semibold text-stone-400 hover:text-white">
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('Volver al sitio')}
+            </Link>
+          </div>
+        </section>
+      </div>
+    </main>
   )
 }

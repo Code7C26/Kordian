@@ -3,7 +3,6 @@ import { Link, Navigate } from 'react-router-dom'
 import { ArrowLeft, LogOut, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
-import BusinessCatalogPanel from './BusinessCatalogPanel.jsx'
 import BusinessPortalPage from './BusinessPortalPage.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
 
@@ -88,6 +87,10 @@ export default function CustomerAccountPage({ section = 'profile' }) {
 
   const username = profile?.username || user.user_metadata?.username || 'Cliente'
 
+  if (section === 'business') {
+    return <BusinessPortalPage user={{ email: user.email || username }} onSignOut={signOut} />
+  }
+
   return (
     <main className="min-h-screen bg-stone-100 px-4 py-6 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
       <div className="mx-auto max-w-4xl">
@@ -133,11 +136,6 @@ export default function CustomerAccountPage({ section = 'profile' }) {
             </div>
           )}
 
-          {section === 'business' && (
-            <BusinessPortalPage>
-              <BusinessCatalogPanel />
-            </BusinessPortalPage>
-          )}
         </section>
       </div>
     </main>

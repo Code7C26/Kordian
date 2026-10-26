@@ -3218,6 +3218,47 @@ app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (r
   }
 })
 
+app.get('/business/price-history', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+  try {
+    const { data: historyRows, error } = await analysisWriter
+      .from('price_history')
+      .select('id, product_id, offer_id, observed_at, cash_price, source, product:products(name), offer:offers!inner(supermarket)')
+      .eq('offer.supermarket', req.businessStore.name)
+      .order('observed_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(500)
+    if (error) throw error
+
+    const rowsByOffer = new Map()
+    for (const row of historyRows || []) {
+      if (row.offer_id === null) continue
+      const offerId = String(row.offer_id)
+      const offerRows = rowsByOffer.get(offerId) || []
+      offerRows.push(row)
+      rowsByOffer.set(offerId, offerRows)
+    }
+
+    const history = [...rowsByOffer.values()]
+      .flatMap((offerRows) => {
+        const chronologicalRows = [...offerRows].reverse()
+        return chronologicalRows.map((row, index) => ({
+          id: row.id,
+          productName: row.product?.name || 'Producto',
+          previousPrice: index > 0 ? Number(chronologicalRows[index - 1].cash_price) : null,
+          cashPrice: Number(row.cash_price),
+          observedAt: row.observed_at,
+          source: row.source,
+        }))
+      })
+      .sort((left, right) => new Date(right.observedAt) - new Date(left.observedAt))
+
+    return res.json({ history })
+  } catch (error) {
+    console.error('Business price history listing failed', error)
+    return res.status(503).json({ error: 'No se pudo cargar el historial de precios.' })
+  }
+})
+
 app.put('/business/catalog/:productId', requireCustomerAuth, requireBusinessStore, async (req, res) => {
   const productId = Number(req.params.productId)
   const available = req.body?.available

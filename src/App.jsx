@@ -6,7 +6,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
 import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
-import { DealsSummaryBanner } from './components/DealsSummaryBanner.jsx';
 import { ReportPriceModal } from './components/ReportPriceModal.jsx';
 import { ProductCard } from './components/ProductCard.jsx';
 import { ComparisonModal } from './components/ComparisonModal.jsx';
@@ -19,7 +18,9 @@ import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 import { fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
 import { fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
-import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+import brandLogo from '../assents/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
 
 const CATEGORY_ONBOARDING_KEY = 'arprice_category_onboarding_complete';
 
@@ -109,7 +110,6 @@ export default function App() {
     () => localStorage.getItem('arprice_selected_category'),
   )
   const catalogReferenceCache = useRef(null)
-  const analysisCache = useRef(null)
   const lastCatalogRefreshKey = useRef(catalogRefreshKey)
   const analysisCache = useRef(new Map())
   const [productsPage, setProductsPage] = useState(1)
@@ -723,30 +723,6 @@ export default function App() {
             onClearSearch={() => setSearchHistory([])}
           />
 
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-[0.24em] text-sky-600 font-bold">{t('Novedades y ofertas')}</p>
-                <h2 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">{t('Ofertas destacadas y alertas de precios inflados')}</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReportModalOpen(true)}
-                className="px-4 py-2 rounded-xl bg-sky-600 text-white font-semibold text-sm hover:bg-sky-500 transition-colors"
-              >
-                {t('Reportar un precio')}
-              </button>
-            </div>
-
-            <DealsSummaryBanner
-              products={products}
-              onSelectProduct={(product) => {
-                setSelectedProductForComparison(product);
-                setViewMode('products');
-                navigate('/buscar');
-              }}
-            />
-          </div>
         </>
       ) : (
         <main id="products-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -1045,28 +1021,32 @@ export default function App() {
         </main>
       )}
 
-      <footer className="mt-16 bg-white dark:bg-stone-900 border-t border-stone-200/80 dark:border-stone-800 py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-stone-100 dark:border-stone-800 pb-8">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white">
-                  <TrendingDown className="w-4 h-4" />
-                </div>
-                <span className="text-xl font-black text-stone-900 dark:text-white">Ar-Price</span>
-              </div>
-              <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">{t('Plataforma colaborativa e independiente para la comparación de precios en tiempo real.')}</p>
+      <footer className="mt-16 border-t border-stone-200/80 bg-white py-12 dark:border-stone-800 dark:bg-stone-900">
+        <div className="mx-auto max-w-7xl space-y-8 px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-6 border-b border-stone-100 pb-8 dark:border-stone-800 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4 sm:gap-5">
+              <img
+                src={darkMode ? brandLogoDark : brandLogo}
+                alt="AR-PRICE"
+                className={`h-16 w-auto max-w-[160px] shrink-0 object-contain transition-transform duration-200 hover:scale-[1.03] ${
+                  darkMode ? 'mix-blend-screen' : ''
+                }`}
+              />
+              <span className="h-12 w-px shrink-0 bg-stone-200 dark:bg-stone-700" aria-hidden="true" />
+              <p className="max-w-md text-sm leading-relaxed text-stone-600 dark:text-stone-300">
+                {t('Plataforma colaborativa e independiente para comparar precios y encontrar mejores opciones.')}
+              </p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <button onClick={() => setReportModalOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
+              <button onClick={() => setReportModalOpen(true)} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
                 {t('Reportar precio')}
               </button>
-              <button onClick={() => setBasketOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
+              <button onClick={() => setBasketOpen(true)} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
                 {t('Ver Mi Canasta Ahorro')}
               </button>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400 font-medium">
+          <div className="flex flex-col items-center justify-between gap-4 text-xs font-medium text-stone-400 sm:flex-row">
             <p>© {new Date().getFullYear()} Ar-Price Argentina</p>
             <p>{t('Ubicación activa:')} <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
           </div>

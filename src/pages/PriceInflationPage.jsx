@@ -15,7 +15,6 @@ import { apiUrl } from '../config/api.js'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
 import { SupermarketLogo } from '../components/SupermarketLogo.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
-import { useLanguage } from '../contexts/LanguageContext.jsx'
 import { fetchProductAnalysis } from '../services/analysisApi.js'
 
 const periods = [
@@ -60,7 +59,6 @@ function formatHistoryDate(date, language) {
 
 function normalizeProducts(products, analyses = [], supermarketImages = new Map()) {
   const analysisById = new Map(analyses.map((item) => [String(item.product?.id), item]))
-function normalizeProducts(products) {
   return products
     .map((product) => {
       const offers = Array.isArray(product.offers) ? product.offers : []
@@ -73,6 +71,10 @@ function normalizeProducts(products) {
       const primaryStoreName = product.primaryStore?.name || primaryOffer?.supermarket || ''
       return {
         ...product,
+        analysis,
+        status: analysis?.classification === 'PRECIO_NORMAL'
+          ? 'EN_PRECIO'
+          : analysis?.classification || product.status,
         currentPrice,
         brand: product.brand || product.brands?.name || '',
         primaryStore: {
@@ -80,7 +82,7 @@ function normalizeProducts(products) {
           name: primaryStoreName,
           image: product.primaryStore?.image || supermarketImages.get(primaryStoreName) || '',
         },
-        priceHistory: product.priceHistory || [],
+        priceHistory: analysis?.priceHistory || product.priceHistory || [],
       }
     })
     .filter((product) => product.name && Number.isFinite(product.currentPrice) && product.currentPrice > 0)
@@ -190,7 +192,6 @@ export default function PriceInflationPage() {
           setHistoryError('No se pudo cargar el historial de precios.')
         }
         const loadedProducts = normalizeProducts(catalogProducts, analyses, supermarketImages)
-        const loadedProducts = normalizeProducts(catalogProducts)
         if (!loadedProducts.length) throw new Error('El catálogo no tiene productos disponibles para consultar.')
         setProducts(loadedProducts)
         setSelectedProductId(String(loadedProducts[0].id))
