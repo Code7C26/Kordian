@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, Heart, ShoppingBag } from 'lucide-react';
+import { BarChart3, Flag, Heart, ShoppingBag } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
@@ -9,6 +9,7 @@ import { SupermarketLogo } from './SupermarketLogo.jsx'
 export function ProductCard({
   product,
   onCompare,
+  onReport,
   onToggleFavorite,
   isFavorite,
   onAddToBasket,
@@ -37,10 +38,9 @@ export function ProductCard({
   }, [defaultOfferId]);
 
   const selectedOffer = sortedStores.find((store) => store.id === selectedOfferId) || sortedStores[0] || null;
-  const handleAddToBasket = () => {
-    // Always add the best (cheapest) available offer when clicking +Canasta
+  const getOfferToAdd = () => {
     const best = sortedStores.length ? sortedStores[0] : null;
-    const offerToAdd = best
+    return best
       ? {
           id: best.id,
           price: best.price,
@@ -48,6 +48,10 @@ export function ProductCard({
           image: best.image || '',
         }
       : selectedOffer || undefined;
+  };
+
+  const handleAddToBasket = () => {
+    const offerToAdd = getOfferToAdd();
     onAddToBasket(product, offerToAdd);
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 250);
@@ -90,6 +94,18 @@ export function ProductCard({
         >
           <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
         </button>
+
+        {onReport && (
+          <button
+            type="button"
+            onClick={() => onReport(product)}
+            className="absolute bottom-2.5 left-2.5 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-stone-200/80 bg-white/95 text-stone-700 shadow-sm backdrop-blur transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:border-stone-700 dark:bg-stone-800/95 dark:text-stone-200 dark:hover:border-rose-700 dark:hover:bg-rose-950 dark:hover:text-rose-300"
+            title={t('Reportar producto')}
+            aria-label={`${t('Reportar producto')}: ${displayName}`}
+          >
+            <Flag className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )}
 
       </div>
 
@@ -137,10 +153,10 @@ export function ProductCard({
             <span>{t('Comparar')}</span>
           </button>
 
-          <div className="relative min-w-0">
+          <div className="flex min-w-0 gap-1.5">
             <button
               onClick={handleAddToBasket}
-              className={`w-full h-11 min-w-0 flex items-center justify-center gap-1 px-2 rounded-xl text-xs font-bold transition-[background-color,box-shadow,transform] duration-200 ease-out cursor-pointer whitespace-nowrap active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-800 ${
+              className={`h-11 min-w-0 flex-1 flex items-center justify-center gap-1 px-2 rounded-xl text-xs font-bold transition-[background-color,box-shadow,transform] duration-200 ease-out cursor-pointer whitespace-nowrap active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-800 ${
                 justAdded
                   ? 'bg-white text-sky-700 border border-sky-300 shadow-md dark:bg-stone-100 dark:text-sky-800'
                   : isInBasket

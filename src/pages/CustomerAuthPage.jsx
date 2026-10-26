@@ -168,7 +168,8 @@ export default function CustomerAuthPage({ mode = 'login' }) {
               <>
                 <div>
                   <label htmlFor="customer-username" className="mb-1.5 block text-sm font-semibold">{t('Usuario')}</label>
-                  <input id="customer-username" name="username" autoComplete="username" required maxLength={32} value={username} onChange={(event) => setUsername(event.target.value)} className={fieldClass(Boolean(errors.username))} placeholder={t('Ej. cliente2026')} aria-invalid={Boolean(errors.username)} aria-describedby={errors.username ? 'username-error' : undefined} />
+                  <input id="customer-username" name="username" autoComplete="username" required minLength={6} maxLength={32} pattern="[A-Za-z0-9]{6,32}" value={username} onChange={(event) => setUsername(event.target.value)} className={fieldClass(Boolean(errors.username))} placeholder={t('Mínimo 6 caracteres alfanuméricos')} aria-invalid={Boolean(errors.username)} aria-describedby={errors.username ? 'username-error' : 'username-hint'} />
+                  <p id="username-hint" className="mt-1 text-xs text-stone-500 dark:text-stone-400">{t('Mínimo 6 caracteres; solo letras y números.')}</p>
                   {errors.username && <p id="username-error" className="mt-1 text-xs font-medium text-rose-600">{t(errors.username)}</p>}
                 </div>
                 <div>

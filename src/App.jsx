@@ -1,6 +1,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
+import { useCustomerAuth } from './contexts/CustomerAuthContext.jsx';
 import { useLanguage } from './contexts/LanguageContext.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
@@ -23,6 +24,24 @@ import brandLogo from '../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
 
 const CATEGORY_ONBOARDING_KEY = 'arprice_category_onboarding_complete';
+
+function getBasketItemDetails(product, selectedOffer = null) {
+  const offer = selectedOffer
+    ? {
+        price: Number((selectedOffer.price ?? selectedOffer.cash_price ?? selectedOffer.cashPrice ?? product.currentPrice) || 0),
+        storeId: selectedOffer.id ?? selectedOffer.storeId ?? (selectedOffer.supermarket || selectedOffer.storeName) ?? 'default',
+        storeName: selectedOffer.supermarket ?? selectedOffer.storeName ?? product.primaryStore?.name ?? 'Precio actual',
+        image: selectedOffer.image || product.primaryStore?.image || '',
+      }
+    : {
+        price: Number(product.currentPrice || 0),
+        storeId: product.primaryStore?.id || 'default',
+        storeName: product.primaryStore?.name || 'Precio actual',
+        image: product.primaryStore?.image || '',
+      }
+
+  return { offer, itemId: `${product.id}-${offer.storeId}-${offer.price}` }
+}
 
 const SORT_OPTIONS = [
   { value: 'discount-desc', label: 'Mayor ahorro', icon: Percent },
@@ -82,6 +101,13 @@ function SortMenu({ value, onChange }) {
 
 export default function App() {
   const { t } = useLanguage();
+  const {
+    user: customerUser,
+    favorites,
+    favoritesError,
+    favoritesLoading,
+    toggleFavorite: toggleCustomerFavorite,
+  } = useCustomerAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const initialViewMode = location.pathname === '/favoritos'
@@ -110,6 +136,7 @@ export default function App() {
     () => localStorage.getItem('arprice_selected_category'),
   )
   const catalogReferenceCache = useRef(null)
+  const analysisResultsCache = useRef(null)
   const lastCatalogRefreshKey = useRef(catalogRefreshKey)
   const analysisCache = useRef(new Map())
   const [productsPage, setProductsPage] = useState(1)
@@ -135,6 +162,8 @@ export default function App() {
   });
   const sortBy = filters.sortBy
   const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportProduct, setReportProduct] = useState(null);
+  const [favoriteActionError, setFavoriteActionError] = useState('');
 
   const [selectedProductForComparison, setSelectedProductForComparison] = useState(null);
   const [selectedProductForExplanation, setSelectedProductForExplanation] = useState(null);
@@ -143,6 +172,10 @@ export default function App() {
   const updateFilters = (updater) => {
     setProductsPage(1)
     setFilters(updater)
+  }
+  const openReportModal = (product = null) => {
+    setReportProduct(product)
+    setReportModalOpen(true)
   }
 
   useEffect(() => {
@@ -186,14 +219,6 @@ export default function App() {
     }
   }, [location.pathname, location.search]);
 
-  const [favorites, setFavorites] = useState(() => {
-    try {
-      const saved = localStorage.getItem('arprice_favorites');
-      return saved ? JSON.parse(saved) : ['prod-1', 'prod-4'];
-    } catch {
-      return ['prod-1', 'prod-4'];
-    }
-  });
   const favoriteIdsKey = favoritesOnlyView ? favorites.join(',') : ''
 
   const [basket, setBasket] = useState(() => {
@@ -280,10 +305,6 @@ export default function App() {
     document.body.classList.toggle('dark', darkMode);
     localStorage.setItem('arprice_theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
-
-  useEffect(() => {
-    localStorage.setItem('arprice_favorites', JSON.stringify(favorites));
-  }, [favorites]);
 
   useEffect(() => {
     localStorage.setItem('arprice_basket', JSON.stringify(basket));
@@ -406,13 +427,13 @@ export default function App() {
         }))
         setStoresList([...stores.values()])
 
-        if (!analysisCache.current && !filters.searchQuery.trim() && !favoritesOnlyView) {
+        if (!analysisResultsCache.current && !filters.searchQuery.trim() && !favoritesOnlyView) {
           setAnalysisLoadState('loading')
           fetchCachedCatalogResponse(apiUrl('/analysis/products'), { signal: controller.signal, ttlMs: 60_000 })
             .then((analysisResults) => {
               if (!Array.isArray(analysisResults)) throw new TypeError('Price analysis response must be an array')
               if (!mounted) return
-              analysisCache.current = analysisResults
+              analysisResultsCache.current = analysisResults
               setAnalysisLoadState('loaded')
               const resultsByProduct = new Map(analysisResults.map((item) => [String(item.product?.id), item]))
               setProducts((current) => current.map((product) => {
@@ -458,6 +479,7 @@ export default function App() {
 
   useEffect(() => {
     analysisCache.current.clear()
+    analysisResultsCache.current = null
   }, [catalogRefreshKey])
 
   const activeAnalysisProductId = selectedProductForExplanation?.id ?? selectedProductForComparison?.id
@@ -522,29 +544,24 @@ export default function App() {
   }, [activeAnalysisProductId, isExplanationAnalysisActive, catalogRefreshKey])
 
   const toggleFavorite = (product) => {
-    setFavorites((prev) =>
-      prev.includes(product.id) ? prev.filter((id) => id !== product.id) : [...prev, product.id]
-    );
-    if (favoritesOnlyView) setProductsPage(1)
+    if (!customerUser) {
+      navigate(`/ingresar?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`)
+      return
+    }
+
+    toggleCustomerFavorite(product.id)
+      .then(() => {
+        setFavoriteActionError('')
+        if (favoritesOnlyView) setProductsPage(1)
+      })
+      .catch((error) => {
+        console.error('Could not update account favorite', error)
+        setFavoriteActionError(error.message || 'No se pudo actualizar el favorito.')
+      })
   };
 
   const addToBasket = (product, selectedOffer = null) => {
-    // Normalize selectedOffer shapes coming from different places
-    const offer = selectedOffer
-      ? {
-          price: Number((selectedOffer.price ?? selectedOffer.cash_price ?? selectedOffer.cashPrice ?? product.currentPrice) || 0),
-          storeId: selectedOffer.id ?? selectedOffer.storeId ?? (selectedOffer.supermarket || selectedOffer.storeName) ?? 'default',
-          storeName: selectedOffer.supermarket ?? selectedOffer.storeName ?? product.primaryStore?.name ?? 'Precio actual',
-          image: selectedOffer.image || product.primaryStore?.image || '',
-        }
-      : {
-          price: Number(product.currentPrice || 0),
-          storeId: product.primaryStore?.id || 'default',
-          storeName: product.primaryStore?.name || 'Precio actual',
-          image: product.primaryStore?.image || '',
-        }
-
-    const itemId = `${product.id}-${offer.storeId}-${offer.price}`;
+    const { offer, itemId } = getBasketItemDetails(product, selectedOffer)
 
     setBasket((prev) => {
       const existing = prev.find((item) => item.id === itemId);
@@ -556,6 +573,17 @@ export default function App() {
       return [...prev, { id: itemId, product, quantity: 1, selectedOffer: offer }];
     });
   };
+
+  const removeBasketUnit = (product, selectedOffer = null) => {
+    const { itemId } = getBasketItemDetails(product, selectedOffer)
+    const basketItem = basket.find((item) => item.id === itemId)
+    if (basketItem) updateBasketQuantity(basketItem.id, -1)
+  }
+
+  const getBasketQuantity = (product, selectedOffer = null) => {
+    const { itemId } = getBasketItemDetails(product, selectedOffer)
+    return basket.find((item) => item.id === itemId)?.quantity || 0
+  }
 
   const updateBasketQuantity = (itemId, delta) => {
     setBasket((prev) =>
@@ -656,6 +684,15 @@ export default function App() {
         isAdminPage={false}
       />
 
+      {(favoriteActionError || (customerUser && favoritesError)) && (
+        <p className="mx-auto mt-4 max-w-7xl px-4 text-sm font-semibold text-rose-600 dark:text-rose-400" role="alert">
+          {t(favoriteActionError || favoritesError)}
+        </p>
+      )}
+      {customerUser && favoritesLoading && (
+        <p className="sr-only" role="status">{t('Cargando favoritos...')}</p>
+      )}
+
       {viewMode === 'favorites' ? (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
           <div className="bg-white dark:bg-stone-800 rounded-3xl border border-rose-200/80 dark:border-rose-900/80 p-5 shadow-xs sm:p-6">
@@ -697,8 +734,9 @@ export default function App() {
                   key={product.id}
                   product={product}
                   onCompare={(p) => setSelectedProductForComparison(p)}
+                  onReport={openReportModal}
                   onToggleFavorite={toggleFavorite}
-                  isFavorite={favorites.includes(product.id)}
+                  isFavorite={favorites.includes(String(product.id))}
                   onAddToBasket={addToBasket}
                   isInBasket={basket.some((item) => item.product.id === product.id)}
                 />
@@ -977,9 +1015,10 @@ export default function App() {
                     key={product.id}
                     product={product}
                     onCompare={(p) => setSelectedProductForComparison(p)}
+                    onReport={openReportModal}
                     onExplain={(p) => setSelectedProductForExplanation(p)}
                     onToggleFavorite={toggleFavorite}
-                    isFavorite={favorites.includes(product.id)}
+                    isFavorite={favorites.includes(String(product.id))}
                     onAddToBasket={addToBasket}
                     isInBasket={basket.some((i) => i.product.id === product.id)}
                   />
@@ -1038,7 +1077,7 @@ export default function App() {
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <button onClick={() => setReportModalOpen(true)} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
+              <button onClick={() => openReportModal()} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
                 {t('Reportar precio')}
               </button>
               <button onClick={() => setBasketOpen(true)} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
@@ -1058,6 +1097,8 @@ export default function App() {
           product={comparisonProduct}
           onClose={() => setSelectedProductForComparison(null)}
           onAddToBasket={addToBasket}
+          onRemoveFromBasket={removeBasketUnit}
+          getBasketQuantity={getBasketQuantity}
           isInBasket={basket.some((i) => i.product.id === comparisonProduct.id)}
           onExplain={(p) => setSelectedProductForExplanation(p)}
         />
@@ -1080,7 +1121,13 @@ export default function App() {
       )}
 
       {reportModalOpen && (
-        <ReportPriceModal onClose={() => setReportModalOpen(false)} selectedCity={selectedCity} />
+        <ReportPriceModal
+          onClose={() => setReportModalOpen(false)}
+          selectedCity={selectedCity}
+          stores={storesList}
+          storesLoading={isLoadingProducts}
+          product={reportProduct}
+        />
       )}
     </div>
 
