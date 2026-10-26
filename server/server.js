@@ -1607,6 +1607,53 @@ function scheduleRelatedPriceStatusRefresh(productId, includeScope = true, previ
 }
 
 // GET /analysis/products - return the most recently persisted status for each product
+function serializeCurrentPriceStatus(status) {
+  const details = status.analysis_details || {}
+  const nullableNumber = (value) => value === null || value === undefined || value === ''
+    ? null
+    : Number.isFinite(Number(value)) ? Number(value) : null
+  return {
+    product: { id: status.product_id },
+    classification: status.classification,
+    score: nullableNumber(status.anomaly_score),
+    offerScore: nullableNumber(status.offer_score),
+    confidence: status.confidence || null,
+    confidencePercentage: nullableNumber(status.confidence_percentage),
+    dataQuality: status.data_quality || null,
+    analyzedAt: status.analyzed_at,
+    indicators: details.indicators || null,
+    references: details.references || null,
+    priceHistory: details.priceHistory || null,
+    pricePeriods: details.pricePeriods || null,
+    populatedPeriods: nullableNumber(details.populatedPeriods),
+    evolutionAvailable: details.evolutionAvailable ?? null,
+    taxonomy: details.taxonomy || null,
+  }
+}
+
+app.get('/analysis/products/:productId', async (req, res) => {
+  try {
+    const { data, error } = await analysisWriter
+      .from('product_price_status')
+      .select('product_id, classification, anomaly_score, offer_score, confidence, confidence_percentage, data_quality, analysis_details, analyzed_at')
+      .eq('product_id', req.params.productId)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Error fetching persisted current price status', error)
+      return res.status(503).json({
+        error: 'Current price status is not available',
+        detail: 'Verify the product_price_status migration and SUPABASE_SERVICE_ROLE_KEY configuration',
+      })
+    }
+    if (!data) return res.status(404).json({ error: 'Current price status not found' })
+    return res.json(serializeCurrentPriceStatus(data))
+  } catch (error) {
+    console.error('Error fetching persisted current price status', error)
+    return res.status(500).json({ error: 'Error fetching current price status' })
+  }
+})
+
 app.get('/analysis/products', async (req, res) => {
   try {
     const analyses = []
@@ -1624,29 +1671,7 @@ app.get('/analysis/products', async (req, res) => {
           detail: 'Verify the product_price_status migration and SUPABASE_SERVICE_ROLE_KEY configuration',
         })
       }
-      analyses.push(...(data || []).map((status) => {
-        const details = status.analysis_details || {}
-        const nullableNumber = (value) => value === null || value === undefined || value === ''
-          ? null
-          : Number.isFinite(Number(value)) ? Number(value) : null
-        return {
-          product: { id: status.product_id },
-          classification: status.classification,
-          score: nullableNumber(status.anomaly_score),
-          offerScore: nullableNumber(status.offer_score),
-          confidence: status.confidence || null,
-          confidencePercentage: nullableNumber(status.confidence_percentage),
-          dataQuality: status.data_quality || null,
-          analyzedAt: status.analyzed_at,
-          indicators: details.indicators || null,
-          references: details.references || null,
-          priceHistory: details.priceHistory || null,
-          pricePeriods: details.pricePeriods || null,
-          populatedPeriods: nullableNumber(details.populatedPeriods),
-          evolutionAvailable: details.evolutionAvailable ?? null,
-          taxonomy: details.taxonomy || null,
-        }
-      }))
+      analyses.push(...(data || []).map(serializeCurrentPriceStatus))
       if ((data || []).length < pageSize) break
     }
     res.json(analyses)
