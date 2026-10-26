@@ -1,13 +1,12 @@
 import { useState } from 'react';
-import { X, TrendingDown, Store, Calendar, Info, TriangleAlert } from 'lucide-react';
+import { X, Store, Calendar, Info, Minus, TriangleAlert } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
 import { SupermarketLogo } from './SupermarketLogo.jsx'
 
-export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, onExplain, onReportPriceInflated }) {
-  const [added, setAdded] = useState(false);
+export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromBasket, getBasketQuantity, onExplain, onReportPriceInflated }) {
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const { language, t } = useLanguage();
   const translateProductName = useProductNameTranslator([product?.name]);
@@ -16,9 +15,6 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
   const displayName = translateProductName(product.name);
   const sortedStores = getProductOffers(product);
   const cheapestStore = sortedStores[0] || { price: 0, supermarket: '' };
-  const mostExpensiveStore = sortedStores[sortedStores.length - 1] || { price: 0, supermarket: '' };
-  const maxSavings = (mostExpensiveStore.price || 0) - (cheapestStore.price || 0);
-  const savingsPercentage = mostExpensiveStore.price ? (((maxSavings / mostExpensiveStore.price) * 100).toFixed(1)) : '0.0';
   const history = Array.isArray(product.priceHistory) ? product.priceHistory : [];
   const serverPeriods = Array.isArray(product.analysis?.pricePeriods) ? product.analysis.pricePeriods : [];
   const datedHistory = history
@@ -117,54 +113,6 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
         </div>
 
         <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-sky-500/10 border border-emerald-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-sm">
-                <TrendingDown className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-                  {t(sortedStores.length > 1 ? 'Brecha Máxima de Ahorro' : 'Precio disponible')}
-                </p>
-                <div className="flex items-center gap-3">
-                  <p className="text-lg font-black text-stone-900 dark:text-white">
-                    {sortedStores.length > 1
-                      ? `${t('Ahorra')} ${formatCurrency(maxSavings)} (${savingsPercentage}%) ${t('comprando en')}`
-                      : sortedStores.length === 1
-                        ? formatCurrency(cheapestStore.price)
-                        : t('No hay precios disponibles para comparar.')}
-                  </p>
-                  {sortedStores.length > 0 && (
-                    <SupermarketLogo
-                      name={cheapestStore.supermarket || cheapestStore.storeName}
-                      image={cheapestStore.image}
-                      className="h-8 max-w-20"
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {onAddToBasket && <button
-              onClick={() => {
-                try {
-                  onAddToBasket(product, cheapestStore);
-                } catch {
-                  // ignore handler errors
-                }
-                setAdded(true);
-                setTimeout(() => setAdded(false), 2500);
-              }}
-              disabled={!sortedStores.length}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-colors shrink-0"
-            >
-              {t(isInBasket ? 'Agregado a Canasta ✓' : 'Agregar a Canasta Ahorro')}
-            </button>}
-            {added && (
-              <div className="absolute top-6 right-6 bg-emerald-600 text-white px-3 py-1.5 rounded-md shadow-md text-sm">{t('Agregado a la canasta')}</div>
-            )}
-          </div>
-
           <div>
             <h3 className="text-sm font-bold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
               <Store className="w-4 h-4 text-sky-600 dark:text-sky-400" />
@@ -176,6 +124,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                 const isCheapest = hasComparison && index === 0;
                 const isMostExpensive = sortedStores.length > 1 && index === sortedStores.length - 1;
                 const diffFromCheapest = (store.price || 0) - (cheapestStore.price || 0);
+                const basketQuantity = getBasketQuantity?.(product, store) || 0;
                 return (
                   <div
                     key={store.id || index}
@@ -213,17 +162,36 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                             {formatCurrency(store.price || 0)}
                           </span>
                         </div>
-                        {onAddToBasket && <button
-                          onClick={() => {
-                            try {
-                              onAddToBasket(product, store);
-                            } catch { /* Optional basket handler. */ }
-                          }}
-                          className="ml-2 px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded-md text-sm font-bold"
-                          title={t('Agregar esta oferta a la canasta')}
-                        >
-                          +
-                        </button>}
+                        <div className="ml-2 flex items-center gap-1">
+                          {onRemoveFromBasket && (
+                            <button
+                              type="button"
+                              onClick={() => onRemoveFromBasket(product, store)}
+                              disabled={!basketQuantity}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+                              title={t('Quitar una unidad de la canasta')}
+                              aria-label={`${t('Quitar una unidad de la canasta')}: ${displayName}`}
+                            >
+                              <Minus className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                          )}
+                          {onAddToBasket && <button
+                            type="button"
+                            onClick={() => onAddToBasket(product, store)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sky-600 text-sm font-bold text-white hover:bg-sky-500"
+                            title={t('Agregar esta oferta a la canasta')}
+                            aria-label={`${t('Agregar esta oferta a la canasta')}: ${displayName}`}
+                          >
+                            +
+                          </button>}
+                          <span
+                            className="inline-flex h-8 min-w-8 items-center justify-center rounded-md border border-sky-200 bg-sky-50 px-2 text-sm font-bold tabular-nums text-sky-800 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-200"
+                            aria-label={`${basketQuantity} ${t('unidades en la canasta')}`}
+                            title={t('Cantidad en la canasta')}
+                          >
+                            {basketQuantity}
+                          </span>
+                        </div>
                         {onReportPriceInflated && (
                           <button
                             type="button"

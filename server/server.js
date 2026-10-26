@@ -2718,8 +2718,8 @@ app.post('/auth/customer-register', async (req, res) => {
     const username = String(req.body?.username || '').trim().toLowerCase()
     const email = String(req.body?.email || '').trim().toLowerCase()
     const password = String(req.body?.password || '')
-    if (!/^[a-z0-9]{1,32}$/.test(username)) {
-      return res.status(400).json({ error: 'El usuario debe tener solo letras y números (máximo 32).' })
+    if (!/^[a-z0-9]{6,32}$/.test(username)) {
+      return res.status(400).json({ error: 'El usuario debe tener entre 6 y 32 caracteres alfanuméricos.' })
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' })
