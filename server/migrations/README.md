@@ -204,10 +204,13 @@ Para desplegar el backend que usa las RPC de paginación, hidratación por IDs, 
 3. `20261013_catalog_page_cache_limit.sql`
 4. `20261013_catalog_search_index_cache.sql`
 5. `20261019_catalog_status_filters.sql`
+6. `20261026_catalog_global_sort.sql`
 
 Si alguna ya fue aplicada, no hace falta repetirla; continuar con la primera pendiente. La migración `20261013_catalog_search_index_cache.sql` conserva el límite de 100 productos por página y agrega el índice ordenado que el servidor usa para hidratar las páginas siguientes sin repetir la búsqueda completa en Supabase. La migración `20261019_catalog_status_filters.sql` permite que los filtros rápidos usen la última clasificación guardada aunque su actualización esté pendiente. El frontend solicita una página por vez; el backend conserva hasta 10 índices de consulta en una caché LRU en memoria, reutilizada al recorrer páginas y separada por búsqueda y filtros. Se descartan al salir del conjunto LRU o al reiniciar Render. Los productos de cada página se vuelven a hidratar desde Supabase.
 
 El endpoint `/products` incluye `X-Catalog-Cache: MISS` cuando calcula un nuevo índice y `X-Catalog-Cache: HIT` cuando reutiliza un índice reciente, incluso para repetir la misma página. Para leer este encabezado desde el navegador, el backend lo expone mediante CORS. `/taxonomy` obtiene los conteos con `catalog_taxonomy_counts`.
+
+La migración `20261026_catalog_global_sort.sql` da prioridad al orden seleccionado sobre la relevancia de búsqueda y la marca antes de paginar. Así, precio, ahorro y nombre se ordenan sobre todo el conjunto filtrado y no solo dentro de la página actual.
 
 La aplicacion no incluye credenciales de propietario de Supabase, por lo que la migracion debe ejecutarse desde el SQL Editor, Supabase CLI autenticado o un pipeline de migraciones del proyecto. La clave anon del backend solo sirve para operaciones permitidas por RLS y no puede crear tablas.
 

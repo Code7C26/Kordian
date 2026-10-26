@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Header } from '../components/Header.jsx'
 import ProductForm from '../components/ProductForm.jsx'
@@ -177,6 +177,8 @@ export default function Admin() {
   const [productPage, setProductPage] = useState(1)
   const [productPageSize, setProductPageSize] = useState(20)
   const [totalProductCount, setTotalProductCount] = useState(0)
+  const [productLoadError, setProductLoadError] = useState('')
+  const productRequestId = useRef(0)
 
   // Toast
   const [toast, setToast] = useState({
@@ -257,7 +259,8 @@ export default function Admin() {
   // PRODUCTOS
   // =========================================================
 
-  const loadProducts = async (page = productPage) => {
+  const loadProducts = useCallback(async (page = productPage) => {
+    const requestId = ++productRequestId.current
     try {
       const params = new URLSearchParams({
         page: String(page),
@@ -283,14 +286,23 @@ export default function Admin() {
       const response = await apiFetch(
         `/products?${params.toString()}`,
       )
-
-      const payload = await response.json()
+      const payload = await readApiResponse(
+        response,
+        'No se pudieron cargar los productos',
+      )
 
       const data = Array.isArray(payload)
         ? payload
-        : payload.data || []
+        : payload.data
+
+      if (!Array.isArray(data)) {
+        throw new Error('La API devolvió una lista de productos inválida')
+      }
+
+      if (requestId !== productRequestId.current) return
 
       setProducts(data)
+      setProductLoadError('')
 
       setTotalProductCount(
         Array.isArray(payload)
@@ -299,8 +311,18 @@ export default function Admin() {
       )
     } catch (error) {
       console.error('Error cargando productos:', error)
+      if (requestId === productRequestId.current) {
+        setProductLoadError(error.message || 'No se pudieron cargar los productos')
+      }
     }
-  }
+  }, [
+    productPage,
+    productPageSize,
+    productSearch,
+    productCategoryFilter,
+    productSubcategoryFilter,
+    productBrandFilter,
+  ])
 
   const resetProductForm = () => {
     setEditingProduct(null)
@@ -479,6 +501,15 @@ export default function Admin() {
         offer.installment_price || '',
       subcategory_id:
         product.subcategory_id || '',
+    })
+
+    window.requestAnimationFrame(() => {
+      const productForm = document.getElementById('admin-product-form')
+      productForm?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+      productForm?.focus({ preventScroll: true })
     })
   }
 
@@ -2106,7 +2137,18 @@ export default function Admin() {
   }, [activePage, loadPriceReports])
 
   useEffect(() => {
-    loadProducts(productPage)
+    const timeoutId = window.setTimeout(
+      () => loadProducts(productPage),
+      productSearch.trim() ? 300 : 0,
+    )
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      productRequestId.current += 1
+    }
+  }, [loadProducts, productPage, productSearch])
+
+  useEffect(() => {
     loadAdmins()
     loadCategories()
     loadBrands()
@@ -2117,25 +2159,7 @@ export default function Admin() {
     loadDiscoImportStatus()
     loadCrossSourceReview()
     loadReviewDecisions()
-  }, [
-    productPage,
-    productPageSize,
-    productSearch,
-    productCategoryFilter,
-    productSubcategoryFilter,
-    productBrandFilter,
-  ])
-
-  useEffect(() => {
-    if (productPage !== 1) {
-      setProductPage(1)
-    }
-  }, [
-    productSearch,
-    productCategoryFilter,
-    productSubcategoryFilter,
-    productBrandFilter,
-  ])
+  }, [])
 
   useEffect(() => {
     window.addEventListener(
@@ -2895,12 +2919,13 @@ export default function Admin() {
                     value={
                       productSearch
                     }
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      setProductPage(1)
                       setProductSearch(
                         event.target
                           .value,
                       )
-                    }
+                    }}
                   />
 
                   <select
@@ -2909,6 +2934,7 @@ export default function Admin() {
                       productCategoryFilter
                     }
                     onChange={(event) => {
+                      setProductPage(1)
                       setProductCategoryFilter(
                         event.target
                           .value,
@@ -2945,12 +2971,13 @@ export default function Admin() {
                     value={
                       productSubcategoryFilter
                     }
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      setProductPage(1)
                       setProductSubcategoryFilter(
                         event.target
                           .value,
                       )
-                    }
+                    }}
                     disabled={
                       !productCategoryFilter
                     }
@@ -2996,12 +3023,13 @@ export default function Admin() {
                     value={
                       productBrandFilter
                     }
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      setProductPage(1)
                       setProductBrandFilter(
                         event.target
                           .value,
                       )
-                    }
+                    }}
                   >
                     <option value="">
                       Todas las marcas
@@ -3423,6 +3451,15 @@ export default function Admin() {
                     ),
                   )}
                 </div>
+                {productLoadError ? (
+                  <p role="alert" className="mt-4 text-sm text-rose-600 dark:text-rose-400">
+                    {productLoadError}
+                  </p>
+                ) : products.length === 0 ? (
+                  <p className="mt-4 text-sm text-stone-500 dark:text-stone-400">
+                    No se encontraron productos con esos filtros.
+                  </p>
+                ) : null}
               </section>
             </>
           )}

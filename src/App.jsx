@@ -15,8 +15,9 @@ import PriceExplanationModal from './components/PriceExplanationModal.jsx';
 import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
+import { hasActiveCatalogFilters, resetCatalogFilters } from './utils/catalogFilters.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
-import { fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
+import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
 import { fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
@@ -41,6 +42,10 @@ function getBasketItemDetails(product, selectedOffer = null) {
       }
 
   return { offer, itemId: `${product.id}-${offer.storeId}-${offer.price}` }
+function getDiscoveryPage(total, pageSize) {
+  const totalPages = Math.ceil(total / pageSize)
+  if (totalPages <= 1) return 1
+  return Math.floor(Math.random() * (totalPages - 1)) + 2
 }
 
 const SORT_OPTIONS = [
@@ -129,7 +134,7 @@ export default function App() {
   const [products, setProducts] = useState([])
   const [catalogTotal, setCatalogTotal] = useState(0)
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
-  const [catalogLoadError, setCatalogLoadError] = useState(false)
+  const [catalogLoadError, setCatalogLoadError] = useState(null)
   const [analysisLoadState, setAnalysisLoadState] = useState('idle')
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
   const [selectedCategory, setSelectedCategory] = useState(
@@ -180,7 +185,12 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    setProductsPage(1)
+    const routePage = Number(params.get('page'))
+    setProductsPage(
+      location.pathname === '/buscar' && Number.isSafeInteger(routePage) && routePage > 0
+        ? routePage
+        : 1,
+    )
     setViewMode(
       location.pathname === '/buscar'
         ? 'products'
@@ -189,34 +199,37 @@ export default function App() {
           : 'categories'
     );
     setFavoritesOnlyView(location.pathname === '/favoritos');
+    let routeFilters
     if (location.pathname === '/buscar') {
-      setFilters((previous) => ({
-        ...previous,
+      routeFilters = {
         searchQuery: params.get('q') ?? '',
         category: params.get('category') ?? 'todos',
         subcategory: 'todos',
         priceStatus: params.get('deals') === '1' ? 'OFERTA' : 'todos',
-      }));
+      }
     } else if (
       location.pathname === '/'
       && localStorage.getItem(CATEGORY_ONBOARDING_KEY) === 'true'
     ) {
-      setFilters((previous) => ({
-        ...previous,
+      routeFilters = {
         searchQuery: '',
         category: localStorage.getItem('arprice_selected_category') || 'todos',
         subcategory: 'todos',
         priceStatus: 'todos',
-      }));
+      }
     } else {
-      setFilters((previous) => ({
-        ...previous,
+      routeFilters = {
         searchQuery: '',
         category: 'todos',
         subcategory: 'todos',
         priceStatus: 'todos',
-      }));
+      }
     }
+    setFilters((previous) => (
+      Object.entries(routeFilters).every(([key, value]) => previous[key] === value)
+        ? previous
+        : { ...previous, ...routeFilters }
+    ))
   }, [location.pathname, location.search]);
 
   const favoriteIdsKey = favoritesOnlyView ? favorites.join(',') : ''
@@ -262,7 +275,13 @@ export default function App() {
     }
     setFavoritesOnlyView(false)
     setViewMode('products')
-    navigate(query ? `/buscar?q=${encodeURIComponent(query)}` : '/buscar')
+    const discoveryPage = query
+      ? 1
+      : getDiscoveryPage(catalogTotal, productsPageSize)
+    setProductsPage(discoveryPage)
+    navigate(query
+      ? `/buscar?q=${encodeURIComponent(query)}`
+      : `/buscar?page=${discoveryPage}`)
   }
 
   const handleQuickSearch = (query) => {
@@ -318,11 +337,11 @@ export default function App() {
     const bypassProductCache = lastCatalogRefreshKey.current !== catalogRefreshKey
     lastCatalogRefreshKey.current = catalogRefreshKey
     setIsLoadingProducts(true)
-    setCatalogLoadError(false)
+    setCatalogLoadError(null)
     const loadData = async () => {
       const requestTimeout = setTimeout(() => {
         controller.abort(new DOMException('Catalog request timed out', 'TimeoutError'))
-      }, 15000)
+      }, CATALOG_REQUEST_TIMEOUT_MS)
       try {
         const query = buildProductsQuery({
           page: productsPage,
@@ -415,7 +434,7 @@ export default function App() {
         setTaxonomy(taxonomyData || [])
         setProducts(enriched)
         setCatalogTotal(total)
-        setCatalogLoadError(false)
+        setCatalogLoadError(null)
 
         const stores = new Map()
         ;(supermarkets || []).forEach((supermarket) => {
@@ -457,9 +476,12 @@ export default function App() {
             })
         }
       } catch (error) {
-        if (!mounted || error.name === 'AbortError') return
+        if (!mounted) return
+        const timedOut = error.name === 'TimeoutError'
+          || controller.signal.reason?.name === 'TimeoutError'
+        if (error.name === 'AbortError' && !timedOut) return
         console.error('Error loading data', error)
-        setCatalogLoadError(true)
+        setCatalogLoadError(timedOut ? 'timeout' : 'request')
         setProducts([])
         setCatalogTotal(0)
         setStoresList([])
@@ -469,13 +491,13 @@ export default function App() {
       }
     }
 
-    searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? 250 : 0)
+    searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? 400 : 0)
     return () => {
       mounted = false
       controller.abort()
       clearTimeout(searchTimer)
     }
-  }, [filters, productsPage, productsPageSize, selectedCity, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView])
+  }, [filters, productsPage, productsPageSize, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView])
 
   useEffect(() => {
     analysisCache.current.clear()
@@ -803,18 +825,10 @@ export default function App() {
               <span className="font-semibold text-stone-600 dark:text-stone-300">
                 {t('Mostrando ')}<strong className="text-sky-600 dark:text-sky-400 font-extrabold">{paginatedProducts.length}</strong>{t(' productos · Página ')}{productsPage}{t(' de ')}{totalPages}
               </span>
-              {(filters.category !== 'todos' || filters.subcategory !== 'todos' || filters.searchQuery || filters.store !== 'todos' || favoritesOnlyView) && (
+              {(hasActiveCatalogFilters(filters) || favoritesOnlyView) && (
                 <button
                   onClick={() => {
-                    updateFilters({
-                      category: filters.category,
-                      searchQuery: '',
-                      store: 'todos',
-                      subcategory: 'todos',
-                      priceStatus: 'todos',
-                      sortBy: 'discount-desc',
-                      maxPrice: 1000000,
-                    });
+                    updateFilters(resetCatalogFilters(filters, { preserveCategory: true }));
                     setFavoritesOnlyView(false);
                   }}
                   className="flex items-center gap-1 text-rose-500 hover:underline font-bold cursor-pointer"
@@ -971,14 +985,18 @@ export default function App() {
               <AlertTriangle className="h-10 w-10" aria-hidden="true" />
               <div>
                 <h3 className="text-xl font-bold">{t('No se pudieron cargar los productos actuales.')}</h3>
-                <p className="mt-2 text-sm">{t('No se muestran productos para evitar información desactualizada.')}</p>
+                <p className="mt-2 text-sm">
+                  {catalogLoadError === 'timeout'
+                    ? t('La consulta está tardando más de lo esperado. Puede ser una demora temporal del servicio; intenta nuevamente.')
+                    : t('No fue posible completar la consulta del catálogo. Intenta nuevamente.')}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setCatalogRefreshKey((key) => key + 1)}
                 className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
               >
-                {t('Reintentar conexión')}
+                {t('Reintentar búsqueda')}
               </button>
             </div>
           ) : filteredProducts.length === 0 ? (
@@ -992,14 +1010,7 @@ export default function App() {
               <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">{t('Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.')}</p>
               <button
                 onClick={() => {
-                  updateFilters({
-                    category: 'todos',
-                    searchQuery: '',
-                    store: 'todos',
-                    subcategory: 'todos',
-                    sortBy: 'discount-desc',
-                    maxPrice: 1000000,
-                  });
+                  updateFilters(resetCatalogFilters(filters));
                   setFavoritesOnlyView(false);
                 }}
                 className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
