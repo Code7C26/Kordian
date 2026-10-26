@@ -11,7 +11,7 @@ Slogan: **Tecnología que crece con vos.**
 Slogan: **Tecnología que crece con vos.**
 
 <p align="center">
-  <img src="assents/Ar-Price/gif_avion.gif>
+  <img src="assents/Ar-Price/gif_avion.gif">
 </p>
 
 ## Descripción del Proyecto
