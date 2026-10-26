@@ -35,6 +35,24 @@ El health check de la API está disponible en `/health`. Antes del despliegue,
 aplicar en Supabase las migraciones indicadas en
 [`server/migrations/README.md`](./server/migrations/README.md).
 
+### Traducción de nombres de productos
+
+Los nombres de productos se traducen solo para mostrarlos en inglés; no se
+guardan traducciones en Supabase. Para traducir nombres que todavía no estén en
+el glosario local, configurar en el backend una instancia propia compatible con
+LibreTranslate:
+
+- `TRANSLATION_SERVICE_URL`: URL del endpoint `/translate`, accesible desde el
+  servidor de AR-PRICE.
+- `TRANSLATION_SERVICE_API_KEY`: clave opcional si la instancia la requiere.
+
+Por ejemplo, si ambos servicios comparten una red Docker, la URL puede ser
+`http://libretranslate:5000/translate`. En Render u otro hosting, usar la URL
+privada o pública de la instancia que el backend pueda alcanzar. Reiniciar o
+desplegar la API después de configurar las variables. Las traducciones se
+almacenan en caché en memoria del backend y en el almacenamiento local del
+navegador, no en la base de datos.
+
 ---
 
 ## Integrantes del Equipo

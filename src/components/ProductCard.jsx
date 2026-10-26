@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react';
-import { 
-  BarChart3, 
-  Heart, 
-  ShoppingBag, 
-} from 'lucide-react';
+import { BarChart3, Heart, ShoppingBag } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
-import { useLanguage } from '../contexts/LanguageContext.jsx';
+import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
+import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 export function ProductCard({
   product,
@@ -19,6 +16,8 @@ export function ProductCard({
 }) {
   const [justAdded, setJustAdded] = useState(false);
   const { t } = useLanguage();
+  const translateProductName = useProductNameTranslator([product.name]);
+  const displayName = translateProductName(product.name);
   const [selectedOfferId, setSelectedOfferId] = useState(null);
   const isInflated = product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO';
   const statusLabel = product.status === 'OFERTA'
@@ -41,7 +40,14 @@ export function ProductCard({
   const handleAddToBasket = () => {
     // Always add the best (cheapest) available offer when clicking +Canasta
     const best = sortedStores.length ? sortedStores[0] : null;
-    const offerToAdd = best ? { id: best.id, price: best.price, supermarket: best.supermarket || best.storeName } : selectedOffer || undefined;
+    const offerToAdd = best
+      ? {
+          id: best.id,
+          price: best.price,
+          supermarket: best.supermarket || best.storeName,
+          image: best.image || '',
+        }
+      : selectedOffer || undefined;
     onAddToBasket(product, offerToAdd);
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 250);
@@ -52,8 +58,8 @@ export function ProductCard({
       <div className="relative aspect-square w-full bg-stone-50 dark:bg-stone-900/60 p-4 flex items-center justify-center overflow-hidden border-b border-stone-100 dark:border-stone-800 shrink-0">
         <ProductImage
           src={product.image}
-          alt={product.name || 'Producto'}
-          productName={product.name}
+          alt={displayName || t('Producto')}
+          productName={displayName}
           productCategory={product.categories?.name || product.category?.name || product.category || product.subcategory || 'Producto'}
           showDetails
           iconSize="small"
@@ -97,7 +103,7 @@ export function ProductCard({
           </div>
 
           <h3 className="text-sm font-bold text-stone-900 dark:text-white line-clamp-2 h-10 leading-snug group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
-            {product.name}
+            {displayName}
           </h3>
           <p className="text-xs font-semibold text-stone-500 dark:text-stone-400 truncate">
             {product.brand || t('Marca no disponible')}
@@ -114,19 +120,11 @@ export function ProductCard({
             <span className="text-2xl font-black text-stone-900 dark:text-white tracking-tight">
               {formatCurrency(product.currentPrice)}
             </span>
-            {product.primaryStore?.image ? (
-              <img
-                src={product.primaryStore.image}
-                alt={product.primaryStore.name || t('Supermercado')}
-                title={product.primaryStore.name || t('Supermercado')}
-                className="h-8 max-w-[38%] rounded-lg object-contain"
-                loading="lazy"
-              />
-            ) : (
-              <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-700 shadow-xs max-w-[52%] truncate">
-                {product.primaryStore?.name || t('Sin supermercado')}
-              </span>
-            )}
+            <SupermarketLogo
+              name={product.primaryStore?.name || t('Sin supermercado')}
+              image={product.primaryStore?.image}
+              className="h-8 max-w-[38%]"
+            />
           </div>
         </div>
 

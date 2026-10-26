@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Percent, TrendingUp } from 'lucide-react';
 import { formatCurrency, formatPercentage } from '../utils/formatters';
 import { ProductImage } from './ProductImage';
+import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 const cleanProductName = (name) => (name || 'Producto')
   .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ml|l|kg|g|mg|cm|mm|unidades?|uds?|u)\s*$/i, '')
@@ -90,9 +91,11 @@ export function DealsSummaryBanner({ products, onSelectProduct }) {
                 <span className="font-extrabold text-stone-900 dark:text-white">
                   {formatCurrency(product.currentPrice)}
                 </span>
-                <span className="text-stone-400 truncate max-w-[80px]">
-                  {product.primaryStore.name}
-                </span>
+                <SupermarketLogo
+                  name={product.primaryStore?.name || 'Supermercado'}
+                  image={product.primaryStore?.image}
+                  className="h-7 max-w-16"
+                />
               </div>
             </div>
           </button>

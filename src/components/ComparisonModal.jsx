@@ -3,14 +3,17 @@ import { X, TrendingDown, Store, Calendar, Info, TriangleAlert } from 'lucide-re
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
-import { useLanguage } from '../contexts/LanguageContext.jsx';
+import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
+import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, onExplain, onReportPriceInflated }) {
   const [added, setAdded] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const { language, t } = useLanguage();
+  const translateProductName = useProductNameTranslator([product?.name]);
   const dateLocale = language === 'en' ? 'en-US' : 'es-AR';
   if (!product) return null;
+  const displayName = translateProductName(product.name);
   const sortedStores = getProductOffers(product);
   const cheapestStore = sortedStores[0] || { price: 0, supermarket: '' };
   const mostExpensiveStore = sortedStores[sortedStores.length - 1] || { price: 0, supermarket: '' };
@@ -94,14 +97,14 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
       <div className="relative w-full max-w-3xl bg-white dark:bg-stone-800 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-700 overflow-hidden my-8" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between p-6 border-b border-stone-200/80 dark:border-stone-700/80 bg-stone-50/50 dark:bg-stone-900/40">
           <div className="flex items-center gap-4">
-            <ProductImage src={product.image} alt={product.name} productName={product.name} productCategory={product.categories?.name || product.category?.name || product.category || product.subcategory} iconSize="large" className="w-24 h-24 rounded-2xl border border-stone-200 dark:border-stone-700 shrink-0" />
+            <ProductImage src={product.image} alt={displayName} productName={displayName} productCategory={product.categories?.name || product.category?.name || product.category || product.subcategory} iconSize="large" className="w-24 h-24 rounded-2xl border border-stone-200 dark:border-stone-700 shrink-0" />
             <div>
               <div className="flex items-center gap-2 text-xs font-semibold text-sky-600 dark:text-sky-400 uppercase tracking-wider">
                 <span>{product.brand}</span>
                 <span>•</span>
                 <span>{product.subcategory}</span>
               </div>
-              <h2 className="text-xl font-bold text-stone-900 dark:text-white leading-tight">{product.name}</h2>
+              <h2 className="text-xl font-bold text-stone-900 dark:text-white leading-tight">{displayName}</h2>
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
                 {t('Precios disponibles en ')}{sortedStores.length} {t(sortedStores.length === 1 ? 'comercio' : 'comercios')}
               </p>
@@ -123,17 +126,26 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                 <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
                   {t(sortedStores.length > 1 ? 'Brecha Máxima de Ahorro' : 'Precio disponible')}
                 </p>
-                <p className="text-lg font-black text-stone-900 dark:text-white">
-                  {sortedStores.length > 1
-                    ? `${t('Ahorra')} ${formatCurrency(maxSavings)} (${savingsPercentage}%) ${t('comprando en')} ${cheapestStore.supermarket || cheapestStore.storeName || '—'}`
-                    : sortedStores.length === 1
-                      ? `${formatCurrency(cheapestStore.price)} ${t('disponible en')} ${cheapestStore.supermarket || cheapestStore.storeName}`
-                      : t('No hay precios disponibles para comparar.')}
-                </p>
+                <div className="flex items-center gap-3">
+                  <p className="text-lg font-black text-stone-900 dark:text-white">
+                    {sortedStores.length > 1
+                      ? `${t('Ahorra')} ${formatCurrency(maxSavings)} (${savingsPercentage}%) ${t('comprando en')}`
+                      : sortedStores.length === 1
+                        ? formatCurrency(cheapestStore.price)
+                        : t('No hay precios disponibles para comparar.')}
+                  </p>
+                  {sortedStores.length > 0 && (
+                    <SupermarketLogo
+                      name={cheapestStore.supermarket || cheapestStore.storeName}
+                      image={cheapestStore.image}
+                      className="h-8 max-w-20"
+                    />
+                  )}
+                </div>
               </div>
             </div>
 
-            <button
+            {onAddToBasket && <button
               onClick={() => {
                 try {
                   onAddToBasket(product, cheapestStore);
@@ -147,7 +159,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-colors shrink-0"
             >
               {t(isInBasket ? 'Agregado a Canasta ✓' : 'Agregar a Canasta Ahorro')}
-            </button>
+            </button>}
             {added && (
               <div className="absolute top-6 right-6 bg-emerald-600 text-white px-3 py-1.5 rounded-md shadow-md text-sm">{t('Agregado a la canasta')}</div>
             )}
@@ -176,14 +188,13 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      {store.image ? (
-                        <img src={store.image} alt="" className="w-10 h-10 rounded-xl object-contain shrink-0 bg-white" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl font-black text-xs flex items-center justify-center shrink-0 bg-stone-200 dark:bg-stone-700">{(store.supermarket || '').slice(0, 1).toUpperCase()}</div>
-                      )}
+                      <SupermarketLogo
+                        name={store.supermarket || store.storeName || t('Sin nombre')}
+                        image={store.image}
+                        className="h-10 w-16"
+                      />
                       <div className="flex-1 text-center">
                         <div className="flex items-center justify-center gap-2 flex-wrap">
-                          <span className="font-bold text-stone-900 dark:text-white text-sm">{store.supermarket || store.storeName || t('Sin nombre')}</span>
                           {isCheapest && <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-extrabold text-[10px]">{t('MÁS BARATO')}</span>}
                           {isMostExpensive && <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-extrabold text-[10px]">{t('MÁS CARO')}</span>}
                         </div>
@@ -202,7 +213,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                             {formatCurrency(store.price || 0)}
                           </span>
                         </div>
-                        <button
+                        {onAddToBasket && <button
                           onClick={() => {
                             try {
                               onAddToBasket(product, store);
@@ -212,14 +223,14 @@ export function ComparisonModal({ product, onClose, onAddToBasket, isInBasket, o
                           title={t('Agregar esta oferta a la canasta')}
                         >
                           +
-                        </button>
+                        </button>}
                         {onReportPriceInflated && (
                           <button
                             type="button"
                             onClick={() => onReportPriceInflated(product, store)}
                             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300 dark:hover:bg-rose-900/70"
                             title={`Reportar precio de ${store.supermarket || store.storeName || 'este comercio'}`}
-                            aria-label={`Reportar precio inflado de ${product.name} en ${store.supermarket || store.storeName || 'este comercio'}`}
+                            aria-label={`${t('Reportar precio inflado de ')}${displayName} ${t('en ')}${store.supermarket || store.storeName || t('este comercio')}`}
                           >
                             <TriangleAlert className="h-4 w-4" aria-hidden="true" />
                           </button>

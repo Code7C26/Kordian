@@ -11,7 +11,7 @@ import { ProductCard } from './components/ProductCard.jsx';
 import { ComparisonModal } from './components/ComparisonModal.jsx';
 import { SmartBasketModal } from './components/SmartBasketModal.jsx';
 import PriceExplanationModal from './components/PriceExplanationModal.jsx';
-import { MOCK_PRODUCTS, CATEGORIES as MOCK_CATEGORIES } from './data/mockProducts.js';
+import { MOCK_PRODUCTS } from './data/mockProducts.js';
 import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
@@ -102,7 +102,7 @@ export default function App() {
   });
 
   const { selectedCity, setSelectedCity } = useSelectedCity();
-  const [categories, setCategories] = useState(MOCK_CATEGORIES)
+  const [categories, setCategories] = useState([])
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
@@ -223,12 +223,18 @@ export default function App() {
         const referencesPromise = catalogReferenceCache.current
           ? Promise.resolve(catalogReferenceCache.current)
           : Promise.all([
-            fetch(apiUrl('/categories'), { signal: controller.signal }),
+            fetch(apiUrl('/categories'), { signal: controller.signal, cache: 'no-store' })
+              .then(async (response) => {
+                const categories = response.ok ? await response.json() : []
+                const currentCategories = Array.isArray(categories) ? categories : []
+                if (mounted) setCategories(currentCategories)
+                return currentCategories
+              }),
             fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
             fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
           ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
             const references = {
-              categories: categoriesResponse.ok ? await categoriesResponse.json() : [],
+              categories: categoriesResponse,
               taxonomy: taxonomyResponse.ok ? await taxonomyResponse.json() : [],
               supermarkets: supermarketsResponse.ok ? await supermarketsResponse.json() : [],
             }
@@ -319,7 +325,9 @@ export default function App() {
             brand: p.brand || p.brands?.name || '',
             subcategory: p.subcategory || p.subcategories?.name || '',
             currentPrice,
-            primaryStore: primary ? { name: primary.supermarket, id: primary.id } : { name: '', id: null },
+            primaryStore: primary
+              ? { name: primary.supermarket, id: primary.id, image: primary.image || '' }
+              : { name: '', id: null },
             avgMarketPrice,
             percentageDiff,
             status: analysisStatus || status,
@@ -358,7 +366,6 @@ export default function App() {
           otherStores: Array.isArray(p.otherStores) ? p.otherStores : [],
         }))
 
-        setCategories(MOCK_CATEGORIES)
         setProducts(enriched)
 
         const storesSet = new Set()

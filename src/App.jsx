@@ -1,6 +1,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
+import { useLanguage } from './contexts/LanguageContext.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
 import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
@@ -15,7 +16,7 @@ import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
-import { fetchAnalysisProducts } from './services/analysisApi.js';
+import { fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, TrendingDown, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 
@@ -28,24 +29,8 @@ const SORT_OPTIONS = [
   { value: 'name-asc', label: 'Nombre A-Z', icon: ArrowDownAZ },
 ]
 
-function getCategoryCacheKey() {
-  return `arprice_categories:${apiUrl('/categories')}`
-}
-
-function readCachedCategories() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(getCategoryCacheKey()) || 'null')
-    return Array.isArray(saved) && saved.length > 0 && saved.every((category) =>
-      category && category.id != null && typeof category.name === 'string'
-    )
-      ? saved
-      : []
-  } catch {
-    return []
-  }
-}
-
 function SortMenu({ value, onChange }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const selectedOption = SORT_OPTIONS.find((option) => option.value === value) || SORT_OPTIONS[0];
   const SelectedIcon = selectedOption.icon;
@@ -61,12 +46,12 @@ function SortMenu({ value, onChange }) {
       >
         <span className="flex min-w-0 items-center gap-2">
           <SelectedIcon className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
-          <span className="truncate">{selectedOption.label}</span>
+          <span className="truncate">{t(selectedOption.label)}</span>
         </span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-xl dark:border-stone-700 dark:bg-stone-800" role="listbox" aria-label="Ordenar lista por">
+        <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-xl dark:border-stone-700 dark:bg-stone-800" role="listbox" aria-label={t('Ordenar lista por')}>
           {SORT_OPTIONS.map((option) => {
             const OptionIcon = option.icon;
             const isSelected = option.value === value;
@@ -83,7 +68,7 @@ function SortMenu({ value, onChange }) {
                 className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors ${isSelected ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300' : 'text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-stone-700'}`}
               >
                 <OptionIcon className="h-4 w-4 shrink-0 text-sky-500" aria-hidden="true" />
-                <span>{option.label}</span>
+                <span>{t(option.label)}</span>
               </button>
             );
           })}
@@ -94,6 +79,7 @@ function SortMenu({ value, onChange }) {
 }
 
 export default function App() {
+  const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
   const initialViewMode = location.pathname === '/favoritos'
@@ -110,10 +96,7 @@ export default function App() {
   });
 
   const { selectedCity, setSelectedCity } = useSelectedCity();
-  const { user, favorites, favoritesLoading, favoritesError, toggleFavorite: updateFavorite } = useCustomerAuth();
-  const [favoriteNotice, setFavoriteNotice] = useState('');
-  const [categories, setCategories] = useState(readCachedCategories)
-  const [categories, setCategories] = useState(MOCK_CATEGORIES)
+  const [categories, setCategories] = useState([])
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
   const [catalogTotal, setCatalogTotal] = useState(0)
@@ -126,6 +109,7 @@ export default function App() {
   )
   const catalogReferenceCache = useRef(null)
   const analysisCache = useRef(null)
+  const lastCatalogRefreshKey = useRef(catalogRefreshKey)
   const [productsPage, setProductsPage] = useState(1)
   const productsPageSize = 20
   const initialSearchParams = new URLSearchParams(location.search)
@@ -308,6 +292,8 @@ export default function App() {
     let mounted = true
     const controller = new AbortController()
     let searchTimer
+    const bypassProductCache = lastCatalogRefreshKey.current !== catalogRefreshKey
+    lastCatalogRefreshKey.current = catalogRefreshKey
     setIsLoadingProducts(true)
     setCatalogLoadError(false)
     const loadData = async () => {
@@ -331,48 +317,36 @@ export default function App() {
         const referencesPromise = catalogReferenceCache.current
           ? Promise.resolve(catalogReferenceCache.current)
           : Promise.all([
-            fetch(apiUrl('/categories'), { signal: controller.signal })
-              .then(async (response) => {
-                const data = response.ok ? await response.json() : []
-                const freshCategories = Array.isArray(data) ? data : []
-                if (freshCategories.length > 0) {
-                  try {
-                    localStorage.setItem(getCategoryCacheKey(), JSON.stringify(freshCategories))
-                  } catch (error) {
-                    console.warn('Could not cache categories', error)
-                  }
-                  if (mounted) setCategories(freshCategories)
-                }
-                return freshCategories
-              }),
-            fetch(apiUrl('/taxonomy'), { signal: controller.signal }),
-            fetch(apiUrl('/supermarkets'), { signal: controller.signal }),
-          ]).then(async ([categoriesData, taxonomyResponse, supermarketsResponse]) => {
-            const supermarkets = supermarketsResponse.ok ? await supermarketsResponse.json() : []
-          ]).then(async ([categoriesResponse, taxonomyResponse, supermarketsResponse]) => {
+            fetchCachedCatalogResponse(apiUrl('/categories'), { signal: controller.signal, ttlMs: 300_000 }),
+            fetchCachedCatalogResponse(apiUrl('/taxonomy'), { signal: controller.signal, ttlMs: 300_000 }),
+            fetchCachedCatalogResponse(apiUrl('/supermarkets'), { signal: controller.signal, ttlMs: 300_000 }),
+          ]).then(([categoriesData, taxonomyData, supermarketsData]) => {
             const references = {
-              categories: categoriesData,
-              taxonomy: taxonomyResponse.ok ? await taxonomyResponse.json() : [],
-              supermarkets: supermarketsResponse.ok ? await supermarketsResponse.json() : [],
+              categories: Array.isArray(categoriesData) ? categoriesData : [],
+              taxonomy: Array.isArray(taxonomyData) ? taxonomyData : [],
+              supermarkets: Array.isArray(supermarketsData) ? supermarketsData : [],
             }
             catalogReferenceCache.current = references
             return references
           })
         const [productsResponse, references] = await Promise.all([
-          fetch(apiUrl(`/products?${query.toString()}`), { signal: controller.signal }),
+          fetchCachedCatalogResponse(apiUrl(`/products?${query.toString()}`), {
+            signal: controller.signal,
+            bypassCache: bypassProductCache,
+          }),
           referencesPromise,
         ])
 
         if (!mounted) return
-        if (!productsResponse.ok) throw new Error('Backend returned non-ok response')
 
-        const pagePayload = await productsResponse.json()
+        const pagePayload = productsResponse
         const pageData = Array.isArray(pagePayload) ? pagePayload : pagePayload?.data || []
         const total = Array.isArray(pagePayload)
           ? pageData.length
           : Number(pagePayload?.total ?? pageData.length)
         const validProducts = pageData.filter((product) => isValidCatalogProduct(product))
         const { categories: cats, taxonomy: taxonomyData, supermarkets } = references
+        setCategories(cats)
         const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
         const analysisByProduct = new Map((analysisCache.current || []).map((item) => [String(item.product?.id), item]))
 
@@ -382,6 +356,7 @@ export default function App() {
               ...offer,
               price: Number(offer.cash_price ?? offer.cashPrice ?? offer.price ?? 0),
               supermarket: offer.supermarket || offer.supermarket_name || offer.storeName || '',
+              image: supermarketImages.get(offer.supermarket || offer.supermarket_name || offer.storeName) || '',
             }))
             .filter((offer) => Number.isFinite(offer.price) && offer.price > 0)
           const primary = offers.reduce(
@@ -400,7 +375,11 @@ export default function App() {
             subcategory: product.subcategory || product.subcategories?.name || '',
             currentPrice,
             primaryStore: primary
-              ? { name: primary.supermarket, id: primary.id }
+              ? {
+                  name: primary.supermarket,
+                  id: primary.id,
+                  image: supermarketImages.get(primary.supermarket) || '',
+                }
               : { name: '', id: null },
             avgMarketPrice,
             percentageDiff: avgMarketPrice
@@ -416,7 +395,6 @@ export default function App() {
           }
         })
 
-        setCategories((current) => cats.length ? cats : current)
         setTaxonomy(taxonomyData || [])
         setProducts(enriched)
         setCatalogTotal(total)
@@ -434,8 +412,9 @@ export default function App() {
 
         if (!analysisCache.current && !filters.searchQuery.trim() && !favoritesOnlyView) {
           setAnalysisLoadState('loading')
-          fetchAnalysisProducts(apiUrl('/analysis/products'), { signal: controller.signal })
+          fetchCachedCatalogResponse(apiUrl('/analysis/products'), { signal: controller.signal, ttlMs: 60_000 })
             .then((analysisResults) => {
+              if (!Array.isArray(analysisResults)) throw new TypeError('Price analysis response must be an array')
               if (!mounted) return
               analysisCache.current = analysisResults
               setAnalysisLoadState('loaded')
@@ -495,12 +474,14 @@ export default function App() {
           price: Number((selectedOffer.price ?? selectedOffer.cash_price ?? selectedOffer.cashPrice ?? product.currentPrice) || 0),
           storeId: selectedOffer.id ?? selectedOffer.storeId ?? (selectedOffer.supermarket || selectedOffer.storeName) ?? 'default',
           storeName: selectedOffer.supermarket ?? selectedOffer.storeName ?? product.primaryStore?.name ?? 'Precio actual',
+          image: selectedOffer.image || product.primaryStore?.image || '',
         }
       : {
           price: Number(product.currentPrice || 0),
           storeId: product.primaryStore?.id || 'default',
           storeName: product.primaryStore?.name || 'Precio actual',
-        };
+          image: product.primaryStore?.image || '',
+        }
 
     const itemId = `${product.id}-${offer.storeId}-${offer.price}`;
 
@@ -619,8 +600,8 @@ export default function App() {
                   <Heart className="w-6 h-6 fill-current" />
                 </div>
                 <div>
-                  <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-400">Tu selección</p>
-                  <h1 className="mt-1 text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">Favoritos</h1>
+                  <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-400">{t('Tu selección')}</p>
+                  <h1 className="mt-1 text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">{t('Favoritos')}</h1>
                 </div>
               </div>
               <button
@@ -631,7 +612,7 @@ export default function App() {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" />
-                Volver a Categorías
+                {t('Volver a Categorías')}
               </button>
             </div>
           </div>
@@ -641,8 +622,8 @@ export default function App() {
               <div className="w-16 h-16 bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-300 rounded-2xl flex items-center justify-center mx-auto">
                 <Heart className="w-8 h-8" />
               </div>
-              <h2 className="text-xl font-bold text-stone-900 dark:text-white">no hay favoritos agregados</h2>
-              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Agrega productos a tu lista de favoritos para verlos aquí.</p>
+              <h2 className="text-xl font-bold text-stone-900 dark:text-white">{t('no hay favoritos agregados')}</h2>
+              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">{t('Agrega productos a tu lista de favoritos para verlos aquí.')}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
@@ -661,23 +642,10 @@ export default function App() {
           )}
         </main>
       ) : viewMode === 'categories' ? (
-        <HeroCategoryGrid
-          categories={categories}
-          isLoadingCategories={isLoadingProducts && categories.length === 0}
-          selectedCategory={filters.category}
-          onSelectCategory={handleSelectCategory}
-          searchQuery={filters.searchQuery}
-          setSearchQuery={(value) => updateFilters((prev) => ({ ...prev, searchQuery: value }))}
-          onSearchSubmit={navigateToSearch}
-          onQuickSearch={handleQuickSearch}
-          searchHistory={searchHistory}
-          onSelectSearch={handleQuickSearch}
-          onRemoveSearch={(query) => setSearchHistory((previous) => previous.filter((item) => item !== query))}
-          onClearSearch={() => setSearchHistory([])}
-        />
         <>
           <HeroCategoryGrid
             categories={categories}
+            isLoadingCategories={isLoadingProducts && categories.length === 0}
             selectedCategory={filters.category}
             onSelectCategory={handleSelectCategory}
             searchQuery={filters.searchQuery}
@@ -693,15 +661,15 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
-                <p className="text-xs uppercase tracking-[0.24em] text-sky-600 font-bold">Novedades y ofertas</p>
-                <h2 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">Ofertas destacadas y alertas de precios inflados</h2>
+                <p className="text-xs uppercase tracking-[0.24em] text-sky-600 font-bold">{t('Novedades y ofertas')}</p>
+                <h2 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white">{t('Ofertas destacadas y alertas de precios inflados')}</h2>
               </div>
               <button
                 type="button"
                 onClick={() => setReportModalOpen(true)}
                 className="px-4 py-2 rounded-xl bg-sky-600 text-white font-semibold text-sm hover:bg-sky-500 transition-colors"
               >
-                Reportar un precio
+                {t('Reportar un precio')}
               </button>
             </div>
 
@@ -727,12 +695,12 @@ export default function App() {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/80 text-sky-700 dark:text-sky-300 font-bold text-xs sm:text-sm border border-sky-200/80 dark:border-sky-800 transition-all cursor-pointer w-fit"
               >
                 <ArrowLeft className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                <span>Volver a Categorías</span>
+                <span>{t('Volver a Categorías')}</span>
               </button>
               <div className="flex items-center gap-2 text-xs font-semibold text-stone-500 dark:text-stone-400">
-                <span className="text-stone-400">Categoría activa:</span>
+                <span className="text-stone-400">{t('Categoría activa:')}</span>
                 <span className="px-3 py-1.5 rounded-full bg-sky-600 text-white font-extrabold text-xs">
-                  {favoritesOnlyView ? '❤️ Favoritos' : currentCategoryName}
+                  {favoritesOnlyView ? `❤️ ${t('Favoritos')}` : t(currentCategoryName)}
                 </span>
               </div>
             </div>
@@ -741,10 +709,10 @@ export default function App() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-stone-800 p-4 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shadow-xs">
             <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-stone-500 dark:text-stone-400">
               <button onClick={resetFilters} className="hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer">
-                Inicio
+                {t('Inicio')}
               </button>
               <ChevronRight className="w-4 h-4 text-stone-400" />
-              <span className="text-stone-900 dark:text-white font-bold">{favoritesOnlyView ? '❤️ Mis Favoritos' : currentCategoryName}</span>
+              <span className="text-stone-900 dark:text-white font-bold">{favoritesOnlyView ? `❤️ ${t('Mis Favoritos')}` : t(currentCategoryName)}</span>
               {filters.searchQuery && (
                 <>
                   <ChevronRight className="w-4 h-4 text-stone-400" />
@@ -754,7 +722,7 @@ export default function App() {
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="font-semibold text-stone-600 dark:text-stone-300">
-                Mostrando <strong className="text-sky-600 dark:text-sky-400 font-extrabold">{paginatedProducts.length}</strong> productos · Página {productsPage} de {totalPages}
+                {t('Mostrando ')}<strong className="text-sky-600 dark:text-sky-400 font-extrabold">{paginatedProducts.length}</strong>{t(' productos · Página ')}{productsPage}{t(' de ')}{totalPages}
               </span>
               {(filters.category !== 'todos' || filters.subcategory !== 'todos' || filters.searchQuery || filters.store !== 'todos' || favoritesOnlyView) && (
                 <button
@@ -773,7 +741,7 @@ export default function App() {
                   className="flex items-center gap-1 text-rose-500 hover:underline font-bold cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Limpiar Filtros</span>
+                  <span>{t('Limpiar Filtros')}</span>
                 </button>
               )}
             </div>
@@ -782,8 +750,8 @@ export default function App() {
           <section className="rounded-3xl border border-sky-300 bg-sky-50/70 p-4 shadow-sm dark:border-sky-700 dark:bg-sky-950/30 sm:p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-sky-600 dark:text-sky-400">Explorar por rubro</p>
-                <h2 className="mt-1 text-lg font-black text-stone-900 dark:text-white">Categorías principales</h2>
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-sky-600 dark:text-sky-400">{t('Explorar por rubro')}</p>
+                <h2 className="mt-1 text-lg font-black text-stone-900 dark:text-white">{t('Categorías principales')}</h2>
               </div>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory">
@@ -792,13 +760,13 @@ export default function App() {
                 onClick={() => handleSelectCategory('todos')}
                 className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${filters.category === 'todos' && !favoritesOnlyView ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}
               >
-                <span className="block text-sm font-black leading-tight">Todos</span>
+                <span className="block text-sm font-black leading-tight">{t('Todos')}</span>
               </button>
               {categories.map((category) => {
                 const isSelected = filters.category === category.id && !favoritesOnlyView
                 return (
                   <button key={category.id} type="button" onClick={() => handleSelectCategory(category.id)} className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${isSelected ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}>
-                    <span className={`block text-sm font-black leading-tight ${isSelected ? 'text-white' : 'text-stone-900 dark:text-white'}`}>{category.name}</span>
+                    <span className={`block text-sm font-black leading-tight ${isSelected ? 'text-white' : 'text-stone-900 dark:text-white'}`}>{t(category.name)}</span>
                   </button>
                 )
               })}
@@ -809,21 +777,21 @@ export default function App() {
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-stone-700/60">
               <h3 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                <span>Panel de Búsqueda y Filtros</span>
+                <span>{t('Panel de Búsqueda y Filtros')}</span>
               </h3>
-              <div className="text-xs font-semibold text-stone-400">Ubicación: {selectedCity}</div>
+              <div className="text-xs font-semibold text-stone-400">{t('Ubicación:')} {selectedCity}</div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Buscar Producto o Marca</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Buscar Producto o Marca')}</label>
 
                 <div className="relative">
                   <input
                     type="text"
                     value={filters.searchQuery}
                     onChange={(e) => updateFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
-                    placeholder="Ej: Leche, Playadito, TV..."
+                    placeholder={t('Ej: Leche, Playadito, TV...')}
                     className="w-full pl-9 pr-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                   />
                   <Search className="w-4 h-4 text-stone-400 absolute left-3 top-3" />
@@ -831,13 +799,13 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Filtrar por Comercio</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Filtrar por Comercio')}</label>
                 <select
                   value={filters.store}
                   onChange={(e) => updateFilters((prev) => ({ ...prev, store: e.target.value }))}
                   className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                 >
-                  <option value="todos">Todos los comercios</option>
+                  <option value="todos">{t('Todos los comercios')}</option>
                   {storesList.map((store) => (
                     <option key={store.id} value={store.id}>
                       {store.name}
@@ -847,22 +815,22 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Subcategoría</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Subcategoría')}</label>
                 <select
                   value={filters.subcategory}
                   onChange={(e) => updateFilters((prev) => ({ ...prev, subcategory: e.target.value }))}
                   disabled={filters.category === 'todos'}
                   className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-bold disabled:opacity-60"
                 >
-                  <option value="todos">Todas las subcategorías</option>
+                  <option value="todos">{t('Todas las subcategorías')}</option>
                   {availableSubcategories.map((subcategory) => (
-                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name} ({subcategory.productCount || 0})</option>
+                    <option key={subcategory.id} value={subcategory.id}>{t(subcategory.name)} ({subcategory.productCount || 0})</option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">Ordenar Lista Por</label>
+                <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Ordenar Lista Por')}</label>
                 <SortMenu
                   value={filters.sortBy}
                   onChange={(sortBy) => updateFilters((prev) => ({ ...prev, sortBy }))}
@@ -872,14 +840,14 @@ export default function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-stone-100 dark:border-stone-700/50">
-              <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider">Filtros rápidos:</span>
+              <span className="text-[11px] font-extrabold text-stone-400 uppercase tracking-wider">{t('Filtros rápidos:')}</span>
               <button
                 type="button"
                  onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'todos' }))}
                  aria-pressed={filters.priceStatus === 'todos'}
                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'todos' ? 'bg-stone-700 text-white dark:bg-stone-200 dark:text-stone-900' : 'bg-stone-100 text-stone-700 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700'}`}
                >
-                 Todos
+                 {t('Todos')}
                </button>
                <button
                  type="button"
@@ -888,7 +856,7 @@ export default function App() {
                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'OFERTA' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900'}`}
               >
                 <Tag className="h-3.5 w-3.5" aria-hidden="true" />
-                En oferta
+                {t('En oferta')}
               </button>
               <button
                 type="button"
@@ -897,7 +865,7 @@ export default function App() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'EN_PRECIO' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-900'}`}
               >
                 <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
-                En precio
+                {t('En precio')}
               </button>
               <button
                 type="button"
@@ -906,7 +874,7 @@ export default function App() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'INFLADO' ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900'}`}
               >
                 <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                Inflado
+                {t('Inflado')}
               </button>
             </div>
           </div>
@@ -925,26 +893,14 @@ export default function App() {
               <div>
                 <h3 className="text-xl font-bold">{t('No se pudieron cargar los productos actuales.')}</h3>
                 <p className="mt-2 text-sm">{t('No se muestran productos para evitar información desactualizada.')}</p>
-                <p className="font-bold">No se pudo conectar con la base de datos.</p>
-                <p className="mt-1 text-sm">Se muestran productos de demostración; los precios no son datos actuales.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setCatalogRefreshKey((key) => key + 1)}
                 className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
               >
-                Reintentar conexión
+                {t('Reintentar conexión')}
               </button>
-            </div>
-          )}
-
-          {isLoadingProducts ? (
-            <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-sky-200 dark:border-sky-800 space-y-4" role="status" aria-live="polite">
-              <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
-                <Loader2 className="w-8 h-8 animate-spin" aria-hidden="true" />
-              </div>
-              <h3 className="text-xl font-bold text-stone-900 dark:text-white">Cargando productos</h3>
-              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Estamos actualizando los productos de esta categoría.</p>
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-stone-200/80 dark:border-stone-700/80 space-y-4">
@@ -954,7 +910,7 @@ export default function App() {
               <h3 className="text-xl font-bold text-stone-900 dark:text-white">
                 {favoritesOnlyView ? 'no hay favoritos agregados' : 'No encontramos productos con los filtros seleccionados'}
               </h3>
-              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.</p>
+              <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">{t('Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.')}</p>
               <button
                 onClick={() => {
                   updateFilters({
@@ -997,7 +953,7 @@ export default function App() {
                     disabled={productsPage === 1}
                     className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
                   >
-                    Anterior
+                    {t('Anterior')}
                   </button>
                   {visiblePages.map((page) => (
                     <button
@@ -1015,7 +971,7 @@ export default function App() {
                     disabled={productsPage === totalPages}
                     className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
                   >
-                    Siguiente
+                    {t('Siguiente')}
                   </button>
                 </div>
               )}
@@ -1034,20 +990,20 @@ export default function App() {
                 </div>
                 <span className="text-xl font-black text-stone-900 dark:text-white">Ar-Price</span>
               </div>
-              <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">Plataforma colaborativa e independiente para la comparación de precios en tiempo real.</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 max-w-md">{t('Plataforma colaborativa e independiente para la comparación de precios en tiempo real.')}</p>
             </div>
             <div className="flex flex-wrap gap-3">
               <button onClick={() => setReportModalOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
-                Reportar precio
+                {t('Reportar precio')}
               </button>
               <button onClick={() => setBasketOpen(true)} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer">
-                Ver Mi Canasta Ahorro
+                {t('Ver Mi Canasta Ahorro')}
               </button>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400 font-medium">
             <p>© {new Date().getFullYear()} Ar-Price Argentina</p>
-            <p>Ubicación activa: <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
+            <p>{t('Ubicación activa:')} <strong className="text-sky-600 dark:text-sky-400">{selectedCity}</strong></p>
           </div>
         </div>
       </footer>

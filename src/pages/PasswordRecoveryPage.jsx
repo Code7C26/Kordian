@@ -5,6 +5,7 @@ import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { isValidCustomerPassword } from '../utils/customerAuthValidation.js'
 import { parsePasswordRecoveryLink } from '../utils/passwordRecoveryLink.js'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import BrandHeader from '../components/BrandHeader.jsx'
 
 export default function PasswordRecoveryPage() {
   const { t } = useLanguage()
@@ -46,7 +47,10 @@ export default function PasswordRecoveryPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-stone-100 px-4 py-8 text-stone-900 dark:bg-stone-950 dark:text-stone-100">
+    <main className="min-h-screen bg-stone-100 px-4 py-8 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col">
+      <BrandHeader />
+      <div className="flex flex-1 items-center justify-center">
       <section className="w-full max-w-md rounded-xl border border-stone-200 bg-white px-5 py-7 shadow-sm dark:border-stone-800 dark:bg-stone-900 sm:px-8 sm:py-8">
         <span className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
           <LockKeyhole className="h-5 w-5" aria-hidden="true" />
@@ -100,6 +104,8 @@ export default function PasswordRecoveryPage() {
           </Link>
         </p>
       </section>
+      </div>
+      </div>
     </main>
   )
 }

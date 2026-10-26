@@ -28,6 +28,7 @@ import { adminFetch, apiFetch, readApiResponse } from '../config/api.js'
 import { formatCurrency } from '../utils/formatters.js'
 import { getVisiblePageNumbers } from '../utils/pagination.js'
 import { ProductImage } from '../components/ProductImage.jsx'
+import { useLanguage } from '../contexts/LanguageContext.jsx'
 
 const ADMIN_PAGES = [
   { id: 'arbol', label: 'Árbol', icon: FolderTree },
@@ -42,6 +43,7 @@ const ADMIN_PAGES = [
 ]
 
 export default function Admin() {
+  const { t } = useLanguage()
   const [activePage, setActivePage] = useState('arbol')
 
   const [darkMode, setDarkMode] = useState(() => {
@@ -2550,14 +2552,10 @@ export default function Admin() {
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-extrabold">
-              Panel Admin
-            </h1>
+            <h1 className="text-3xl font-extrabold">{t('Panel Admin')}</h1>
 
             <p className="mt-2 max-w-2xl text-sm text-stone-500 dark:text-stone-400">
-              Aquí puedes administrar productos,
-              categorías, marcas, supermercados y
-              actualizaciones de precios.
+              {t('Aquí puedes administrar productos, categorías, marcas, supermercados y actualizaciones de precios.')}
             </p>
           </div>
 
@@ -2567,7 +2565,7 @@ export default function Admin() {
               className="inline-flex items-center gap-2 rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800"
             >
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-              Volver
+              {t('Volver')}
             </Link>
             <button
               type="button"
@@ -2579,14 +2577,14 @@ export default function Admin() {
               }}
               className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-800"
             >
-              Cerrar sesión
+              {t('Cerrar sesión')}
             </button>
           </div>
         </div>
 
         <nav
           className="mt-6 border-b border-emerald-950/30"
-          aria-label="Secciones de administración"
+          aria-label={t('Secciones de administración')}
         >
           <div
             className="flex gap-1 overflow-x-auto rounded-t-xl bg-[#2576b5] px-2 pt-2"
@@ -2618,10 +2616,10 @@ export default function Admin() {
                     className="h-4 w-4"
                     aria-hidden="true"
                   />
-                  {label}
+                  {t(label)}
                   {id === 'reportes' && priceReportsCount > 0 && (
                     <span
-                      aria-label={`${priceReportsCount} reportes de precios`}
+                      aria-label={`${priceReportsCount} ${t('reportes de precios')}`}
                       className="inline-flex min-w-5 items-center justify-center rounded-full bg-sky-200 px-1.5 py-0.5 text-[10px] font-black leading-none text-sky-900 dark:bg-sky-800 dark:text-sky-100"
                     >
                       {priceReportsCount >= 100 ? '+99' : priceReportsCount}

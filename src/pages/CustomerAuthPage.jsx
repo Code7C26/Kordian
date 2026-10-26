@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, LoaderCircle, LockKeyhole, UserRound } from 'lucide-react'
+import { LoaderCircle, LockKeyhole, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import { validateCustomerRegistration } from '../utils/customerAuthValidation.js'
+import BrandHeader from '../components/BrandHeader.jsx'
 
 export default function CustomerAuthPage({ mode = 'login' }) {
   const isRegistration = mode === 'register'
@@ -114,12 +115,10 @@ export default function CustomerAuthPage({ mode = 'login' }) {
 
   return (
     <main className="min-h-screen bg-stone-100 px-4 py-8 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl items-center justify-center gap-12">
+      <div className="mx-auto max-w-6xl">
+      <BrandHeader className="mb-6" />
+      <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center gap-12">
         <section className="hidden max-w-md flex-1 lg:block">
-          <Link to="/" className="mb-10 inline-flex items-center gap-3 text-sm font-bold text-sky-700 dark:text-sky-300">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            {t('Volver a Ar-Price')}
-          </Link>
           <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-400">Ar-Price · Alta Gracia</p>
           <h1 className="mt-4 text-4xl font-black leading-tight">{t(isRegistration ? 'Tu próxima compra empieza acá.' : 'Qué bueno verte de nuevo.')}</h1>
           <p className="mt-4 max-w-sm text-base leading-7 text-stone-600 dark:text-stone-400">
@@ -129,9 +128,6 @@ export default function CustomerAuthPage({ mode = 'login' }) {
         </section>
 
         <section className="w-full max-w-md border-y border-stone-200 bg-white px-5 py-7 dark:border-stone-800 dark:bg-stone-900 sm:rounded-xl sm:border sm:px-8 sm:py-8">
-          <Link to="/" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-stone-500 hover:text-sky-700 dark:text-stone-400 dark:hover:text-sky-300 lg:hidden">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('Volver')}
-          </Link>
           <div className="mb-7">
             <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
               {isRegistration ? <UserRound className="h-5 w-5" /> : <LockKeyhole className="h-5 w-5" />}
@@ -233,6 +229,7 @@ export default function CustomerAuthPage({ mode = 'login' }) {
             )}
           </p>
         </section>
+      </div>
       </div>
 
       {toast && (

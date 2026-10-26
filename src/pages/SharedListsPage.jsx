@@ -3,8 +3,11 @@ import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react
 import { ArrowLeft, Check, Copy, ListPlus, LoaderCircle, Plus, Share2, Trash2, Users } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { apiUrl } from '../config/api.js'
+import { useLanguage } from '../contexts/LanguageContext.jsx'
+import BrandHeader from '../components/BrandHeader.jsx'
 
 export default function SharedListsPage() {
+  const { t } = useLanguage()
   const { loading: authLoading, user, accessToken } = useCustomerAuth()
   const location = useLocation()
   const navigate = useNavigate()
@@ -132,7 +135,7 @@ export default function SharedListsPage() {
   }, [accessToken, request, selectedListId])
 
   if (authLoading) {
-    return <main className="flex min-h-screen items-center justify-center text-stone-600 dark:bg-stone-950 dark:text-stone-300" role="status">Cargando sesión…</main>
+    return <main className="flex min-h-screen items-center justify-center text-stone-600 dark:bg-stone-950 dark:text-stone-300" role="status">{t('Cargando sesión…')}</main>
   }
   if (!user) {
     const next = `${location.pathname}${location.search}`
@@ -153,7 +156,7 @@ export default function SharedListsPage() {
       await loadLists()
       setNewListName('')
       setSelectedListId(list.id)
-      setNotice(`Se creó “${list.name}”.`)
+      setNotice(`${t('Se creó')} “${list.name}”.`)
     } catch (createError) {
       setError(createError.message)
     } finally {
@@ -181,7 +184,7 @@ export default function SharedListsPage() {
       await loadLists()
       setInviteCode('')
       setSelectedListId(list.id)
-      setNotice(`Te uniste a “${list.name}”.`)
+      setNotice(`${t('Te uniste a')} “${list.name}”.`)
     } catch (joinError) {
       setError(joinError.message)
     } finally {
@@ -252,7 +255,7 @@ export default function SharedListsPage() {
     setNotice('')
     try {
       await request(`/shared-lists/${encodeURIComponent(list.id)}`, { method: 'DELETE' })
-      setNotice(`Se eliminó “${list.name}”.`)
+      setNotice(`${t('Se eliminó')} “${list.name}”.`)
     } catch (deleteError) {
       setLists((currentLists) => currentLists.some((currentList) => currentList.id === list.id)
         ? currentLists
@@ -272,14 +275,14 @@ export default function SharedListsPage() {
     const inviteUrl = new URL(`/listas-compartidas?invite=${encodeURIComponent(selectedList.invite_code)}`, window.location.origin).toString()
     try {
       if (navigator.share) {
-        await navigator.share({ title: `Lista compartida: ${selectedList.name}`, text: 'Únete a mi lista de compras de AR-PRICE', url: inviteUrl })
+        await navigator.share({ title: `${t('Lista compartida:')} ${selectedList.name}`, text: t('Unirse a mi lista de compras de AR-PRICE'), url: inviteUrl })
       } else {
         await navigator.clipboard.writeText(inviteUrl)
       }
-      setNotice('Enlace privado copiado o compartido. Solo pueden unirse usuarios con cuenta.')
+      setNotice(t('Enlace privado copiado o compartido. Solo pueden unirse usuarios con cuenta.'))
       setError('')
     } catch (shareError) {
-      if (shareError.name !== 'AbortError') setError('No se pudo compartir el enlace. Copia el código de invitación manualmente.')
+      if (shareError.name !== 'AbortError') setError(t('No se pudo compartir el enlace. Copia el código de invitación manualmente.'))
     }
   }
 
@@ -289,59 +292,58 @@ export default function SharedListsPage() {
   return (
     <main className={pageClass}>
       <div className="mx-auto max-w-5xl">
-        <header className="flex items-center justify-between border-b border-stone-200 pb-4 dark:border-stone-800">
-          <Link to="/" className="font-black text-sky-700 dark:text-sky-300">AR-PRICE</Link>
+        <BrandHeader>
           <Link to="/buscar" className="inline-flex items-center gap-2 text-sm font-semibold text-stone-600 hover:text-sky-700 dark:text-stone-300 dark:hover:text-sky-300">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Volver a productos
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('Volver a productos')}
           </Link>
-        </header>
+        </BrandHeader>
 
         <section className="py-7">
           <div className="flex items-center gap-3">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"><Users className="h-6 w-6" aria-hidden="true" /></span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-sky-700 dark:text-sky-300">Compras colaborativas</p>
-              <h1 className="text-2xl font-black sm:text-3xl">Listas compartidas</h1>
+              <p className="text-xs font-bold uppercase tracking-widest text-sky-700 dark:text-sky-300">{t('Compras colaborativas')}</p>
+              <h1 className="text-2xl font-black sm:text-3xl">{t('Listas compartidas')}</h1>
             </div>
           </div>
-          <p className="mt-3 max-w-2xl text-sm text-stone-600 dark:text-stone-400">Crea una lista, invita a otras personas con un enlace privado y editen juntos los artículos y cantidades. Los cambios se sincronizan automáticamente.</p>
+          <p className="mt-3 max-w-2xl text-sm text-stone-600 dark:text-stone-400">{t('Crea una lista, invita a otras personas con un enlace privado y editen juntos los artículos y cantidades. Los cambios se sincronizan automáticamente.')}</p>
         </section>
 
-        {error && <div role="alert" className="mb-4 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{error}</div>}
+        {error && <div role="alert" className="mb-4 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{t(error)}</div>}
         {notice && <div role="status" className="mb-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">{notice}</div>}
 
         <div className="grid gap-6 lg:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.5fr)]">
           <aside className="space-y-4">
             <form onSubmit={createList} className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900">
-              <h2 className="font-bold">Crear una lista</h2>
-              <label className="sr-only" htmlFor="new-shared-list-name">Nombre de la lista</label>
-              <input id="new-shared-list-name" className={inputClass} maxLength={80} value={newListName} onChange={(event) => setNewListName(event.target.value)} placeholder="Ej.: Compra del fin de semana" />
+              <h2 className="font-bold">{t('Crear una lista')}</h2>
+              <label className="sr-only" htmlFor="new-shared-list-name">{t('Nombre de la lista')}</label>
+              <input id="new-shared-list-name" className={inputClass} maxLength={80} value={newListName} onChange={(event) => setNewListName(event.target.value)} placeholder={t('Ej.: Compra del fin de semana')} />
               <button disabled={busy || !newListName.trim()} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50">
-                {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />} Crear lista
+                {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />} {t('Crear lista')}
               </button>
             </form>
 
             <form onSubmit={joinList} className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900">
-              <h2 className="font-bold">Unirme con invitación</h2>
-              <label className="sr-only" htmlFor="shared-list-invite-code">Código de invitación</label>
-              <input id="shared-list-invite-code" className={inputClass} value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} placeholder="Pega el enlace o código" />
-              <button disabled={busy || !inviteCode.trim()} className="w-full rounded-xl border border-sky-700 px-4 py-2.5 text-sm font-bold text-sky-800 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-sky-300 dark:hover:bg-sky-950/40">Unirme</button>
+              <h2 className="font-bold">{t('Unirme con invitación')}</h2>
+              <label className="sr-only" htmlFor="shared-list-invite-code">{t('Código de invitación')}</label>
+              <input id="shared-list-invite-code" className={inputClass} value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} placeholder={t('Pega el enlace o código')} />
+              <button disabled={busy || !inviteCode.trim()} className="w-full rounded-xl border border-sky-700 px-4 py-2.5 text-sm font-bold text-sky-800 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-sky-300 dark:hover:bg-sky-950/40">{t('Unirme')}</button>
             </form>
 
             <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900">
-              <h2 className="mb-3 font-bold">Mis listas</h2>
+              <h2 className="mb-3 font-bold">{t('Mis listas')}</h2>
               {loading ? (
-                <p className="text-sm text-stone-500">Cargando listas…</p>
+                <p className="text-sm text-stone-500">{t('Cargando listas…')}</p>
               ) : lists.length ? (
                 <div className="space-y-2">
                   {lists.map((list) => (
                     <div key={list.id} className={`flex items-center gap-1 rounded-xl border px-2 ${list.id === selectedListId ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40' : 'border-stone-200 dark:border-stone-700'}`}>
                       <button type="button" onClick={() => setSelectedListId(list.id)} className="min-w-0 flex-1 py-3 pl-1 text-left">
                         <span className="block truncate text-sm font-bold">{list.name}</span>
-                        <span className="mt-1 block text-xs text-stone-500">{list.role === 'owner' ? 'Propietario' : 'Compartida'}</span>
+                        <span className="mt-1 block text-xs text-stone-500">{t(list.role === 'owner' ? 'Propietario' : 'Compartida')}</span>
                       </button>
                       {list.role === 'owner' && (
-                        <button type="button" onClick={() => deleteList(list)} disabled={busy} aria-label={`Eliminar lista ${list.name}`} title="Eliminar lista" className="rounded-lg p-2 text-stone-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-rose-950/40">
+                        <button type="button" onClick={() => deleteList(list)} disabled={busy} aria-label={`${t('Eliminar lista')} ${list.name}`} title={t('Eliminar lista')} className="rounded-lg p-2 text-stone-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-rose-950/40">
                           <Trash2 className="h-4 w-4" aria-hidden="true" />
                         </button>
                       )}
@@ -349,7 +351,7 @@ export default function SharedListsPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-stone-500 dark:text-stone-400">Todavía no tienes listas compartidas.</p>
+                <p className="text-sm text-stone-500 dark:text-stone-400">{t('Todavía no tienes listas compartidas.')}</p>
               )}
             </section>
           </aside>
@@ -360,61 +362,61 @@ export default function SharedListsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-200 pb-4 dark:border-stone-800">
                   <div>
                     <h2 className="text-xl font-black">{selectedList.name}</h2>
-                    <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">{selectedList.memberCount} participante{selectedList.memberCount === 1 ? '' : 's'} · Sincroniza automáticamente</p>
+                    <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">{selectedList.memberCount} {t(selectedList.memberCount === 1 ? 'participante' : 'participantes')} · {t('Sincroniza automáticamente')}</p>
                   </div>
                   <button type="button" onClick={shareList} className="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800">
-                    <Share2 className="h-4 w-4" aria-hidden="true" /> Invitar
+                    <Share2 className="h-4 w-4" aria-hidden="true" /> {t('Invitar')}
                   </button>
                 </div>
-                <section className="mt-4 rounded-xl bg-stone-50 p-3 dark:bg-stone-950/60" aria-label="Participantes de la lista">
-                  <h3 className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">Participantes</h3>
+                <section className="mt-4 rounded-xl bg-stone-50 p-3 dark:bg-stone-950/60" aria-label={t('Participantes de la lista')}>
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t('Participantes')}</h3>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {(selectedList.members || []).map((member) => (
                       <span key={member.user_id} className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm font-semibold dark:border-stone-700 dark:bg-stone-900">
                         <Users className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                         {member.username}
-                        {member.role === 'owner' && <span className="text-xs font-normal text-stone-500 dark:text-stone-400">· Creador</span>}
+                        {member.role === 'owner' && <span className="text-xs font-normal text-stone-500 dark:text-stone-400">· {t('Creador')}</span>}
                       </span>
                     ))}
                   </div>
                 </section>
                 <form onSubmit={addItem} className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_96px_auto]">
-                  <label className="sr-only" htmlFor="shared-list-item-name">Artículo</label>
-                  <input id="shared-list-item-name" className={inputClass} maxLength={160} value={itemName} onChange={(event) => setItemName(event.target.value)} placeholder="Agregar artículo" />
-                  <label className="sr-only" htmlFor="shared-list-item-quantity">Cantidad</label>
+                  <label className="sr-only" htmlFor="shared-list-item-name">{t('Artículo')}</label>
+                  <input id="shared-list-item-name" className={inputClass} maxLength={160} value={itemName} onChange={(event) => setItemName(event.target.value)} placeholder={t('Agregar artículo')} />
+                  <label className="sr-only" htmlFor="shared-list-item-quantity">{t('Cantidad')}</label>
                   <input id="shared-list-item-quantity" className={inputClass} type="number" min="0.01" max="999" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-                  <button disabled={busy || !itemName.trim()} className="inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"><Plus className="h-4 w-4" /> Agregar</button>
+                  <button disabled={busy || !itemName.trim()} className="inline-flex items-center justify-center gap-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"><Plus className="h-4 w-4" /> {t('Agregar')}</button>
                 </form>
                 <ul className="mt-5 divide-y divide-stone-200 dark:divide-stone-800">
                   {selectedList.items.map((item) => (
                     <li key={item.id} className="flex items-center gap-3 py-3">
-                      <input type="checkbox" checked={item.is_checked} onChange={(event) => updateItem(item, { isChecked: event.target.checked })} aria-label={`Marcar ${item.item_name} como ${item.is_checked ? 'pendiente' : 'comprado'}`} className="h-4 w-4 accent-sky-700" />
+                      <input type="checkbox" checked={item.is_checked} onChange={(event) => updateItem(item, { isChecked: event.target.checked })} aria-label={`${t('Marcar')} ${item.item_name} ${t('como')} ${t(item.is_checked ? 'pendiente' : 'comprado')}`} className="h-4 w-4 accent-sky-700" />
                       <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${item.is_checked ? 'text-stone-400 line-through' : ''}`}>{item.item_name}</span>
-                      <label className="sr-only" htmlFor={`quantity-${item.id}`}>Cantidad de {item.item_name}</label>
+                      <label className="sr-only" htmlFor={`quantity-${item.id}`}>{t('Cantidad de')} {item.item_name}</label>
                       <input id={`quantity-${item.id}`} type="number" min="0.01" max="999" step="any" defaultValue={item.quantity} onBlur={(event) => { if (Number(event.target.value) !== Number(item.quantity)) updateItem(item, { quantity: event.target.value }) }} className="w-20 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-right text-sm dark:border-stone-700 dark:bg-stone-950" />
-                      <button type="button" onClick={() => removeItem(item.id)} aria-label={`Quitar ${item.item_name}`} className="rounded-lg p-2 text-stone-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => removeItem(item.id)} aria-label={`${t('Quitar')} ${item.item_name}`} className="rounded-lg p-2 text-stone-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"><Trash2 className="h-4 w-4" /></button>
                     </li>
                   ))}
                 </ul>
-                {!selectedList.items.length && <p className="py-8 text-center text-sm text-stone-500 dark:text-stone-400">La lista está vacía. Agrega el primer artículo.</p>}
+                {!selectedList.items.length && <p className="py-8 text-center text-sm text-stone-500 dark:text-stone-400">{t('La lista está vacía. Agrega el primer artículo.')}</p>}
                 <div className="mt-5 border-t border-stone-200 pt-3 text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
-                  Invitación privada · Código: <span className="select-all font-mono">{selectedList.invite_code}</span>
+                  {t('Invitación privada · Código:')} <span className="select-all font-mono">{selectedList.invite_code}</span>
                   <button type="button" onClick={async () => {
                     try {
                       await navigator.clipboard.writeText(selectedList.invite_code)
-                      setNotice('Código copiado.')
+                      setNotice(t('Código copiado.'))
                       setError('')
                     } catch {
-                      setError('No se pudo copiar el código. Selecciónalo y cópialo manualmente.')
+                      setError(t('No se pudo copiar el código. Selecciónalo y cópialo manualmente.'))
                     }
-                  }} className="ml-2 inline-flex items-center gap-1 font-semibold text-sky-700 dark:text-sky-300"><Copy className="h-3 w-3" /> Copiar código</button>
+                  }} className="ml-2 inline-flex items-center gap-1 font-semibold text-sky-700 dark:text-sky-300"><Copy className="h-3 w-3" /> {t('Copiar código')}</button>
                 </div>
               </>
             ) : (
               <div className="flex h-full min-h-72 flex-col items-center justify-center text-center">
                 <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-100 text-stone-500 dark:bg-stone-800"><Check className="h-6 w-6" /></span>
-                <h2 className="mt-3 font-bold">{loading ? 'Cargando listas…' : 'Selecciona o crea una lista'}</h2>
-                <p className="mt-1 max-w-sm text-sm text-stone-500 dark:text-stone-400">Invita a otras personas para que puedan agregar, marcar y actualizar artículos junto a ti.</p>
+                <h2 className="mt-3 font-bold">{t(loading ? 'Cargando listas…' : 'Selecciona o crea una lista')}</h2>
+                <p className="mt-1 max-w-sm text-sm text-stone-500 dark:text-stone-400">{t('Invita a otras personas para que puedan agregar, marcar y actualizar artículos junto a ti.')}</p>
               </div>
             )}
           </section>

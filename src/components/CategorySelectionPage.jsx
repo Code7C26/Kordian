@@ -5,12 +5,25 @@ import { useLanguage } from '../contexts/LanguageContext.jsx';
 
 export function CategorySelectionPage({ categories, selectedCategory, onSelectCategory }) {
   const allProductsSelected = selectedCategory === 'todos';
-  const { t } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
 
   return (
     <main className="relative min-h-[calc(100vh-4rem)] overflow-hidden bg-gradient-to-b from-sky-50 via-white to-stone-50 px-4 py-10 text-stone-900 dark:from-stone-950 dark:via-stone-950 dark:to-stone-900 dark:text-white sm:px-6 lg:px-8">
       <div className="pointer-events-none absolute left-1/2 top-0 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-sky-300/20 blur-3xl dark:bg-sky-700/10" />
       <div className="relative mx-auto max-w-6xl">
+        <div className="mb-8 flex justify-end gap-2" role="group" aria-label={t('Idioma')}>
+          {[{ value: 'es', label: 'Español' }, { value: 'en', label: 'English' }].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={language === option.value}
+              onClick={() => setLanguage(option.value)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${language === option.value ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-300 bg-white text-stone-700 hover:border-sky-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200'}`}
+            >
+              {t(option.label)}
+            </button>
+          ))}
+        </div>
         <div className="mx-auto max-w-3xl text-center">
           <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-white p-2 shadow-xl shadow-sky-600/10">
             <img src={brandLogo} alt="AR-PRICE" className="h-full w-full object-contain" />
@@ -78,9 +91,9 @@ export function CategorySelectionPage({ categories, selectedCategory, onSelectCa
                       </div>
                       <ArrowRight className={`h-5 w-5 transition-all group-hover:translate-x-1 ${isSelected ? 'text-sky-100' : 'text-stone-300 group-hover:text-sky-600 dark:text-stone-600 dark:group-hover:text-sky-400'}`} />
                     </div>
-                    <h3 className="relative mt-5 text-lg font-black">{category.name}</h3>
+                    <h3 className="relative mt-5 text-lg font-black">{t(category.name)}</h3>
                     <p className={`relative mt-2 text-sm leading-relaxed ${isSelected ? 'text-sky-100' : 'text-stone-500 dark:text-stone-400'}`}>
-                      {category.description || t('Explora productos y precios de este rubro.')}
+                      {category.description ? t(category.description) : t('Explora productos y precios de este rubro.')}
                     </p>
                   </button>
                 );

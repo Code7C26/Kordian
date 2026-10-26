@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ArrowLeft, CircleHelp } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import BrandHeader from '../components/BrandHeader.jsx'
 
 const questions = [
   {
@@ -30,18 +31,20 @@ export default function FaqPage() {
   return (
     <main className="min-h-screen bg-stone-50 px-4 py-8 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
       <div className="mx-auto max-w-3xl">
-        <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-sky-700 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          {t('Volver a Ar-Price')}
-        </Link>
+        <BrandHeader>
+          <Link to="/buscar" className="inline-flex items-center gap-2 text-sm font-bold text-sky-700 hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            {t('Volver a productos')}
+          </Link>
+        </BrandHeader>
 
-        <header className="mt-8 rounded-3xl bg-sky-600 p-6 text-white sm:p-8">
+        <section className="mt-8 rounded-3xl bg-sky-600 p-6 text-white sm:p-8">
           <CircleHelp className="h-8 w-8 text-sky-100" aria-hidden="true" />
           <h1 className="mt-4 text-3xl font-black">{t('Preguntas frecuentes')}</h1>
           <p className="mt-2 text-sm leading-relaxed text-sky-100">
             {t('Respuestas rápidas para ayudarte a usar Ar-Price.')}
           </p>
-        </header>
+        </section>
 
         <section className="mt-6 space-y-3" aria-label={t('Preguntas frecuentes')}>
           {questions.map(({ question, answer }) => (

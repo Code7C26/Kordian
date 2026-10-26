@@ -9,8 +9,10 @@ import {
   ArrowRight,
   Sparkles
 } from 'lucide-react';
+import { useLanguage } from '../contexts/LanguageContext.jsx';
 
 export function CategoryMenuScreen({ categories, onSelectCategory }) {
+  const { t } = useLanguage();
   const getIcon = (iconName) => {
     switch (iconName) {
       case 'ShoppingCart': return <ShoppingCart className="w-8 h-8" />;
@@ -28,15 +30,15 @@ export function CategoryMenuScreen({ categories, onSelectCategory }) {
       <div className="text-center space-y-3 mb-10">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-100 dark:bg-sky-950/80 border border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-300 text-xs font-semibold">
           <Sparkles className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-          <span>Selección Rápida de Categorías</span>
+          <span>{t('Selección Rápida de Categorías')}</span>
         </div>
 
         <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-stone-900 dark:text-white tracking-tight">
-          ¿Qué estás buscando comparar hoy?
+          {t('¿Qué estás buscando comparar hoy?')}
         </h1>
 
         <p className="text-sm sm:text-base text-stone-600 dark:text-stone-300 max-w-xl mx-auto font-normal">
-          Selecciona una categoría para comenzar a comparar precios y descubrir ofertas reales en tu zona.
+          {t('Selecciona una categoría para comenzar a comparar precios y descubrir ofertas reales en tu zona.')}
         </p>
       </div>
 
@@ -56,12 +58,12 @@ export function CategoryMenuScreen({ categories, onSelectCategory }) {
             <div className="mt-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-extrabold text-stone-900 dark:text-white group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
-                  {cat.name}
+                  {t(cat.name)}
                 </h2>
                 <ArrowRight className="w-5 h-5 text-stone-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-200" />
               </div>
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 line-clamp-2">
-                {cat.description}
+                {t(cat.description)}
               </p>
             </div>
           </button>
@@ -80,19 +82,19 @@ export function CategoryMenuScreen({ categories, onSelectCategory }) {
           <div className="mt-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-extrabold text-white">
-                Todas las Categorías
+                {t('Todas las Categorías')}
               </h2>
               <ArrowRight className="w-5 h-5 text-white/80 group-hover:translate-x-1 transition-transform" />
             </div>
             <p className="text-xs text-sky-100 mt-1">
-              Explora todos los productos, aplica filtros avanzados y busca directamente.
+              {t('Explora todos los productos, aplica filtros avanzados y busca directamente.')}
             </p>
           </div>
         </button>
       </div>
 
       <div className="mt-12 text-center text-xs text-stone-400">
-        <p>Ar-Price Argentina • Selección rápida de categorías para comparación de precios</p>
+        <p>{t('Ar-Price Argentina • Selección rápida de categorías para comparación de precios')}</p>
       </div>
     </div>
   );

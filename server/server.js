@@ -40,8 +40,11 @@ const {
 const {
   customerPasswordResetIpRateLimit,
   customerPriceReportIpRateLimit,
+  productTranslationIpRateLimit,
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
+const { getFrontendUrl } = require('./passwordRecoveryRedirect')
+const { createProductTranslationService } = require('./services/productTranslation')
 const {
   PRICE_STATUS_RULES_VERSION,
   createPriceStatusRefreshQueue,
@@ -50,6 +53,10 @@ const {
 } = require('./services/currentPriceStatus')
 const priceStatusRulesVersion = PRICE_STATUS_RULES_VERSION
 const catalogPageCache = createCatalogPageCache()
+const productTranslationService = createProductTranslationService({
+  serviceUrl: process.env.TRANSLATION_SERVICE_URL,
+  apiKey: process.env.TRANSLATION_SERVICE_API_KEY,
+})
 const publicDiscoSearchCache = new Map()
 const publicDiscoSearchInFlight = new Set()
 const publicDiscoSearchMaxResults = Math.min(500, Math.max(50, Number(process.env.DISCO_PUBLIC_SEARCH_MAX_RESULTS || 500)))
@@ -2559,18 +2566,14 @@ function requireCustomerAuthStorage(res) {
 }
 
 function getPasswordRecoveryRedirectUrl(accountType) {
-  const frontendUrl = process.env.FRONTEND_URL || (
-    process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://ar-price.netlify.app'
-  )
+  const frontendUrl = getFrontendUrl()
   const redirectUrl = new URL('/restablecer-contrasena', frontendUrl)
   redirectUrl.searchParams.set('account', accountType)
   return redirectUrl.toString()
 }
 
 function getCustomerConfirmationRedirectUrl() {
-  const frontendUrl = process.env.FRONTEND_URL || (
-    process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : 'https://ar-price.netlify.app'
-  )
+  const frontendUrl = getFrontendUrl()
   return new URL('/ingresar?confirmation=success', frontendUrl).toString()
 }
 
@@ -3662,6 +3665,30 @@ const candidatePorts = [desiredPort, 3100, 3140, 3200, 3210, 3300, 3500, 4000].f
 let discoSyncRunning = false
 const discoSyncIntervalMs = Number(process.env.DISCO_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+app.post('/translate/products', productTranslationIpRateLimit, async (req, res) => {
+  const names = req.body?.names
+  if (!Array.isArray(names) || names.length < 1 || names.length > 50) {
+    return res.status(400).json({ error: 'Send between 1 and 50 product names.' })
+  }
+
+  const normalizedNames = names.map((name) => typeof name === 'string' ? name.trim() : '')
+  if (normalizedNames.some((name) => !name || name.length > 200)) {
+    return res.status(400).json({ error: 'Product names must contain between 1 and 200 characters.' })
+  }
+
+  try {
+    const translations = await productTranslationService.translate(normalizedNames)
+    return res.json({
+      translations: [...translations].map(([original, translated]) => ({ original, translated })),
+    })
+  } catch (error) {
+    if (error.code === 'TRANSLATION_SERVICE_NOT_CONFIGURED') {
+      return res.status(503).json({ error: 'Product translation is not configured on the server.' })
+    }
+    console.error('Product translation request failed:', error.message)
+    return res.status(502).json({ error: 'The product translation service could not translate the requested names.' })
+  }
+})
 
 if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue)
