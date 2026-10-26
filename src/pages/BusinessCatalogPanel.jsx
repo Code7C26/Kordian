@@ -10,7 +10,7 @@ async function readPayload(response) {
   return payload
 }
 
-export default function BusinessCatalogPanel() {
+export default function BusinessCatalogPanel({ onStoreStateChange }) {
   const { accessToken } = useCustomerAuth()
   const { t } = useLanguage()
   const [products, setProducts] = useState([])
@@ -31,6 +31,7 @@ export default function BusinessCatalogPanel() {
     const controller = new AbortController()
     setLoading(true)
     setError('')
+    onStoreStateChange?.('loading')
 
     const params = new URLSearchParams({ page: String(page), limit: '40' })
     if (search) params.set('search', search)
@@ -43,6 +44,7 @@ export default function BusinessCatalogPanel() {
       .then((payload) => {
         setProducts(payload.products || [])
         setStoreName(payload.store?.name || '')
+        onStoreStateChange?.('ready', payload.store || null)
         setHasMore(Boolean(payload.hasMore))
         setPriceDrafts((current) => ({
           ...current,
@@ -53,14 +55,17 @@ export default function BusinessCatalogPanel() {
         }))
       })
       .catch((loadError) => {
-        if (loadError.name !== 'AbortError') setError(loadError.message)
+        if (loadError.name !== 'AbortError') {
+          setError(loadError.message)
+          onStoreStateChange?.('error', null, loadError.message)
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
       })
 
     return () => controller.abort()
-  }, [accessToken, page, refreshKey, search])
+  }, [accessToken, onStoreStateChange, page, refreshKey, search])
 
   const submitSearch = (event) => {
     event.preventDefault()
