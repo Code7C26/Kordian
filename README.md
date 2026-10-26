@@ -189,7 +189,7 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 ---
 
 ## Video Publicitario
-- [Instagram](https://www.instagram.com/p/De9Li5PgqFI/)
+- [Spot Publicitario](https://www.instagram.com/p/De9Li5PgqFI/)
 
 ---
 
