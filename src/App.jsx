@@ -14,6 +14,7 @@ import PriceExplanationModal from './components/PriceExplanationModal.jsx';
 import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
+import { hasActiveCatalogFilters, resetCatalogFilters } from './utils/catalogFilters.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
 import { fetchProductAnalysis } from './services/analysisApi.js';
@@ -741,18 +742,10 @@ export default function App() {
               <span className="font-semibold text-stone-600 dark:text-stone-300">
                 {t('Mostrando ')}<strong className="text-sky-600 dark:text-sky-400 font-extrabold">{paginatedProducts.length}</strong>{t(' productos · Página ')}{productsPage}{t(' de ')}{totalPages}
               </span>
-              {(filters.category !== 'todos' || filters.subcategory !== 'todos' || filters.searchQuery || filters.store !== 'todos' || favoritesOnlyView) && (
+              {(hasActiveCatalogFilters(filters) || favoritesOnlyView) && (
                 <button
                   onClick={() => {
-                    updateFilters({
-                      category: filters.category,
-                      searchQuery: '',
-                      store: 'todos',
-                      subcategory: 'todos',
-                      priceStatus: 'todos',
-                      sortBy: 'discount-desc',
-                      maxPrice: 1000000,
-                    });
+                    updateFilters(resetCatalogFilters(filters, { preserveCategory: true }));
                     setFavoritesOnlyView(false);
                   }}
                   className="flex items-center gap-1 text-rose-500 hover:underline font-bold cursor-pointer"
@@ -934,14 +927,7 @@ export default function App() {
               <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">{t('Intenta cambiar los términos de búsqueda o restablecer los filtros para ver todos los productos.')}</p>
               <button
                 onClick={() => {
-                  updateFilters({
-                    category: 'todos',
-                    searchQuery: '',
-                    store: 'todos',
-                    subcategory: 'todos',
-                    sortBy: 'discount-desc',
-                    maxPrice: 1000000,
-                  });
+                  updateFilters(resetCatalogFilters(filters));
                   setFavoritesOnlyView(false);
                 }}
                 className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
