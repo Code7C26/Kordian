@@ -42,6 +42,8 @@ function getBasketItemDetails(product, selectedOffer = null) {
       }
 
   return { offer, itemId: `${product.id}-${offer.storeId}-${offer.price}` }
+}
+
 function getDiscoveryPage(total, pageSize) {
   const totalPages = Math.ceil(total / pageSize)
   if (totalPages <= 1) return 1
