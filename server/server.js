@@ -52,6 +52,7 @@ const {
   saveCurrentPriceStatuses,
 } = require('./services/currentPriceStatus')
 const priceStatusRulesVersion = PRICE_STATUS_RULES_VERSION
+const catalogSortVersion = '2026-10-26-global-sort-v1'
 const catalogPageCache = createCatalogPageCache()
 const productTranslationService = createProductTranslationService({
   serviceUrl: process.env.TRANSLATION_SERVICE_URL,
@@ -1392,6 +1393,7 @@ app.get('/products', async (req, res) => {
     const cacheKey = JSON.stringify({
       ...queryArgs,
       p_favorite_ids: [...favoriteIds].sort((left, right) => left - right),
+      catalogSortVersion,
     })
     const fetchCatalogPage = async (requestedPage, requestedPageLimit) => {
       const { data, error } = await analysisWriter.rpc('catalog_products_page', {

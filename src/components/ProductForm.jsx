@@ -7,7 +7,7 @@ export default function ProductForm({ form, setForm, brands, categories, superma
   const subcategories = selectedCategory?.subcategories || []
   const selectedSupermarket = supermarkets.find((supermarket) => supermarket.name === form.supermarket)
   return (
-    <section className="mt-6 bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm">
+    <section id="admin-product-form" tabIndex={-1} className="mt-6 scroll-mt-6 bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm focus:outline-none">
       <h2 className="text-lg font-bold mb-4">{editingProduct ? 'Editar Producto u Oferta existente' : 'Agregar Producto y/o Precio'}</h2>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" placeholder="Nombre" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />

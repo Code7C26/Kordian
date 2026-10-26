@@ -25,6 +25,12 @@ import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
 
 const CATEGORY_ONBOARDING_KEY = 'arprice_category_onboarding_complete';
 
+function getDiscoveryPage(total, pageSize) {
+  const totalPages = Math.ceil(total / pageSize)
+  if (totalPages <= 1) return 1
+  return Math.floor(Math.random() * (totalPages - 1)) + 2
+}
+
 const SORT_OPTIONS = [
   { value: 'discount-desc', label: 'Mayor ahorro', icon: Percent },
   { value: 'price-asc', label: 'Menor precio', icon: ArrowDownWideNarrow },
@@ -148,7 +154,12 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    setProductsPage(1)
+    const routePage = Number(params.get('page'))
+    setProductsPage(
+      location.pathname === '/buscar' && Number.isSafeInteger(routePage) && routePage > 0
+        ? routePage
+        : 1,
+    )
     setViewMode(
       location.pathname === '/buscar'
         ? 'products'
@@ -241,7 +252,13 @@ export default function App() {
     }
     setFavoritesOnlyView(false)
     setViewMode('products')
-    navigate(query ? `/buscar?q=${encodeURIComponent(query)}` : '/buscar')
+    const discoveryPage = query
+      ? 1
+      : getDiscoveryPage(catalogTotal, productsPageSize)
+    setProductsPage(discoveryPage)
+    navigate(query
+      ? `/buscar?q=${encodeURIComponent(query)}`
+      : `/buscar?page=${discoveryPage}`)
   }
 
   const handleQuickSearch = (query) => {
