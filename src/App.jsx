@@ -15,7 +15,7 @@ import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
-import { fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
+import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
 import { fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
@@ -103,7 +103,7 @@ export default function App() {
   const [products, setProducts] = useState([])
   const [catalogTotal, setCatalogTotal] = useState(0)
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
-  const [catalogLoadError, setCatalogLoadError] = useState(false)
+  const [catalogLoadError, setCatalogLoadError] = useState(null)
   const [analysisLoadState, setAnalysisLoadState] = useState('idle')
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
   const [selectedCategory, setSelectedCategory] = useState(
@@ -297,11 +297,11 @@ export default function App() {
     const bypassProductCache = lastCatalogRefreshKey.current !== catalogRefreshKey
     lastCatalogRefreshKey.current = catalogRefreshKey
     setIsLoadingProducts(true)
-    setCatalogLoadError(false)
+    setCatalogLoadError(null)
     const loadData = async () => {
       const requestTimeout = setTimeout(() => {
         controller.abort(new DOMException('Catalog request timed out', 'TimeoutError'))
-      }, 15000)
+      }, CATALOG_REQUEST_TIMEOUT_MS)
       try {
         const query = buildProductsQuery({
           page: productsPage,
@@ -394,7 +394,7 @@ export default function App() {
         setTaxonomy(taxonomyData || [])
         setProducts(enriched)
         setCatalogTotal(total)
-        setCatalogLoadError(false)
+        setCatalogLoadError(null)
 
         const stores = new Map()
         ;(supermarkets || []).forEach((supermarket) => {
@@ -405,40 +405,13 @@ export default function App() {
           if (name && !stores.has(name)) stores.set(name, { id: name, name, image: supermarketImages.get(name) || '' })
         }))
         setStoresList([...stores.values()])
-
-        if (!analysisCache.current && !filters.searchQuery.trim() && !favoritesOnlyView) {
-          setAnalysisLoadState('loading')
-          fetchCachedCatalogResponse(apiUrl('/analysis/products'), { signal: controller.signal, ttlMs: 60_000 })
-            .then((analysisResults) => {
-              if (!Array.isArray(analysisResults)) throw new TypeError('Price analysis response must be an array')
-              if (!mounted) return
-              analysisCache.current = analysisResults
-              setAnalysisLoadState('loaded')
-              const resultsByProduct = new Map(analysisResults.map((item) => [String(item.product?.id), item]))
-              setProducts((current) => current.map((product) => {
-                const analysis = resultsByProduct.get(String(product.id))
-                if (!analysis) return product
-                return {
-                  ...product,
-                  analysis,
-                  status: analysis.classification === 'PRECIO_NORMAL'
-                    ? 'EN_PRECIO'
-                    : analysis.classification || product.status,
-                  priceHistory: analysis.priceHistory || product.priceHistory,
-                }
-              }))
-            })
-            .catch((error) => {
-              if (error.name !== 'AbortError') {
-                console.error('Error loading price analysis', error)
-                if (mounted) setAnalysisLoadState('error')
-              }
-            })
-        }
       } catch (error) {
-        if (!mounted || error.name === 'AbortError') return
+        if (!mounted) return
+        const timedOut = error.name === 'TimeoutError'
+          || controller.signal.reason?.name === 'TimeoutError'
+        if (error.name === 'AbortError' && !timedOut) return
         console.error('Error loading data', error)
-        setCatalogLoadError(true)
+        setCatalogLoadError(timedOut ? 'timeout' : 'request')
         setProducts([])
         setCatalogTotal(0)
         setStoresList([])
@@ -448,7 +421,7 @@ export default function App() {
       }
     }
 
-    searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? 250 : 0)
+    searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? 400 : 0)
     return () => {
       mounted = false
       controller.abort()
@@ -933,14 +906,18 @@ export default function App() {
               <AlertTriangle className="h-10 w-10" aria-hidden="true" />
               <div>
                 <h3 className="text-xl font-bold">{t('No se pudieron cargar los productos actuales.')}</h3>
-                <p className="mt-2 text-sm">{t('No se muestran productos para evitar información desactualizada.')}</p>
+                <p className="mt-2 text-sm">
+                  {catalogLoadError === 'timeout'
+                    ? t('La consulta está tardando más de lo esperado. Puede ser una demora temporal del servicio; intenta nuevamente.')
+                    : t('No fue posible completar la consulta del catálogo. Intenta nuevamente.')}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setCatalogRefreshKey((key) => key + 1)}
                 className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
               >
-                {t('Reintentar conexión')}
+                {t('Reintentar búsqueda')}
               </button>
             </div>
           ) : filteredProducts.length === 0 ? (

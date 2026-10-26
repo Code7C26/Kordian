@@ -15,6 +15,7 @@ import { apiUrl } from '../config/api.js'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
 import { SupermarketLogo } from '../components/SupermarketLogo.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
+import { CATALOG_REQUEST_TIMEOUT_MS } from '../services/catalogResponseCache.js'
 import { fetchProductAnalysis } from '../services/analysisApi.js'
 
 const periods = [
@@ -66,7 +67,6 @@ function normalizeProducts(products, analyses = [], supermarketImages = new Map(
         .map((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price))
         .filter((price) => Number.isFinite(price) && price > 0)
       const currentPrice = Number(product.currentPrice || product.price || Math.min(...offerPrices))
-      const analysis = analysisById.get(String(product.id))
       const primaryOffer = offers.find((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price) === currentPrice)
       const primaryStoreName = product.primaryStore?.name || primaryOffer?.supermarket || ''
       return {
@@ -164,7 +164,7 @@ export default function PriceInflationPage() {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => {
       controller.abort(new DOMException('La consulta del catálogo excedió el tiempo de espera.', 'TimeoutError'))
-    }, 12000)
+    }, CATALOG_REQUEST_TIMEOUT_MS)
     const loadProducts = async () => {
       try {
         const response = await fetch(apiUrl('/products?page=1&limit=100&catalogOnly=true'), { signal: controller.signal })
@@ -235,7 +235,7 @@ export default function PriceInflationPage() {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => {
       controller.abort(new DOMException('La consulta del historial excedió el tiempo de espera.', 'TimeoutError'))
-    }, 12000)
+    }, CATALOG_REQUEST_TIMEOUT_MS)
     let active = true
     setHistoryLoading(true)
     setHistoryError('')
