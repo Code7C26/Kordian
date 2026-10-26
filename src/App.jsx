@@ -156,34 +156,37 @@ export default function App() {
           : 'categories'
     );
     setFavoritesOnlyView(location.pathname === '/favoritos');
+    let routeFilters
     if (location.pathname === '/buscar') {
-      setFilters((previous) => ({
-        ...previous,
+      routeFilters = {
         searchQuery: params.get('q') ?? '',
         category: params.get('category') ?? 'todos',
         subcategory: 'todos',
         priceStatus: params.get('deals') === '1' ? 'OFERTA' : 'todos',
-      }));
+      }
     } else if (
       location.pathname === '/'
       && localStorage.getItem(CATEGORY_ONBOARDING_KEY) === 'true'
     ) {
-      setFilters((previous) => ({
-        ...previous,
+      routeFilters = {
         searchQuery: '',
         category: localStorage.getItem('arprice_selected_category') || 'todos',
         subcategory: 'todos',
         priceStatus: 'todos',
-      }));
+      }
     } else {
-      setFilters((previous) => ({
-        ...previous,
+      routeFilters = {
         searchQuery: '',
         category: 'todos',
         subcategory: 'todos',
         priceStatus: 'todos',
-      }));
+      }
     }
+    setFilters((previous) => (
+      Object.entries(routeFilters).every(([key, value]) => previous[key] === value)
+        ? previous
+        : { ...previous, ...routeFilters }
+    ))
   }, [location.pathname, location.search]);
 
   const [favorites, setFavorites] = useState(() => {
@@ -427,7 +430,7 @@ export default function App() {
       controller.abort()
       clearTimeout(searchTimer)
     }
-  }, [filters, productsPage, productsPageSize, selectedCity, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView])
+  }, [filters, productsPage, productsPageSize, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView])
 
   useEffect(() => {
     analysisCache.current.clear()
