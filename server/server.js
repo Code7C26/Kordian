@@ -1405,6 +1405,17 @@ app.get('/products', async (req, res) => {
       }
       return data
     }
+    const loadProductsByIds = async (productIds) => {
+      const { data: productsPayload, error } = await analysisWriter.rpc('catalog_products_by_ids', {
+        p_product_ids: productIds,
+        p_rules_version: priceStatusRulesVersion,
+      })
+      if (error) throw error
+      if (!Array.isArray(productsPayload?.data)) {
+        throw new Error('Catalog hydration RPC returned an invalid response')
+      }
+      return productsPayload.data
+    }
     let data
     try {
       data = await catalogPageCache.getPage({
@@ -1412,17 +1423,7 @@ app.get('/products', async (req, res) => {
         page,
         limit,
         loadIndex: fetchCatalogPage,
-        loadProductsByIds: async (productIds) => {
-          const { data: productsPayload, error } = await analysisWriter.rpc('catalog_products_by_ids', {
-            p_product_ids: productIds,
-            p_rules_version: priceStatusRulesVersion,
-          })
-          if (error) throw error
-          if (!Array.isArray(productsPayload?.data)) {
-            throw new Error('Catalog hydration RPC returned an invalid response')
-          }
-          return productsPayload.data
-        },
+        loadProductsByIds,
         loadPage: () => fetchCatalogPage(page, limit),
       })
     } catch (error) {
@@ -1436,6 +1437,16 @@ app.get('/products', async (req, res) => {
     res.set('X-Catalog-Cache', cacheHit ? 'HIT' : 'MISS')
     if (search && page === 1) res.once('finish', () => scheduleDiscoSearchResults(search))
     res.json(responseData)
+    if (page * limit < data.total) {
+      setImmediate(() => {
+        catalogPageCache.prefetchPage({
+          key: cacheKey,
+          page: page + 1,
+          limit,
+          loadProductsByIds,
+        }).catch((error) => console.error('Catalog next-page prefetch failed:', error))
+      })
+    }
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Internal server error' })
