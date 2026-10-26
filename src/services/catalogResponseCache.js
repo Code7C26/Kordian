@@ -1,4 +1,5 @@
 const DEFAULT_TTL_MS = 30_000
+export const CATALOG_REQUEST_TIMEOUT_MS = 65_000
 const MAX_ENTRIES = 40
 const responses = new Map()
 const pendingRequests = new Map()
@@ -48,6 +49,7 @@ export function fetchCachedCatalogResponse(url, {
   signal,
   ttlMs = DEFAULT_TTL_MS,
   bypassCache = false,
+  timeoutMs = CATALOG_REQUEST_TIMEOUT_MS,
   fetchImpl = fetch,
 } = {}) {
   if (!bypassCache) {
@@ -58,7 +60,7 @@ export function fetchCachedCatalogResponse(url, {
   let request = pendingRequests.get(url)
   if (!request) {
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(new DOMException('Catalog request timed out', 'TimeoutError')), 15_000)
+    const timeoutId = setTimeout(() => controller.abort(new DOMException('Catalog request timed out', 'TimeoutError')), timeoutMs)
     request = fetchImpl(url, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Catalog request failed with status ${response.status}`)
