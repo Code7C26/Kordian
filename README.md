@@ -1,5 +1,6 @@
 # 🏵️ Kordian 
 Desarrollo de software y soluciones 
+
 Slogan: **Tecnología que crece con vos.**
 
 <p align="center">
@@ -8,6 +9,7 @@ Slogan: **Tecnología que crece con vos.**
 
 ---
 # 🛒 Ar-Price 
+
 Slogan: **Tecnología que crece con vos.**
 
 <p align="center">
