@@ -1,8 +1,18 @@
-# 🛒 Ar-Price 
-Plataforma Integral para la Comparación de Precios y Ahorro en Comercios Locales
-**Tecnología que crece con vos.**
+# 🏵️ Kordian 
+Desarrollo de software y soluciones 
+Slogan: **Tecnología que crece con vos.**
+
+<p align="center">
+  <img src="assents/Kordian/gif_flor.gif">
+</p>
 
 ---
+# 🛒 Ar-Price 
+Slogan: **Tecnología que crece con vos.**
+
+<p align="center">
+  <img src="assents/Ar-Price/gif_avion.gif>
+</p>
 
 ## Descripción del Proyecto
 **Ar-Price** es una aplicación multiplataforma (Web y Mobile) diseñada para optimizar la economía del hogar mediante la comparación de precios entre supermercados y comercios locales.
