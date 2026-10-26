@@ -67,6 +67,7 @@ function normalizeProducts(products, analyses = [], supermarketImages = new Map(
         .map((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price))
         .filter((price) => Number.isFinite(price) && price > 0)
       const currentPrice = Number(product.currentPrice || product.price || Math.min(...offerPrices))
+      const analysis = analysisById.get(String(product.id))
       const primaryOffer = offers.find((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price) === currentPrice)
       const primaryStoreName = product.primaryStore?.name || primaryOffer?.supermarket || ''
       return {
