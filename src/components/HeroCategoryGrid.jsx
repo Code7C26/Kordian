@@ -70,6 +70,7 @@ export function HeroCategoryGrid({
                 onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
                 placeholder={t('Busca por producto o marca')}
                 className="min-w-0 w-full px-2 py-2.5 text-stone-900 dark:text-white placeholder-stone-400 bg-transparent text-sm sm:px-3 sm:text-base focus:outline-none"
+                wrapperClassName="min-w-0 flex-1"
               />
               {searchFocused && searchHistory.length > 0 && (
                 <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-sky-200 bg-white text-left shadow-xl dark:border-sky-900 dark:bg-stone-800">

@@ -5,19 +5,26 @@ import {
   ArrowUpRight,
   Calculator,
   CalendarDays,
+  ChevronDown,
   CircleHelp,
   PackageSearch,
   Search,
   TrendingUp,
 } from 'lucide-react'
-import { MOCK_PRODUCTS } from '../data/mockProducts.js'
 import { apiUrl } from '../config/api.js'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
 import { SupermarketLogo } from '../components/SupermarketLogo.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
-import { CATALOG_REQUEST_TIMEOUT_MS } from '../services/catalogResponseCache.js'
+import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from '../services/catalogResponseCache.js'
 import { fetchProductAnalysis } from '../services/analysisApi.js'
 import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
+import { isValidCatalogProduct } from '../utils/validCatalogProducts.js'
+import { getSearchRelevance } from '../utils/searchTerms.js'
+
+const PRODUCT_SEARCH_LIMIT = 20
+const PRODUCT_SEARCH_MIN_LENGTH = 2
+const PRODUCT_SEARCH_DEBOUNCE_MS = 300
+const PRODUCT_SEARCH_TIMEOUT_MS = 30_000
 
 const periods = [
   { label: '1 mes', months: 1 },
@@ -59,8 +66,7 @@ function formatHistoryDate(date, language) {
     : date
 }
 
-function normalizeProducts(products, analyses = [], supermarketImages = new Map()) {
-  const analysisById = new Map(analyses.map((item) => [String(item.product?.id), item]))
+function normalizeProducts(products) {
   return products
     .map((product) => {
       const offers = Array.isArray(product.offers) ? product.offers : []
@@ -68,29 +74,32 @@ function normalizeProducts(products, analyses = [], supermarketImages = new Map(
         .map((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price))
         .filter((price) => Number.isFinite(price) && price > 0)
       const currentPrice = Number(product.currentPrice || product.price || Math.min(...offerPrices))
-      const analysis = analysisById.get(String(product.id))
       const primaryOffer = offers.find((offer) => Number(offer.cash_price ?? offer.cashPrice ?? offer.price) === currentPrice)
       const primaryStoreName = product.primaryStore?.name || primaryOffer?.supermarket || ''
       return {
         ...product,
-        analysis,
-        status: analysis?.classification === 'PRECIO_NORMAL'
-          ? 'EN_PRECIO'
-          : analysis?.classification || product.status,
         currentPrice,
         brand: product.brand || product.brands?.name || '',
         primaryStore: {
           ...product.primaryStore,
           name: primaryStoreName,
-          image: product.primaryStore?.image || supermarketImages.get(primaryStoreName) || '',
+          image: product.primaryStore?.image || '',
         },
-        priceHistory: analysis?.priceHistory || product.priceHistory || [],
       }
     })
-    .filter((product) => product.name && Number.isFinite(product.currentPrice) && product.currentPrice > 0)
+    .filter((product) => (
+      isValidCatalogProduct(product)
+      && product.name
+      && Number.isFinite(product.currentPrice)
+      && product.currentPrice > 0
+    ))
 }
 
-const DEMO_PRODUCTS = normalizeProducts(MOCK_PRODUCTS)
+function rankSearchResults(products, query) {
+  return [...products].sort((left, right) => {
+    return getSearchRelevance(left.name, query) - getSearchRelevance(right.name, query)
+  })
+}
 
 function PriceHistoryChart({ points, productName, language, t }) {
   if (points.length < 2) {
@@ -148,87 +157,115 @@ export default function PriceInflationPage() {
     currency: 'ARS',
     maximumFractionDigits: 0,
   }), [language])
-  const [products, setProducts] = useState(DEMO_PRODUCTS)
-  const [selectedProductId, setSelectedProductId] = useState(String(MOCK_PRODUCTS[0].id))
+  const [products, setProducts] = useState([])
+  const [selectedProductId, setSelectedProductId] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchRetryKey, setSearchRetryKey] = useState(0)
   const [amount, setAmount] = useState('100000')
-  const [variation, setVariation] = useState(() => (getVariation(getHistoryForPeriod(getPriceHistory(DEMO_PRODUCTS[0]), 3)) ?? 12.5).toFixed(1))
+  const [variation, setVariation] = useState('0.0')
   const [period, setPeriod] = useState(3)
-  const [isLoading, setIsLoading] = useState(true)
-  const [usingDemoProducts, setUsingDemoProducts] = useState(true)
-  const [catalogError, setCatalogError] = useState('')
+  const [isSearchingProducts, setIsSearchingProducts] = useState(false)
+  const [productMenuOpen, setProductMenuOpen] = useState(false)
+  const [highlightedProductIndex, setHighlightedProductIndex] = useState(0)
+  const [productSearchError, setProductSearchError] = useState('')
   const [historyError, setHistoryError] = useState('')
   const translateProductName = useProductNameTranslator(products.map((product) => product.name))
   const [historyLoading, setHistoryLoading] = useState(false)
   const analysisCache = useRef(new Map())
+  const productMenuRef = useRef(null)
+  const productOptionRefs = useRef([])
 
   useEffect(() => {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => {
-      controller.abort(new DOMException('La consulta del catálogo excedió el tiempo de espera.', 'TimeoutError'))
-    }, CATALOG_REQUEST_TIMEOUT_MS)
-    const loadProducts = async () => {
-      try {
-        const response = await fetch(apiUrl('/products?page=1&limit=100&catalogOnly=true'), { signal: controller.signal })
-        if (!response.ok) throw new Error('No se pudo cargar el catálogo actual.')
-        const payload = await response.json()
-        const catalogProducts = Array.isArray(payload) ? payload : payload?.data || []
-        let supermarketImages = new Map()
-        try {
-          const supermarketsResponse = await fetch(apiUrl('/supermarkets'), { signal: controller.signal })
-          if (!supermarketsResponse.ok) throw new Error('No se pudieron cargar los logos de supermercados.')
-          const supermarkets = await supermarketsResponse.json()
-          supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
-        } catch (error) {
-          if (error.name === 'AbortError') throw error
-          console.error('Error loading supermarket logos for inflation calculator', error)
-        }
-        let analyses = []
-        try {
-          const analysisResponse = await fetch(apiUrl('/analysis/products'), { signal: controller.signal })
-          if (!analysisResponse.ok) throw new Error('No se pudo cargar el historial de precios.')
-          analyses = await analysisResponse.json()
-        } catch (error) {
-          if (error.name === 'AbortError') throw error
-          console.error('Error loading price history for inflation calculator', error)
-          setHistoryError('No se pudo cargar el historial de precios.')
-        }
-        const loadedProducts = normalizeProducts(catalogProducts, analyses, supermarketImages)
-        if (!loadedProducts.length) throw new Error('El catálogo no tiene productos disponibles para consultar.')
-        setProducts(loadedProducts)
-        setSelectedProductId(String(loadedProducts[0].id))
-        const loadedVariation = getVariation(getHistoryForPeriod(getPriceHistory(loadedProducts[0]), 3))
-        if (loadedVariation !== null) setVariation(loadedVariation.toFixed(1))
-        setUsingDemoProducts(false)
-        setCatalogError('')
-      } catch (error) {
-        if (error.name === 'AbortError') return
-        console.error('Error loading products for inflation calculator', error)
-        setProducts(normalizeProducts(MOCK_PRODUCTS))
-        setSelectedProductId(String(MOCK_PRODUCTS[0].id))
-        setUsingDemoProducts(true)
-        setCatalogError('No se pudo cargar el catálogo actual.')
-      } finally {
-        clearTimeout(timeoutId)
-        setIsLoading(false)
-      }
+    const query = searchQuery.trim()
+    setSelectedProductId('')
+    setProducts([])
+    setProductMenuOpen(false)
+    setHighlightedProductIndex(0)
+    setProductSearchError('')
+    setHistoryError('')
+    setVariation('0.0')
+
+    if (query.length < PRODUCT_SEARCH_MIN_LENGTH) {
+      setIsSearchingProducts(false)
+      return undefined
     }
 
-    loadProducts()
+    const controller = new AbortController()
+    let active = true
+    setIsSearchingProducts(true)
+    const debounceId = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          page: '1',
+          limit: String(PRODUCT_SEARCH_LIMIT),
+          search: query,
+          catalogOnly: 'true',
+        })
+        const payload = await fetchCachedCatalogResponse(
+          apiUrl(`/products?${params.toString()}`),
+          {
+            signal: controller.signal,
+            timeoutMs: PRODUCT_SEARCH_TIMEOUT_MS,
+          },
+        )
+        if (!active) return
+
+        const results = Array.isArray(payload) ? payload : payload?.data || []
+        const matches = rankSearchResults(normalizeProducts(results), query)
+        setProducts(matches)
+        setProductMenuOpen(matches.length > 0)
+      } catch (error) {
+        if (!active || error.name === 'AbortError') return
+        console.error('Error searching products for inflation calculator', error)
+        const timedOut = error.name === 'TimeoutError'
+          || controller.signal.reason?.name === 'TimeoutError'
+        setProductSearchError(timedOut
+          ? 'La búsqueda tardó demasiado. Intenta nuevamente.'
+          : error instanceof TypeError
+            ? 'No se pudo conectar con el catálogo. Verifica que el servidor esté activo.'
+            : 'No se pudieron buscar productos. Intenta nuevamente.')
+      } finally {
+        if (active) setIsSearchingProducts(false)
+      }
+    }, PRODUCT_SEARCH_DEBOUNCE_MS)
+
     return () => {
-      clearTimeout(timeoutId)
+      active = false
+      window.clearTimeout(debounceId)
       controller.abort()
     }
-  }, [])
+  }, [searchQuery, searchRetryKey])
 
-  const selectedProduct = products.find((product) => String(product.id) === selectedProductId) || products[0]
+  const selectedProduct = products.find((product) => String(product.id) === selectedProductId)
   const activeProductId = selectedProduct?.id
 
   useEffect(() => {
-    if (usingDemoProducts || activeProductId === undefined || activeProductId === null) return
+    if (!productMenuOpen) return undefined
+
+    const closeOnOutsideClick = (event) => {
+      if (!productMenuRef.current?.contains(event.target)) setProductMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick)
+  }, [productMenuOpen])
+
+  useEffect(() => {
+    if (activeProductId === undefined || activeProductId === null) {
+      setHistoryLoading(false)
+      return
+    }
 
     const productId = String(activeProductId)
     if (analysisCache.current.has(productId)) {
+      const cachedAnalysis = analysisCache.current.get(productId)
+      if (cachedAnalysis) {
+        setProducts((current) => current.map((product) => (
+          String(product.id) === productId
+            ? { ...product, analysis: cachedAnalysis, priceHistory: cachedAnalysis.priceHistory || product.priceHistory }
+            : product
+        )))
+      }
       setHistoryLoading(false)
       setHistoryError('')
       return
@@ -272,7 +309,7 @@ export default function PriceInflationPage() {
       clearTimeout(timeoutId)
       controller.abort()
     }
-  }, [activeProductId, usingDemoProducts])
+  }, [activeProductId])
 
   const history = useMemo(() => getPriceHistory(selectedProduct), [selectedProduct])
   const visibleHistory = useMemo(() => getHistoryForPeriod(history, period), [history, period])
@@ -283,10 +320,6 @@ export default function PriceInflationPage() {
   const observedVariation = visibleHistory.length > 1
     ? getVariation(visibleHistory)
     : null
-  const filteredProducts = products.filter((product) =>
-    `${product.name} ${product.brand}`.toLowerCase().includes(searchQuery.trim().toLowerCase()),
-  )
-
   const calculation = useMemo(() => {
     const initialAmount = Number(amount)
     const inflation = Number(variation)
@@ -299,10 +332,12 @@ export default function PriceInflationPage() {
 
   const selectProduct = (id) => {
     setSelectedProductId(id)
+    setProductMenuOpen(false)
     const product = products.find((item) => String(item.id) === id)
     const productHistory = getHistoryForPeriod(getPriceHistory(product), period)
     const rate = getVariation(productHistory)
-    if (rate !== null) setVariation(rate.toFixed(1))
+    setVariation(rate === null ? '0.0' : rate.toFixed(1))
+    setHistoryError('')
   }
 
   const selectPeriod = (months) => {
@@ -310,6 +345,12 @@ export default function PriceInflationPage() {
     const periodHistory = getHistoryForPeriod(history, months)
     const rate = getVariation(periodHistory)
     if (rate !== null) setVariation(rate.toFixed(1))
+  }
+
+  const moveProductHighlight = (index) => {
+    const nextIndex = Math.max(0, Math.min(index, products.length - 1))
+    setHighlightedProductIndex(nextIndex)
+    productOptionRefs.current[nextIndex]?.focus()
   }
 
   return (
@@ -336,12 +377,19 @@ export default function PriceInflationPage() {
           </div>
         </section>
 
-        {usingDemoProducts && (
-          <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-100" role="status">
-            {isLoading ? t('Conectando con el catálogo; mientras tanto, puedes explorar los datos de demostración.') : t(catalogError)} {t('Se muestran productos de demostración; sus precios e historial no son datos actuales.')}
+        {productSearchError && (
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200" role="alert">
+            <span>{t(productSearchError)}</span>
+            <button
+              type="button"
+              onClick={() => setSearchRetryKey((current) => current + 1)}
+              className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-rose-800"
+            >
+              {t('Reintentar búsqueda')}
+            </button>
           </div>
         )}
-        {historyError && !usingDemoProducts && (
+        {historyError && (
           <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-100" role="status">
             {t(historyError)} {t('Se muestran los productos disponibles, pero su evolución puede no estar completa.')}
           </div>
@@ -369,25 +417,99 @@ export default function PriceInflationPage() {
                 className={`${inputClass} pl-9`}
               />
             </label>
-            <label>
-              <span className="sr-only">{t('Seleccionar producto')}</span>
-              <select
-                value={selectedProduct ? String(selectedProduct.id) : ''}
-                onChange={(event) => selectProduct(event.target.value)}
-                disabled={filteredProducts.length === 0}
-                className={inputClass}
+            <div className="relative min-w-0" ref={productMenuRef}>
+              <span id="inflation-product-select-label" className="sr-only">{t('Seleccionar producto')}</span>
+              <button
+                type="button"
+                aria-labelledby="inflation-product-select-label"
+                aria-haspopup="listbox"
+                aria-expanded={productMenuOpen}
+                aria-controls="inflation-product-results"
+                disabled={searchQuery.trim().length < PRODUCT_SEARCH_MIN_LENGTH || isSearchingProducts || products.length === 0}
+                onClick={() => setProductMenuOpen((isOpen) => !isOpen)}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown' && products.length) {
+                    event.preventDefault()
+                    setProductMenuOpen(true)
+                    moveProductHighlight(0)
+                  } else if (event.key === 'Escape') {
+                    setProductMenuOpen(false)
+                  }
+                }}
+                className={`${inputClass} flex items-center justify-between gap-3 text-left disabled:cursor-not-allowed disabled:opacity-100`}
               >
-                {isLoading && <option value="">{t('Cargando productos...')}</option>}
-                {!isLoading && filteredProducts.length === 0 && <option value="">{t('No hay productos con esa búsqueda')}</option>}
-                {filteredProducts.map((product) => (
-                  <option key={product.id} value={String(product.id)}>{translateProductName(product.name)}</option>
-                ))}
-              </select>
-            </label>
+                {selectedProduct ? (
+                  <>
+                    <span className="min-w-0 truncate">{translateProductName(selectedProduct.name)}</span>
+                    <span className="shrink-0 font-bold text-sky-700 dark:text-sky-300">{currency.format(selectedProduct.currentPrice)}</span>
+                  </>
+                ) : (
+                  <span className="min-w-0 truncate text-stone-500 dark:text-stone-400">
+                    {isSearchingProducts
+                      ? t('Buscando productos...')
+                      : productSearchError
+                        ? t('No se pudo completar la búsqueda')
+                        : products.length
+                          ? t('Selecciona un producto')
+                          : searchQuery.trim().length < PRODUCT_SEARCH_MIN_LENGTH
+                            ? t('Busca un producto')
+                            : t('No se encontraron productos')}
+                  </span>
+                )}
+                <ChevronDown className={`h-4 w-4 shrink-0 text-stone-500 transition-transform ${productMenuOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+              </button>
+              {productMenuOpen && products.length > 0 && (
+                <div
+                  id="inflation-product-results"
+                  role="listbox"
+                  aria-labelledby="inflation-product-select-label"
+                  className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-stone-200 bg-white p-1 shadow-xl dark:border-stone-700 dark:bg-stone-900"
+                >
+                  {products.map((product, index) => (
+                    <div
+                      key={product.id}
+                      ref={(element) => { productOptionRefs.current[index] = element }}
+                      role="option"
+                      aria-selected={String(product.id) === selectedProductId}
+                      tabIndex={0}
+                      onClick={() => selectProduct(String(product.id))}
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowDown') {
+                          event.preventDefault()
+                          moveProductHighlight(index + 1)
+                        } else if (event.key === 'ArrowUp') {
+                          event.preventDefault()
+                          if (index === 0) {
+                            setProductMenuOpen(false)
+                          } else {
+                            moveProductHighlight(index - 1)
+                          }
+                        } else if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          selectProduct(String(product.id))
+                        } else if (event.key === 'Escape') {
+                          setProductMenuOpen(false)
+                        }
+                      }}
+                      onFocus={() => setHighlightedProductIndex(index)}
+                      className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm text-stone-800 hover:bg-sky-50 focus:bg-sky-50 focus:outline-none dark:text-stone-100 dark:hover:bg-stone-800 dark:focus:bg-stone-800 ${highlightedProductIndex === index ? 'bg-sky-50 dark:bg-stone-800' : ''}`}
+                    >
+                      <span className="min-w-0 truncate">{translateProductName(product.name)}</span>
+                      <span className="shrink-0 text-right font-bold text-sky-700 dark:text-sky-300">{currency.format(product.currentPrice)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          {isLoading && (
+          {isSearchingProducts && (
             <p className="mt-2 text-xs text-stone-500 dark:text-stone-400" role="status">
-              {t('Conectando con el catálogo para actualizar los datos...')}
+              {t('Buscando coincidencias en el catálogo...')}
+            </p>
+          )}
+          {searchQuery.trim().length > 0 && searchQuery.trim().length < PRODUCT_SEARCH_MIN_LENGTH && (
+            <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">
+              {t('Escribe al menos 2 caracteres para buscar productos.')}
             </p>
           )}
           {historyLoading && (
@@ -448,7 +570,7 @@ export default function PriceInflationPage() {
             <div className="my-4 grid grid-cols-3 gap-2 sm:gap-3">
               <div className="rounded-xl border border-stone-200 p-3 dark:border-stone-800">
                 <p className="text-[10px] text-stone-500 dark:text-stone-400">{t('Precio actual')}</p>
-                <p className="mt-1 text-sm font-black sm:text-base">{currency.format(selectedProduct?.currentPrice || 0)}</p>
+                <p className="mt-1 text-sm font-black sm:text-base">{selectedProduct ? currency.format(selectedProduct.currentPrice) : '—'}</p>
               </div>
               <div className="rounded-xl border border-stone-200 p-3 dark:border-stone-800">
                 <p className="text-[10px] text-stone-500 dark:text-stone-400">{t('Precio inicial')}</p>

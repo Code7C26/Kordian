@@ -4,6 +4,7 @@ import {
 } from 'react'
 import { apiUrl } from '../config/api.js'
 import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
+import { matchesSearchTerms } from '../utils/searchTerms.js'
 
 export default function Home() {
   // =========================
@@ -66,18 +67,11 @@ export default function Home() {
 
   const filteredProducts =
     products.filter((product) => {
-      const matchesSearch =
-        product.name
-          ?.toLowerCase()
-          .includes(search.toLowerCase()) ||
-
-        product.brands?.name
-          ?.toLowerCase()
-          .includes(search.toLowerCase()) ||
-
-        product.categories?.name
-          ?.toLowerCase()
-          .includes(search.toLowerCase())
+      const matchesSearch = matchesSearchTerms([
+        product.name,
+        product.brands?.name,
+        product.categories?.name,
+      ], search)
 
       const matchesSupermarket =
         supermarketFilter ===

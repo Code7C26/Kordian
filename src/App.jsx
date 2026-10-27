@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectedCity } from './contexts/SelectedCityContext.jsx';
 import { useCustomerAuth } from './contexts/CustomerAuthContext.jsx';
 import { useLanguage } from './contexts/LanguageContext.jsx';
@@ -8,11 +8,7 @@ import { Header } from './components/Header.jsx';
 import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
 import ClearableSearchInput from './components/ClearableSearchInput.jsx'
-import { ReportPriceModal } from './components/ReportPriceModal.jsx';
 import { ProductCard } from './components/ProductCard.jsx';
-import { ComparisonModal } from './components/ComparisonModal.jsx';
-import { SmartBasketModal } from './components/SmartBasketModal.jsx';
-import PriceExplanationModal from './components/PriceExplanationModal.jsx';
 import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
@@ -24,6 +20,11 @@ import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresenta
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 import brandLogo from '../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
+
+const ReportPriceModal = lazy(() => import('./components/ReportPriceModal.jsx').then((module) => ({ default: module.ReportPriceModal })));
+const ComparisonModal = lazy(() => import('./components/ComparisonModal.jsx').then((module) => ({ default: module.ComparisonModal })));
+const SmartBasketModal = lazy(() => import('./components/SmartBasketModal.jsx').then((module) => ({ default: module.SmartBasketModal })));
+const PriceExplanationModal = lazy(() => import('./components/PriceExplanationModal.jsx'));
 
 const CATEGORY_ONBOARDING_KEY = 'arprice_category_onboarding_complete';
 
@@ -136,6 +137,7 @@ export default function App() {
   const [taxonomy, setTaxonomy] = useState([])
   const [products, setProducts] = useState([])
   const [catalogTotal, setCatalogTotal] = useState(0)
+  const [catalogTotalLoaded, setCatalogTotalLoaded] = useState(false)
   const [isLoadingProducts, setIsLoadingProducts] = useState(true)
   const [catalogLoadError, setCatalogLoadError] = useState(null)
   const [analysisLoadState, setAnalysisLoadState] = useState('idle')
@@ -144,6 +146,7 @@ export default function App() {
     () => localStorage.getItem('arprice_selected_category'),
   )
   const catalogReferenceCache = useRef(null)
+  const catalogTotalRequest = useRef(null)
   const analysisResultsCache = useRef(null)
   const lastCatalogRefreshKey = useRef(catalogRefreshKey)
   const analysisCache = useRef(new Map())
@@ -184,6 +187,33 @@ export default function App() {
   const openReportModal = (product = null) => {
     setReportProduct(product)
     setReportModalOpen(true)
+  }
+
+  const loadCatalogTotal = () => {
+    if (!catalogTotalRequest.current) {
+      let request
+      request = fetchCachedCatalogResponse(apiUrl('/products?page=1&limit=1&catalogOnly=true'), {
+        ttlMs: 60_000,
+      })
+        .then((payload) => {
+          const total = Number(payload?.total ?? 0)
+          setCatalogTotal(total)
+          setCatalogTotalLoaded(true)
+          return total
+        })
+        .catch((error) => {
+          console.error('Error loading catalog total', error)
+          throw error
+        })
+        .finally(() => {
+          if (catalogTotalRequest.current === request) {
+            catalogTotalRequest.current = null
+          }
+        })
+      catalogTotalRequest.current = request
+      void request.catch(() => {})
+    }
+    return catalogTotalRequest.current
   }
 
   useEffect(() => {
@@ -248,11 +278,19 @@ export default function App() {
     }
   });
 
-  const handleSelectCategory = (category) => {
+  const handleSelectCategory = async (category) => {
     const selectedCategoryId = String(category)
     const isAllProducts = selectedCategoryId === 'todos'
+    let total = catalogTotal
+    if (isAllProducts && !catalogTotalLoaded) {
+      try {
+        total = await loadCatalogTotal()
+      } catch {
+        total = 0
+      }
+    }
     const discoveryPage = isAllProducts
-      ? getDiscoveryPage(catalogTotal, productsPageSize)
+      ? getDiscoveryPage(total, productsPageSize)
       : 1
     setSelectedCategory(selectedCategoryId)
     localStorage.setItem('arprice_selected_category', selectedCategoryId)
@@ -353,6 +391,21 @@ export default function App() {
         controller.abort(new DOMException('Catalog request timed out', 'TimeoutError'))
       }, CATALOG_REQUEST_TIMEOUT_MS)
       try {
+        if (viewMode === 'categories') {
+          const categoriesPromise = catalogReferenceCache.current
+            ? Promise.resolve(catalogReferenceCache.current.categories)
+            : fetchCachedCatalogResponse(apiUrl('/categories'), {
+                signal: controller.signal,
+                ttlMs: 300_000,
+              })
+          void loadCatalogTotal().catch(() => {})
+
+          const categoriesData = await categoriesPromise
+          if (!mounted) return
+          setCategories(Array.isArray(categoriesData) ? categoriesData : [])
+          return
+        }
+
         const query = buildProductsQuery({
           page: productsPage,
           limit: productsPageSize,
@@ -444,6 +497,7 @@ export default function App() {
         setTaxonomy(taxonomyData || [])
         setProducts(enriched)
         setCatalogTotal(total)
+        setCatalogTotalLoaded(true)
         setCatalogLoadError(null)
 
         const stores = new Map()
@@ -507,7 +561,7 @@ export default function App() {
       controller.abort()
       clearTimeout(searchTimer)
     }
-  }, [filters, productsPage, productsPageSize, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView])
+  }, [filters, productsPage, productsPageSize, sortBy, catalogRefreshKey, favoriteIdsKey, favoritesOnlyView, viewMode])
 
   useEffect(() => {
     analysisCache.current.clear()
@@ -860,15 +914,30 @@ export default function App() {
             <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory">
               <button
                 type="button"
+                aria-pressed={filters.category === 'todos' && !favoritesOnlyView}
                 onClick={() => handleSelectCategory('todos')}
-                className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${filters.category === 'todos' && !favoritesOnlyView ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}
+                className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-center transition-all ${
+                  filters.category === 'todos' && !favoritesOnlyView
+                    ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500'
+                    : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md focus:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 dark:border-stone-600 dark:bg-stone-800 dark:text-white dark:focus:bg-stone-800'
+                }`}
               >
                 <span className="block text-sm font-black leading-tight">{t('Todos')}</span>
               </button>
               {categories.map((category) => {
                 const isSelected = filters.category === category.id && !favoritesOnlyView
                 return (
-                  <button key={category.id} type="button" onClick={() => handleSelectCategory(category.id)} className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-left transition-all ${isSelected ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500' : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md dark:border-stone-600 dark:bg-stone-800 dark:text-white'}`}>
+                  <button
+                    key={category.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => handleSelectCategory(category.id)}
+                    className={`min-w-[150px] flex-1 snap-start min-h-20 rounded-xl border-2 p-2 text-center transition-all ${
+                      isSelected
+                        ? 'border-sky-600 bg-sky-600 text-white shadow-md ring-2 ring-sky-300 dark:border-sky-500 dark:bg-sky-600 dark:ring-sky-500'
+                        : 'border-stone-300 bg-white text-stone-900 shadow-sm hover:border-sky-400 hover:shadow-md focus:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 dark:border-stone-600 dark:bg-stone-800 dark:text-white dark:focus:bg-stone-800'
+                    }`}
+                  >
                     <span className={`block text-sm font-black leading-tight ${isSelected ? 'text-white' : 'text-stone-900 dark:text-white'}`}>{t(category.name)}</span>
                   </button>
                 )
@@ -1116,41 +1185,51 @@ export default function App() {
       </footer>
 
       {comparisonProduct && (
-        <ComparisonModal
-          product={comparisonProduct}
-          onClose={() => setSelectedProductForComparison(null)}
-          onAddToBasket={addToBasket}
-          onRemoveFromBasket={removeBasketUnit}
-          getBasketQuantity={getBasketQuantity}
-          isInBasket={basket.some((i) => i.product.id === comparisonProduct.id)}
-          onExplain={(p) => setSelectedProductForExplanation(p)}
-        />
+        <Suspense fallback={null}>
+          <ComparisonModal
+            product={comparisonProduct}
+            onClose={() => setSelectedProductForComparison(null)}
+            onAddToBasket={addToBasket}
+            onRemoveFromBasket={removeBasketUnit}
+            getBasketQuantity={getBasketQuantity}
+            isInBasket={basket.some((i) => i.product.id === comparisonProduct.id)}
+            onExplain={(p) => setSelectedProductForExplanation(p)}
+          />
+        </Suspense>
       )}
 
-      <PriceExplanationModal
-        product={explanationProduct}
-        analysisLoadState={analysisLoadState}
-        onClose={() => setSelectedProductForExplanation(null)}
-      />
+      {selectedProductForExplanation && (
+        <Suspense fallback={null}>
+          <PriceExplanationModal
+            product={explanationProduct}
+            analysisLoadState={analysisLoadState}
+            onClose={() => setSelectedProductForExplanation(null)}
+          />
+        </Suspense>
+      )}
 
       {basketOpen && (
-        <SmartBasketModal
-          basket={basket}
-          onClose={() => setBasketOpen(false)}
-          onUpdateQuantity={updateBasketQuantity}
-          onRemoveItem={removeFromBasket}
-          onClearBasket={clearBasket}
-        />
+        <Suspense fallback={null}>
+          <SmartBasketModal
+            basket={basket}
+            onClose={() => setBasketOpen(false)}
+            onUpdateQuantity={updateBasketQuantity}
+            onRemoveItem={removeFromBasket}
+            onClearBasket={clearBasket}
+          />
+        </Suspense>
       )}
 
       {reportModalOpen && (
-        <ReportPriceModal
-          onClose={() => setReportModalOpen(false)}
-          selectedCity={selectedCity}
-          stores={storesList}
-          storesLoading={isLoadingProducts}
-          product={reportProduct}
-        />
+        <Suspense fallback={null}>
+          <ReportPriceModal
+            onClose={() => setReportModalOpen(false)}
+            selectedCity={selectedCity}
+            stores={storesList}
+            storesLoading={isLoadingProducts}
+            product={reportProduct}
+          />
+        </Suspense>
       )}
     </div>
 
