@@ -2,13 +2,19 @@ const database = require('../supabaseAdmin')
 const { suggestCatalogMapping } = require('../services/catalogTaxonomy')
 
 async function main() {
-  const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
+  const [
+    { data: categories, error: categoriesError },
+    { data: subcategories, error: subcategoriesError },
+    { data: reviewDecisions, error: reviewDecisionsError },
+  ] = await Promise.all([
     database.from('categories').select('id,name'),
     database.from('subcategories').select('id,name,category_id'),
+    database.from('catalog_taxonomy_review_decisions').select('product_id'),
   ])
 
   if (categoriesError) throw categoriesError
   if (subcategoriesError) throw subcategoriesError
+  if (reviewDecisionsError) throw reviewDecisionsError
 
   const products = []
   const pageSize = 1000
@@ -24,10 +30,16 @@ async function main() {
 
   const categoryByName = new Map((categories || []).map((category) => [category.name, category]))
   const subcategoryByKey = new Map((subcategories || []).map((subcategory) => [`${subcategory.category_id}:${subcategory.name}`, subcategory]))
+  const reviewedProductIds = new Set((reviewDecisions || []).map((decision) => String(decision.product_id)))
   let updated = 0
   let skipped = 0
 
   for (const product of products || []) {
+    if (reviewedProductIds.has(String(product.id))) {
+      skipped++
+      continue
+    }
+
     const mapping = suggestCatalogMapping({ ...product, brand: product.brands?.name })
     const category = mapping && categoryByName.get(mapping.category)
     const subcategory = category && subcategoryByKey.get(`${category.id}:${mapping.subcategory}`)

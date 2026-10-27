@@ -3,6 +3,7 @@ import { Check, LoaderCircle, Search, Store, X } from 'lucide-react'
 import { apiUrl } from '../config/api.js'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
+import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
 
 async function readPayload(response) {
   const payload = await response.json().catch(() => ({}))
@@ -124,10 +125,12 @@ export default function BusinessCatalogPanel({ onStoreStateChange }) {
 
       <form onSubmit={submitSearch} className="flex gap-2">
         <label className="sr-only" htmlFor="business-catalog-search">{t('Buscar productos del catálogo')}</label>
-        <input
+        <ClearableSearchInput
           id="business-catalog-search"
           value={searchInput}
+          clearLabel={t('Limpiar búsqueda')}
           onChange={(event) => setSearchInput(event.target.value)}
+          onClear={() => setSearchInput('')}
           placeholder={t('Buscar un producto del catálogo')}
           className="min-w-0 flex-1 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-white"
         />

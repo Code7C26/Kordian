@@ -4,11 +4,17 @@ const normalize = (value) => String(value || '')
   .replace(/[\u0300-\u036f]/g, '')
 
 const rules = [
+  { category: 'Limpieza e Higiene', subcategory: 'Higiene infantil', terms: ['aceite para bebe', 'aceite johnson', 'aceite baby'] },
+  { category: 'Limpieza e Higiene', subcategory: 'Limpieza del hogar', terms: ['desodorante de ambiente', 'desodorante ambiental'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['tostaditas de arroz', 'snack salado', 'snacks salados', 'cheetos'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces', terms: ['dulce de batata', 'dulce de membrillo'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Granos, cereales y legumbres', terms: ['cereal infantil', 'cereales infantiles'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Galletitas y productos de panificación', terms: ['galletita sin azucar', 'galletitas sin azucar'] },
   { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['alfajor', 'golosina', 'chupetin', 'chicle', 'oblea', 'snack'] },
   { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['chocolate', 'bombon', 'confite'] },
-  { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos', terms: ['queso', 'leche', 'yogur', 'yogurt', 'lacteo', 'manteca', 'crema'] },
+  { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos', terms: ['queso', 'leche', 'yogur', 'yogurt', 'lacteo', 'lactea', 'bebida lactea', 'manteca', 'crema'] },
   { category: 'Hogar y Otros', subcategory: 'Cocina y bazar', terms: ['extractor de jugos', 'extractor jugos'] },
-  { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['cerveza', 'gaseosa', 'jugo', 'agua mineral', 'vino', 'licor', 'vodka', 'soda', 'bebida'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['cerveza', 'gaseosa', 'jugo', 'agua mineral', 'vino', 'licor', 'vodka', 'soda', 'bebida', 'isotonico', 'gatorade'] },
   { category: 'Almacén y Alimentos', subcategory: 'Infusiones', terms: ['yerba', 'mate', 'te ', 'cafe', 'infusion'] },
   { category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces', terms: ['azucar', 'azucares', 'edulcorante'] },
   { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['energizante', 'energetica', 'energeticas'] },
@@ -49,44 +55,56 @@ const rules = [
   { category: 'Hogar y Otros', subcategory: 'Juguetes', terms: ['juguete', 'muñeca', 'muneca', 'pelota', 'juego de mesa'] },
 ]
 
+const sourceMappings = {
+  'lacteos': { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos' },
+  'infusiones': { category: 'Almacén y Alimentos', subcategory: 'Infusiones' },
+  'azucares y dulces': { category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces' },
+  'computacion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Computación' },
+  'cuidado personal y salud': { category: 'Limpieza e Higiene', subcategory: 'Higiene personal' },
+  'aspiradoras y lustradoras': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
+  'accesorios computacion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Accesorios electrónicos' },
+  'anafes': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
+  'soportes led': { category: 'Electrónica y Electrodomésticos', subcategory: 'Accesorios electrónicos' },
+  'calefaccion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Climatización' },
+  'calefones y termotanques': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
+  'cocinas': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
+  'freezer': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
+  'balanza de cocina': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
+  'corta cabello': { category: 'Limpieza e Higiene', subcategory: 'Higiene personal' },
+  'balanzas de bano': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
+  'afeitadoras y corta barba': { category: 'Limpieza e Higiene', subcategory: 'Higiene personal' },
+  'lavado': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
+  'pequenos electrodomesticos': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
+  'pavas electricas': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
+  'otras salsas': { category: 'Almacén y Alimentos', subcategory: 'Conservas y alimentos preparados' },
+}
+
 function matches(text, term) {
   const normalizedTerm = normalize(term).trim()
-  if (normalizedTerm.length <= 3) return new RegExp(`\\b${normalizedTerm}\\b`).test(text)
-  return text.includes(normalizedTerm)
+  const escapedTerm = normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`\\b${escapedTerm.replace(/\s+/g, '\\s+')}(?:s|es)?\\b`).test(text)
 }
 
 function suggestCatalogMapping(product) {
-  const text = normalize([product.name, product.brand, product.source_category, product.source_subcategory].join(' '))
-  const directMatch = rules.find((rule) => rule.terms.some((term) => matches(text, term)))
-  if (directMatch) return directMatch
-
-  // Disco often supplies the normalized subcategory even when its source
-  // category is a path such as "/Almacén/". Use that value as a fallback.
-  const sourceSubcategory = normalize(product.source_subcategory || product.source_category).trim()
-  const sourceMappings = {
-    'lacteos': { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos' },
-    'infusiones': { category: 'Almacén y Alimentos', subcategory: 'Infusiones' },
-    'azucares y dulces': { category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces' },
-    'computacion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Computación' },
-    'cuidado personal y salud': { category: 'Limpieza e Higiene', subcategory: 'Higiene personal' },
-    'aspiradoras y lustradoras': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
-    'accesorios computacion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Accesorios electrónicos' },
-    'anafes': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
-    'soportes led': { category: 'Electrónica y Electrodomésticos', subcategory: 'Accesorios electrónicos' },
-    'calefaccion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Climatización' },
-    'calefones y termotanques': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
-    'cocinas': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
-    'freezer': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
-    'balanza de cocina': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
-    'corta cabello': { category: 'Limpieza e Higiene', subcategory: 'Higiene personal' },
-    'balanzas de bano': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
-    'afeitadoras y corta barba': { category: 'Limpieza e Higiene', subcategory: 'Higiene personal' },
-    'lavado': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
-    'pequenos electrodomesticos': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
-    'pavas electricas': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
-    'otras salsas': { category: 'Almacén y Alimentos', subcategory: 'Conservas y alimentos preparados' },
+  const productText = normalize([product.name, product.brand].join(' '))
+  const directMatch = rules.find((rule) => rule.terms.some((term) => matches(productText, term)))
+  if (directMatch) {
+    return { category: directMatch.category, subcategory: directMatch.subcategory }
   }
-  return sourceMappings[sourceSubcategory] || null
+
+  const sourceSubcategory = normalize(product.source_subcategory || product.source_category).trim()
+  const sourceMapping = sourceMappings[sourceSubcategory]
+  if (sourceMapping) {
+    return { category: sourceMapping.category, subcategory: sourceMapping.subcategory }
+  }
+
+  const sourceText = normalize([product.source_category, product.source_subcategory].join(' '))
+  const sourceMatch = rules.find((rule) => rule.terms.some((term) => matches(sourceText, term)))
+  if (sourceMatch) {
+    return { category: sourceMatch.category, subcategory: sourceMatch.subcategory }
+  }
+
+  return null
 }
 
 module.exports = { suggestCatalogMapping }
