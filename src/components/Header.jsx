@@ -24,6 +24,7 @@ import { adminFetch, apiFetch } from '../config/api.js';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 import { useLanguage } from '../contexts/LanguageContext.jsx';
 import { CITIES_LIST } from '../data/mockProducts.js'
+import ClearableSearchInput from './ClearableSearchInput.jsx'
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
 import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
@@ -208,11 +209,13 @@ export function Header({
               className="absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-stone-200 bg-white p-3 text-stone-900 shadow-xl dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100 sm:left-1/2 sm:-translate-x-1/2"
             >
               <label htmlFor="location-search" className="mb-2 block text-sm font-bold">{t('Selecciona tu ubicación')}</label>
-              <input
+              <ClearableSearchInput
                 id="location-search"
                 type="text"
                 value={locationQuery}
+                clearLabel={t('Limpiar búsqueda')}
                 onChange={(event) => setLocationQuery(event.target.value)}
+                onClear={() => setLocationQuery('')}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && exactMatchingCity) {
                     event.preventDefault()

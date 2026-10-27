@@ -17,6 +17,7 @@ import { SupermarketLogo } from '../components/SupermarketLogo.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
 import { CATALOG_REQUEST_TIMEOUT_MS } from '../services/catalogResponseCache.js'
 import { fetchProductAnalysis } from '../services/analysisApi.js'
+import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
 
 const periods = [
   { label: '1 mes', months: 1 },
@@ -358,10 +359,12 @@ export default function PriceInflationPage() {
             <label className="relative block">
               <span className="sr-only">{t('Buscar producto')}</span>
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" aria-hidden="true" />
-              <input
-                type="search"
+              <ClearableSearchInput
+                type="text"
                 value={searchQuery}
+                clearLabel={t('Limpiar búsqueda')}
                 onChange={(event) => setSearchQuery(event.target.value)}
+                onClear={() => setSearchQuery('')}
                 placeholder={t('Buscar producto...')}
                 className={`${inputClass} pl-9`}
               />

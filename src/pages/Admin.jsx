@@ -7,6 +7,8 @@ import CsvUploader from '../components/CsvUploader.jsx'
 import Toast from '../components/Toast.jsx'
 import BusinessStoreAssignments from '../components/BusinessStoreAssignments.jsx'
 import RegisteredUserAccounts from '../components/RegisteredUserAccounts.jsx'
+import CatalogTaxonomyReviewPanel from '../components/CatalogTaxonomyReviewPanel.jsx'
+import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
 import {
   BriefcaseBusiness,
   ChevronLeft,
@@ -29,6 +31,7 @@ import { formatCurrency } from '../utils/formatters.js'
 import { getVisiblePageNumbers } from '../utils/pagination.js'
 import { ProductImage } from '../components/ProductImage.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import { invalidateCatalogProductResponses } from '../services/catalogResponseCache.js'
 
 const ADMIN_PAGES = [
   { id: 'arbol', label: 'Árbol', icon: FolderTree },
@@ -1383,15 +1386,18 @@ export default function Admin() {
             'No se pudo cargar la revisión de agrupación',
           )
 
-        setReviewSummary(
-          data.summary || null,
-        )
+        const pendingPairs = (Array.isArray(data.pairs) ? data.pairs : [])
+          .filter((pair) => !pair.reviewDecision)
+        const pendingStatusCounts = pendingPairs.reduce((counts, pair) => {
+          const pairStatus = pair.status
+          if (Object.prototype.hasOwnProperty.call(counts, pairStatus)) counts[pairStatus] += 1
+          return counts
+        }, { match: 0, no_match: 0, revisión: 0 })
 
-        setReviewCandidates(
-          Array.isArray(data.pairs)
-            ? data.pairs
-            : [],
-        )
+        setReviewSummary(data.summary
+          ? { ...data.summary, statusCounts: pendingStatusCounts }
+          : null)
+        setReviewCandidates(pendingPairs)
 
         setReviewCandidateIndex(0)
       } catch (error) {
@@ -1415,26 +1421,6 @@ export default function Admin() {
       pairData = {},
     ) => {
       try {
-        const candidateIndex =
-          reviewCandidates.findIndex(
-            (candidate) => {
-              const leftId =
-                candidate?.products?.mami
-                  ?.id ?? null
-
-              const rightId =
-                candidate?.products?.disco
-                  ?.id ?? null
-
-              return (
-                buildReviewPairKey(
-                  leftId,
-                  rightId,
-                ) === pairKey
-              )
-            },
-          )
-
         const payload = {
           pairKey,
           status: nextStatus,
@@ -1478,6 +1464,7 @@ export default function Admin() {
         const savedStatus =
           data.decision?.status ||
           nextStatus
+        invalidateCatalogProductResponses()
 
         setReviewDecisions(
           (previous) => ({
@@ -1487,84 +1474,12 @@ export default function Admin() {
           }),
         )
 
-        if (
-          savedStatus === 'match'
-        ) {
-          setReviewCandidates(
-            (previous) =>
-              previous.filter(
-                (candidate) => {
-                  const leftId =
-                    candidate?.products?.mami
-                      ?.id ?? null
-
-                  const rightId =
-                    candidate?.products?.disco
-                      ?.id ?? null
-
-                  return !(
-                    leftId ===
-                      pairData.mamiProductId &&
-                    rightId ===
-                      pairData.discoProductId
-                  )
-                },
-              ),
-          )
-
-          setReviewCandidateIndex(
-            (currentIndex) => {
-              if (
-                candidateIndex >= 0 &&
-                currentIndex >
-                  candidateIndex
-              ) {
-                return currentIndex - 1
-              }
-
-              return Math.min(
-                currentIndex,
-                Math.max(
-                  reviewCandidates.length -
-                    2,
-                  0,
-                ),
-              )
-            },
-          )
-        } else {
-          setReviewCandidates(
-            (previous) =>
-              previous.map(
-                (candidate) => {
-                  const leftId =
-                    candidate?.products?.mami
-                      ?.id ?? null
-
-                  const rightId =
-                    candidate?.products?.disco
-                      ?.id ?? null
-
-                  if (
-                    leftId ===
-                      pairData.mamiProductId &&
-                    rightId ===
-                      pairData.discoProductId
-                  ) {
-                    return {
-                      ...candidate,
-                      status:
-                        savedStatus,
-                      decisionStatus:
-                        savedStatus,
-                    }
-                  }
-
-                  return candidate
-                },
-              ),
-          )
-        }
+        setReviewCandidates((previous) => previous.filter((candidate) => {
+            const leftId = candidate?.products?.mami?.id ?? null
+            const rightId = candidate?.products?.disco?.id ?? null
+            return buildReviewPairKey(leftId, rightId) !== pairKey
+          }))
+        setReviewCandidateIndex((index) => Math.min(index, Math.max(reviewCandidates.length - 2, 0)))
 
         window.dispatchEvent(
           new CustomEvent(
@@ -1623,6 +1538,7 @@ export default function Admin() {
         if (!data.success) return
 
         setReviewDecisions({})
+        invalidateCatalogProductResponses()
 
         showToast(
           'Decisiones reiniciadas',
@@ -1632,6 +1548,7 @@ export default function Admin() {
         await Promise.all([
           loadReviewDecisions(),
           loadCrossSourceReview(),
+          loadProducts(productPage),
         ])
       } catch (error) {
         console.error(
@@ -2913,12 +2830,17 @@ export default function Admin() {
                 </h3>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-                  <input
+                  <ClearableSearchInput
                     className="w-full rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
                     placeholder="Buscar producto"
                     value={
                       productSearch
                     }
+                    clearLabel={t('Limpiar búsqueda')}
+                    onClear={() => {
+                      setProductPage(1)
+                      setProductSearch('')
+                    }}
                     onChange={(event) => {
                       setProductPage(1)
                       setProductSearch(
@@ -3659,11 +3581,13 @@ export default function Admin() {
                       previewDiscoProducts()
                     }}
                   >
-                    <input
+                    <ClearableSearchInput
                       className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
                       value={
                         discoQuery
                       }
+                      clearLabel={t('Limpiar búsqueda')}
+                      onClear={() => setDiscoQuery('')}
                       onChange={(event) =>
                         setDiscoQuery(
                           event.target
@@ -3835,11 +3759,13 @@ export default function Admin() {
                       previewMamiProducts()
                     }}
                   >
-                    <input
+                    <ClearableSearchInput
                       className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
                       value={
                         mamiQuery
                       }
+                      clearLabel={t('Limpiar búsqueda')}
+                      onClear={() => setMamiQuery('')}
                       onChange={(event) =>
                         setMamiQuery(
                           event.target
@@ -4083,10 +4009,12 @@ export default function Admin() {
                       previewCarrefourProducts()
                     }}
                   >
-                    <input
+                    <ClearableSearchInput
                       className="min-w-0 rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
                       value={carrefourQuery}
+                      clearLabel={t('Limpiar búsqueda')}
                       onChange={(event) => setCarrefourQuery(event.target.value)}
+                      onClear={() => setCarrefourQuery('')}
                       placeholder="Buscar en Carrefour"
                       aria-label="Buscar productos de Carrefour"
                     />
@@ -4239,17 +4167,22 @@ export default function Admin() {
 
           {activePage ===
             'agrupacion' && (
-            <section className="rounded-3xl border border-stone-200/80 bg-white p-6 shadow-sm dark:border-stone-700 dark:bg-stone-800">
-              <div>
-                <h2 className="text-xl font-bold">
-                  Revisión de agrupación
-                </h2>
+            <div className="space-y-6">
+              <CatalogTaxonomyReviewPanel
+                categories={categories}
+                taxonomy={taxonomy}
+              />
+              <section className="rounded-3xl border border-stone-200/80 bg-white p-6 shadow-sm dark:border-stone-700 dark:bg-stone-800">
+                <div>
+                  <h2 className="text-xl font-bold">
+                    Revisión de agrupación
+                  </h2>
 
-                <p className="mt-1 max-w-3xl text-sm text-stone-500 dark:text-stone-400">
-                  Evalúa cada par como Agrupar,
-                  No agrupar o Revisión.
-                </p>
-              </div>
+                  <p className="mt-1 max-w-3xl text-sm text-stone-500 dark:text-stone-400">
+                    Evalúa cada par como Agrupar,
+                    No agrupar o Revisión.
+                  </p>
+                </div>
 
               <div className="mt-5 flex flex-wrap gap-3 border-y border-stone-200 py-4 dark:border-stone-700">
                 <button
@@ -4635,7 +4568,55 @@ export default function Admin() {
                     revisión disponibles.
                   </div>
                 )}
-            </section>
+
+              <details className="mt-6 rounded-xl border border-stone-200 p-4 dark:border-stone-700">
+                <summary className="cursor-pointer font-bold">
+                  Historial de decisiones ({reviewHistorySummary.total || reviewHistory.length})
+                  <span className="ml-2 text-xs font-normal text-stone-500">
+                    Agrupar: {reviewHistorySummary.byStatus.match || 0}
+                    {' · '}No agrupar: {reviewHistorySummary.byStatus.no_match || 0}
+                    {' · '}Revisión: {reviewHistorySummary.byStatus.revisión || 0}
+                  </span>
+                </summary>
+                {reviewHistory.length === 0 ? (
+                  <p className="mt-3 text-sm text-stone-500">Todavía no hay decisiones guardadas.</p>
+                ) : (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full min-w-[640px] text-left text-xs">
+                      <thead className="border-b border-stone-200 text-stone-500 dark:border-stone-700">
+                        <tr>
+                          <th className="px-2 py-2">Decisión</th>
+                          <th className="px-2 py-2">Producto Mami</th>
+                          <th className="px-2 py-2">Producto Disco</th>
+                          <th className="px-2 py-2">Administrador</th>
+                          <th className="px-2 py-2">Fecha</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reviewHistory.map((decision) => (
+                          <tr key={decision.pairKey || decision.id} className="border-b border-stone-100 last:border-0 dark:border-stone-700/60">
+                            <td className="px-2 py-2 font-bold">
+                              {decision.status === 'match'
+                                ? 'Agrupar'
+                                : decision.status === 'no_match'
+                                  ? 'No agrupar'
+                                  : 'Revisión'}
+                            </td>
+                            <td className="px-2 py-2">{decision.mamiProductId || '—'}</td>
+                            <td className="px-2 py-2">{decision.discoProductId || '—'}</td>
+                            <td className="px-2 py-2">{decision.admin || '—'}</td>
+                            <td className="px-2 py-2">
+                              {decision.updatedAt ? new Date(decision.updatedAt).toLocaleString() : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </details>
+              </section>
+            </div>
           )}
 
           {/* ================================================= */}

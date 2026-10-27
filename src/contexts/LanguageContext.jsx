@@ -303,6 +303,7 @@ const translations = {
   'No hay ofertas para mostrar en este momento.': 'There are no deals to show right now.',
   'Ver explicación del análisis': 'View analysis explanation',
   'Borrar búsqueda': 'Clear search',
+  'Limpiar búsqueda': 'Clear search',
   'Modo claro': 'Light mode',
   'Modo oscuro': 'Dark mode',
   'Cargando favoritos…': 'Loading favorites…',
