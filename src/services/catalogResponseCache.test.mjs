@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   CATALOG_REQUEST_TIMEOUT_MS,
   fetchCachedCatalogResponse,
+  invalidateCatalogProductResponses,
   readCachedCatalogResponse,
 } from './catalogResponseCache.js'
 
@@ -44,6 +45,30 @@ test('expires cached catalog responses', async () => {
   })
   await new Promise((resolve) => setTimeout(resolve, 5))
   assert.equal(readCachedCatalogResponse(url), null)
+})
+
+test('invalidates cached and in-flight product responses after a grouping decision', async () => {
+  const url = `https://catalog.test/products?grouping=${Date.now()}`
+  let resolveFirstRequest
+  let requestCount = 0
+  const fetchImpl = () => {
+    requestCount += 1
+    if (requestCount === 1) {
+      return new Promise((resolve) => {
+        resolveFirstRequest = () => resolve({ ok: true, json: async () => ['stale'] })
+      })
+    }
+    return Promise.resolve({ ok: true, json: async () => ['fresh'] })
+  }
+
+  const staleRequest = fetchCachedCatalogResponse(url, { fetchImpl })
+  invalidateCatalogProductResponses()
+  const freshRequest = fetchCachedCatalogResponse(url, { fetchImpl })
+  assert.deepEqual(await freshRequest, ['fresh'])
+  resolveFirstRequest()
+  assert.deepEqual(await staleRequest, ['stale'])
+  assert.deepEqual(readCachedCatalogResponse(url), ['fresh'])
+  assert.equal(requestCount, 2)
 })
 
 test('times out slow requests and allows a later retry', async () => {

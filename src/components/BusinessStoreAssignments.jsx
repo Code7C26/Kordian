@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BriefcaseBusiness, LoaderCircle, Save } from 'lucide-react'
 import { adminFetch, apiFetch, readApiResponse } from '../config/api.js'
+import ClearableSearchInput from './ClearableSearchInput.jsx'
 
 export default function BusinessStoreAssignments() {
   const [accounts, setAccounts] = useState([])
@@ -101,10 +102,11 @@ export default function BusinessStoreAssignments() {
             Habilitá cuentas comerciales y asignales el supermercado cuyo catálogo podrán gestionar.
           </p>
         </div>
-        <input
+        <ClearableSearchInput
           aria-label="Buscar cuentas por usuario o correo"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
+          onClear={() => setSearch('')}
           placeholder="Buscar cuenta"
           className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm dark:border-stone-600 dark:bg-stone-900"
         />

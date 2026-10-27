@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { LoaderCircle, Save, Search, Users } from 'lucide-react'
 import { adminFetch, readApiResponse } from '../config/api.js'
+import ClearableSearchInput from './ClearableSearchInput.jsx'
 
 const ACCOUNT_TYPES = [
   { value: 'customer', label: 'Cliente' },
@@ -97,10 +98,16 @@ export default function RegisteredUserAccounts() {
         <label className="relative block">
           <span className="sr-only">Buscar cuentas</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" aria-hidden="true" />
-          <input
+          <ClearableSearchInput
             value={search}
             onChange={(event) => {
               setSearch(event.target.value)
+              setPage(1)
+              setLoading(true)
+              setError('')
+            }}
+            onClear={() => {
+              setSearch('')
               setPage(1)
               setLoading(true)
               setError('')

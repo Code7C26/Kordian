@@ -3,6 +3,7 @@ import { RefreshCw, Search } from 'lucide-react'
 import { apiUrl } from '../config/api.js'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
+import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
 
 export default function BusinessPriceHistoryPanel() {
   const { accessToken } = useCustomerAuth()
@@ -60,7 +61,7 @@ export default function BusinessPriceHistoryPanel() {
           <label className="relative min-w-0 flex-1 sm:w-64">
             <span className="sr-only">{t('Buscar producto')}</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-500" aria-hidden="true" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('Buscar producto')} className="w-full rounded-lg border border-stone-700 bg-[#100f0e] py-2 pl-9 pr-3 text-xs text-white placeholder:text-stone-500" />
+            <ClearableSearchInput value={search} clearLabel={t('Limpiar búsqueda')} onChange={(event) => setSearch(event.target.value)} onClear={() => setSearch('')} placeholder={t('Buscar producto')} className="w-full rounded-lg border border-stone-700 bg-[#100f0e] py-2 pl-9 pr-3 text-xs text-white placeholder:text-stone-500" />
           </label>
           <button type="button" onClick={() => setRefreshKey((current) => current + 1)} disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white hover:bg-sky-500 disabled:opacity-50">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" /> {t('Buscar')}

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
 import { useLanguage } from '../contexts/LanguageContext.jsx';
+import ClearableSearchInput from './ClearableSearchInput.jsx'
 
 const QUICK_SEARCH_TAGS = [
   'Chocolate',        // Alimentos Frescos y Refrigerados
@@ -59,10 +60,12 @@ export function HeroCategoryGrid({
               <div className="pl-3 text-stone-400">
                 <Search className="w-5 h-5 text-sky-600 dark:text-sky-400" />
               </div>
-              <input
+              <ClearableSearchInput
                 type="text"
                 value={searchQuery}
+                clearLabel={t('Limpiar búsqueda')}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onClear={() => setSearchQuery('')}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
                 placeholder={t('Busca por producto o marca')}

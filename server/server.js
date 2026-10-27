@@ -30,6 +30,7 @@ const CARREFOUR_IMPORT_BATCH_LIMIT = 5
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
 const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
+const { buildCatalogTaxonomyReview } = require('./services/catalogTaxonomyReview')
 const {
   clearReviewDecisions,
   listReviewDecisions,
@@ -60,6 +61,7 @@ const productTranslationService = createProductTranslationService({
 })
 const publicDiscoSearchCache = new Map()
 const publicDiscoSearchInFlight = new Set()
+let catalogTaxonomyReviewCache = null
 const publicDiscoSearchMaxResults = Math.min(500, Math.max(50, Number(process.env.DISCO_PUBLIC_SEARCH_MAX_RESULTS || 500)))
 const analysisWriter = process.env.SUPABASE_SERVICE_ROLE_KEY ? require('./supabaseAdmin') : supabase
 const priceStatusQueue = createPriceStatusRefreshQueue({
@@ -1197,6 +1199,7 @@ function invalidateAnalysisCache() {
 
 function invalidateCatalogPageCache() {
   catalogPageCache.clear()
+  catalogTaxonomyReviewCache = null
 }
 
 async function recordPriceHistory({
@@ -1694,6 +1697,206 @@ app.get('/analysis/products', async (req, res) => {
   }
 })
 
+app.get('/analysis/catalog-taxonomy-review', requireAdmin, async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({
+        error: 'El relevamiento de categorías requiere SUPABASE_SERVICE_ROLE_KEY en el backend.',
+      })
+    }
+
+    const requestedPage = Number(req.query.page || 1)
+    const requestedLimit = Number(req.query.limit || 20)
+    const page = Number.isSafeInteger(requestedPage) && requestedPage > 0
+      ? requestedPage
+      : 1
+    const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0
+      ? Math.min(requestedLimit, 50)
+      : 20
+    const status = ['pending', 'resolved', 'dismissed', 'all'].includes(String(req.query.status || 'pending'))
+      ? String(req.query.status || 'pending')
+      : 'pending'
+
+    if (req.query.refresh === 'true') catalogTaxonomyReviewCache = null
+
+    if (!catalogTaxonomyReviewCache || catalogTaxonomyReviewCache.expiresAt <= Date.now()) {
+      const [
+        { count, error: countError },
+        { data: categories, error: categoriesError },
+        { data: subcategories, error: subcategoriesError },
+        { data: decisions, error: decisionsError },
+      ] = await Promise.all([
+        analysisWriter.from('products').select('id', { count: 'exact', head: true }),
+        analysisWriter.from('categories').select('id,name'),
+        analysisWriter.from('subcategories').select('id,name,category_id'),
+        analysisWriter.from('catalog_taxonomy_review_decisions').select('product_id,status,admin_username,updated_at'),
+      ])
+      if (countError) throw countError
+      if (categoriesError) throw categoriesError
+      if (subcategoriesError) throw subcategoriesError
+      if (decisionsError) throw decisionsError
+
+      const pageSize = 1000
+      const pageCount = Math.ceil(Number(count || 0) / pageSize)
+      const productPages = await Promise.all(
+        Array.from({ length: pageCount }, (_, index) => {
+          const start = index * pageSize
+          return analysisWriter
+            .from('products')
+            .select('id,name,source,source_category,source_subcategory,category_id,subcategory_id,classification_source,brands(name),categories(id,name),subcategories(id,name)')
+            .order('id', { ascending: true })
+            .range(start, start + pageSize - 1)
+        }),
+      )
+      for (const result of productPages) {
+        if (result.error) throw result.error
+      }
+
+      const categoryIdsByName = new Map(
+        (categories || []).map((category) => [String(category.name).toLowerCase(), category.id]),
+      )
+      const subcategoryIdsByCategoryAndName = new Map(
+        (subcategories || []).map((subcategory) => [
+          `${subcategory.category_id}:${String(subcategory.name).toLowerCase()}`,
+          subcategory.id,
+        ]),
+      )
+      const products = productPages.flatMap((result) => result.data || [])
+      const items = buildCatalogTaxonomyReview(products, decisions || []).map((item) => {
+        const suggestedCategoryId = categoryIdsByName.get(String(item.suggestedCategory).toLowerCase()) || null
+        const suggestedSubcategoryId = suggestedCategoryId
+          ? subcategoryIdsByCategoryAndName.get(`${suggestedCategoryId}:${String(item.suggestedSubcategory).toLowerCase()}`) || null
+          : null
+        return { ...item, suggestedCategoryId, suggestedSubcategoryId }
+      })
+
+      catalogTaxonomyReviewCache = {
+        items,
+        generatedAt: new Date().toISOString(),
+        expiresAt: Date.now() + 60_000,
+      }
+    }
+
+    const allItems = catalogTaxonomyReviewCache.items
+    const summary = {
+      pending: allItems.filter((item) => item.decision === 'pending').length,
+      resolved: allItems.filter((item) => item.decision === 'resolved').length,
+      dismissed: allItems.filter((item) => item.decision === 'dismissed').length,
+      total: allItems.length,
+    }
+    const filteredItems = status === 'all'
+      ? allItems
+      : allItems.filter((item) => item.decision === status)
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / limit))
+    const safePage = Math.min(page, totalPages)
+
+    res.json({
+      generatedAt: catalogTaxonomyReviewCache.generatedAt,
+      status,
+      summary,
+      page: safePage,
+      limit,
+      total: filteredItems.length,
+      totalPages,
+      items: filteredItems.slice((safePage - 1) * limit, safePage * limit),
+    })
+  } catch (error) {
+    console.error('Error generating catalog taxonomy review', error)
+    res.status(500).json({
+      error: 'No se pudo generar el relevamiento de categorías',
+      detail: error.message || 'Unknown error',
+    })
+  }
+})
+
+app.post('/review/catalog-taxonomy-decisions', requireAdmin, async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({
+        error: 'La revisión de categorías requiere SUPABASE_SERVICE_ROLE_KEY en el backend.',
+      })
+    }
+
+    const productId = String(req.body?.productId || '').trim()
+    const status = String(req.body?.status || '')
+    if (!/^\d+$/.test(productId)) {
+      return res.status(400).json({ error: 'productId must be a positive integer' })
+    }
+    if (!['resolved', 'dismissed', 'pending'].includes(status)) {
+      return res.status(400).json({ error: 'status must be resolved, dismissed, or pending' })
+    }
+
+    if (status === 'pending') {
+      const { error } = await analysisWriter
+        .from('catalog_taxonomy_review_decisions')
+        .delete()
+        .eq('product_id', productId)
+      if (error) throw error
+      catalogTaxonomyReviewCache = null
+      return res.json({ success: true, status })
+    }
+
+    if (status === 'resolved') {
+      const subcategoryId = String(req.body?.subcategoryId || '').trim()
+      if (!subcategoryId) {
+        return res.status(400).json({ error: 'subcategoryId is required to resolve a product' })
+      }
+
+      const [
+        { data: subcategory, error: subcategoryError },
+        { data: previousProduct, error: productError },
+      ] = await Promise.all([
+        analysisWriter.from('subcategories').select('id,category_id').eq('id', subcategoryId).maybeSingle(),
+        analysisWriter.from('products').select('id,category_id,subcategory_id').eq('id', productId).maybeSingle(),
+      ])
+      if (subcategoryError) throw subcategoryError
+      if (productError) throw productError
+      if (!subcategory) return res.status(400).json({ error: 'La subcategoría seleccionada no existe' })
+      if (!previousProduct) return res.status(404).json({ error: 'No se encontró el producto' })
+
+      const { error: updateError } = await analysisWriter
+        .from('products')
+        .update({
+          category_id: subcategory.category_id,
+          subcategory_id: subcategory.id,
+          classification_source: 'manual',
+          classification_confidence: 'manual',
+        })
+        .eq('id', productId)
+      if (updateError) throw updateError
+
+      if (
+        String(previousProduct.category_id || '') !== String(subcategory.category_id)
+        || String(previousProduct.subcategory_id || '') !== String(subcategory.id)
+      ) {
+        invalidateCatalogPageCache()
+        scheduleRelatedPriceStatusRefresh(productId, true, previousProduct)
+      }
+    }
+
+    const { data: decision, error: decisionError } = await analysisWriter
+      .from('catalog_taxonomy_review_decisions')
+      .upsert({
+        product_id: Number(productId),
+        status,
+        admin_username: req.admin,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'product_id' })
+      .select()
+      .single()
+    if (decisionError) throw decisionError
+
+    catalogTaxonomyReviewCache = null
+    res.json({ success: true, decision })
+  } catch (error) {
+    console.error('Error saving catalog taxonomy review decision', error)
+    res.status(500).json({
+      error: 'No se pudo guardar la decisión de revisión',
+      detail: error.message || 'Unknown error',
+    })
+  }
+})
+
 app.get('/analysis/cross-source-matches', requireAdmin, async (req, res) => {
   try {
     const sourceFilter = String(req.query.source || '').trim().toLowerCase()
@@ -1754,7 +1957,7 @@ app.get('/analysis/cross-source-matches', requireAdmin, async (req, res) => {
       },
       summary: report.summary,
       examples: report.examples,
-      pairs: enrichedPairs,
+      pairs: enrichedPairs.filter((pair) => !pair.reviewDecision),
     })
   } catch (error) {
     console.error('Error generating cross-source audit', error)
@@ -1789,6 +1992,7 @@ app.post('/review/cross-source-decisions', requireAdmin, async (req, res) => {
       evidence,
       admin: req.admin,
     })
+    invalidateCatalogPageCache()
     res.status(201).json({ success: true, decision: saved })
   } catch (error) {
     console.error('Error saving review decision', error)
@@ -1798,6 +2002,7 @@ app.post('/review/cross-source-decisions', requireAdmin, async (req, res) => {
 
 app.delete('/review/cross-source-decisions', requireAdmin, async (req, res) => {
   await clearReviewDecisions()
+  invalidateCatalogPageCache()
   res.json({ success: true, cleared: true, count: 0 })
 })
 

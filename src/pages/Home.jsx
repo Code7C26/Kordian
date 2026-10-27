@@ -3,6 +3,7 @@ import {
   useState,
 } from 'react'
 import { apiUrl } from '../config/api.js'
+import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
 
 export default function Home() {
   // =========================
@@ -160,24 +161,17 @@ export default function Home() {
         >
           {/* BUSCADOR */}
 
-          <input
+          <ClearableSearchInput
             type="text"
             placeholder="Buscar producto..."
             value={search}
-            onChange={(e) =>
-              setSearch(
-                e.target.value
-              )
-            }
+            onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+            wrapperClassName="w-fit"
             style={{
-              padding: '12px',
-
-              borderRadius:
-                '10px',
-
-              border:
-                '1px solid #D1D5DB',
-
+              padding: '12px 38px 12px 12px',
+              borderRadius: '10px',
+              border: '1px solid #D1D5DB',
               width: '240px',
             }}
           />

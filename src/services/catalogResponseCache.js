@@ -3,6 +3,21 @@ export const CATALOG_REQUEST_TIMEOUT_MS = 65_000
 const MAX_ENTRIES = 40
 const responses = new Map()
 const pendingRequests = new Map()
+let productResponseGeneration = 0
+
+function isProductCatalogUrl(url) {
+  return String(url).split('?')[0].endsWith('/products')
+}
+
+export function invalidateCatalogProductResponses() {
+  productResponseGeneration += 1
+  const urls = new Set([...responses.keys(), ...pendingRequests.keys()])
+  for (const url of urls) {
+    if (!isProductCatalogUrl(url)) continue
+    responses.delete(url)
+    pendingRequests.delete(url)
+  }
+}
 
 function rememberResponse(url, value, ttlMs) {
   responses.delete(url)
@@ -59,21 +74,29 @@ export function fetchCachedCatalogResponse(url, {
 
   let request = pendingRequests.get(url)
   if (!request) {
+    const isProductRequest = isProductCatalogUrl(url)
+    const generation = isProductRequest ? productResponseGeneration : null
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(new DOMException('Catalog request timed out', 'TimeoutError')), timeoutMs)
-    request = fetchImpl(url, { signal: controller.signal })
+    const requestEntry = {}
+    requestEntry.promise = fetchImpl(url, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Catalog request failed with status ${response.status}`)
         const payload = await response.json()
-        rememberResponse(url, payload, ttlMs)
+        if (!isProductRequest || productResponseGeneration === generation) {
+          rememberResponse(url, payload, ttlMs)
+        }
         return payload
       })
       .finally(() => {
         clearTimeout(timeoutId)
-        pendingRequests.delete(url)
+        if (pendingRequests.get(url) === requestEntry) {
+          pendingRequests.delete(url)
+        }
       })
-    pendingRequests.set(url, request)
+    pendingRequests.set(url, requestEntry)
+    request = requestEntry
   }
 
-  return raceWithAbort(request, signal)
+  return raceWithAbort(request.promise, signal)
 }

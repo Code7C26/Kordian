@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
 import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
+import ClearableSearchInput from './components/ClearableSearchInput.jsx'
 import { ReportPriceModal } from './components/ReportPriceModal.jsx';
 import { ProductCard } from './components/ProductCard.jsx';
 import { ComparisonModal } from './components/ComparisonModal.jsx';
@@ -249,6 +250,10 @@ export default function App() {
 
   const handleSelectCategory = (category) => {
     const selectedCategoryId = String(category)
+    const isAllProducts = selectedCategoryId === 'todos'
+    const discoveryPage = isAllProducts
+      ? getDiscoveryPage(catalogTotal, productsPageSize)
+      : 1
     setSelectedCategory(selectedCategoryId)
     localStorage.setItem('arprice_selected_category', selectedCategoryId)
     updateFilters((previous) => ({
@@ -257,9 +262,12 @@ export default function App() {
       searchQuery: '',
       subcategory: 'todos',
     }));
+    setProductsPage(discoveryPage)
     setFavoritesOnlyView(false);
     setViewMode('products');
-    navigate(`/buscar?category=${encodeURIComponent(category)}`);
+    navigate(isAllProducts
+      ? `/buscar?page=${discoveryPage}`
+      : `/buscar?category=${encodeURIComponent(category)}`)
   };
 
   const handleOnboardingCategorySelect = (category) => {
@@ -882,10 +890,12 @@ export default function App() {
                 <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Buscar Producto o Marca')}</label>
 
                 <div className="relative">
-                  <input
+                  <ClearableSearchInput
                     type="text"
                     value={filters.searchQuery}
+                    clearLabel={t('Limpiar búsqueda')}
                     onChange={(e) => updateFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
+                    onClear={() => updateFilters((prev) => ({ ...prev, searchQuery: '' }))}
                     placeholder={t('Ej: Leche, Playadito, TV...')}
                     className="w-full pl-9 pr-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                   />

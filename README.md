@@ -10,7 +10,7 @@ Slogan: **Tecnología que crece con vos.**
 ---
 # 🛒 Ar-Price 
 
-Slogan: **Tecnología que crece con vos.**
+Slogan: **Ahorrar no es suerte, es información.**
 
 <p align="center">
   <img src="assents/Ar-Price/gif_avion.gif">
