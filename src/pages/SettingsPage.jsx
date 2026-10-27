@@ -132,7 +132,7 @@ export default function SettingsPage() {
               </section>
             )}
 
-            {!authLoading && profile?.role === 'business' && (
+            {!authLoading && ['business', 'administrator'].includes(profile?.role) && (
               <section className="py-5">
                 <Link
                   to="/panel-gestion"

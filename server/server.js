@@ -2929,8 +2929,8 @@ app.post('/auth/customer-register', async (req, res) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' })
     }
-    if (!/^[a-zA-Z0-9]{4,}$/.test(password)) {
-      return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres alfanuméricos.' })
+    if (!/^[a-zA-Z0-9]{8,}$/.test(password)) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres alfanuméricos.' })
     }
 
     let existingProfile
@@ -2959,13 +2959,21 @@ app.post('/auth/customer-register', async (req, res) => {
     })
     if (error) {
       const normalizedMessage = String(error.message || '').toLowerCase()
-      if (normalizedMessage.includes('already registered') || normalizedMessage.includes('already been registered')) {
+      if (
+        ['email_exists', 'user_already_exists'].includes(error.code)
+        || normalizedMessage.includes('already registered')
+        || normalizedMessage.includes('already been registered')
+        || normalizedMessage.includes('already exists')
+      ) {
         return res.status(409).json({ error: 'Este correo ya se encuentra registrado.' })
       }
       if (normalizedMessage.includes('database error saving new user')) {
         return res.status(503).json({ error: 'No se pudo crear el perfil. Verifica la migración de perfiles en Supabase.' })
       }
       return res.status(400).json({ error: error.message || 'No se pudo crear la cuenta.' })
+    }
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return res.status(409).json({ error: 'Este correo ya se encuentra registrado.' })
     }
 
     res.status(201).json({
@@ -3056,6 +3064,27 @@ async function requireCustomerAuth(req, res, next) {
     return res.status(503).json({ error: 'No se pudo verificar la sesión. Inténtalo nuevamente.' })
   }
 }
+
+app.post('/auth/admin-session', requireCustomerAuth, async (req, res) => {
+  try {
+    const profile = await getCustomerProfile(req.customerUser)
+    if (profile.role !== 'administrator') {
+      return res.status(403).json({ error: 'Esta cuenta no tiene permisos de administrador.' })
+    }
+    const username = String(profile.username || '').trim()
+    if (!username) {
+      return res.status(403).json({ error: 'No se pudo validar el usuario administrador.' })
+    }
+    const token = createAdminToken(username)
+    if (!token) {
+      return res.status(503).json({ error: 'La sesión administrativa no está configurada en el servidor.' })
+    }
+    return res.json({ token, username })
+  } catch (error) {
+    console.error('Admin session creation failed', error)
+    return sendCustomerAuthUnavailable(res, error)
+  }
+})
 
 app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
   try {
@@ -3192,17 +3221,22 @@ async function requireBusinessStore(req, res, next) {
       .eq('user_id', req.customerUser.id)
       .maybeSingle()
     if (profileError) throw profileError
-    if (profile?.role !== 'business') {
+    if (!['business', 'administrator'].includes(profile?.role)) {
       return res.status(403).json({ error: 'Esta función está disponible solo para cuentas comerciales.' })
     }
-    if (!profile.supermarket_id) {
+    const adminStoreId = String(req.headers['x-admin-store-id'] || '')
+    const selectedStoreId = profile.role === 'administrator' ? adminStoreId : profile.supermarket_id
+    if (profile.role === 'administrator' && !selectedStoreId) {
+      return res.status(400).json({ error: 'Selecciona un supermercado para gestionar.' })
+    }
+    if (!selectedStoreId) {
       return res.status(409).json({ error: 'Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.' })
     }
 
     const { data: store, error: storeError } = await analysisWriter
       .from('supermarkets')
       .select('id, name')
-      .eq('id', profile.supermarket_id)
+      .eq('id', selectedStoreId)
       .maybeSingle()
     if (storeError) throw storeError
     if (!store) {
@@ -3216,6 +3250,24 @@ async function requireBusinessStore(req, res, next) {
     return res.status(503).json({ error: 'No se pudo verificar la asignación comercial.' })
   }
 }
+
+app.get('/business/stores', requireCustomerAuth, async (req, res) => {
+  try {
+    const profile = await getCustomerProfile(req.customerUser)
+    if (profile.role !== 'administrator') {
+      return res.status(403).json({ error: 'Solo las cuentas administradoras pueden elegir un supermercado.' })
+    }
+    const { data, error } = await analysisWriter
+      .from('supermarkets')
+      .select('id, name')
+      .order('name', { ascending: true })
+    if (error) throw error
+    return res.json({ stores: data || [] })
+  } catch (error) {
+    console.error('Business store options could not be loaded', error)
+    return res.status(503).json({ error: 'No se pudieron cargar los supermercados disponibles.' })
+  }
+})
 
 app.get('/admin/business-accounts', requireAdmin, async (req, res) => {
   try {
@@ -3306,6 +3358,47 @@ app.put('/admin/customer-accounts/:userId', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Registered customer account role update failed', error)
     return res.status(503).json({ error: 'No se pudo actualizar el tipo de cuenta. Verifica que la migración de roles esté aplicada.' })
+  }
+})
+
+app.delete('/admin/customer-accounts/:userId', requireAdmin, async (req, res) => {
+  const userId = String(req.params.userId || '')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+    return res.status(400).json({ error: 'La cuenta seleccionada no es válida.' })
+  }
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'La administración de cuentas requiere SUPABASE_SERVICE_ROLE_KEY en el backend.' })
+  }
+
+  try {
+    const { data: account, error: accountError } = await supabaseAdmin
+      .from('customer_profiles')
+      .select('user_id, username, role')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (accountError) throw accountError
+    if (!account) return res.status(404).json({ error: 'No se encontró la cuenta seleccionada.' })
+    if (String(account.username).toLowerCase() === String(req.admin || '').toLowerCase()) {
+      return res.status(403).json({ error: 'No puedes eliminar la cuenta de administrador que estás utilizando.' })
+    }
+
+    if (account.role === 'administrator') {
+      const { count, error: countError } = await supabaseAdmin
+        .from('customer_profiles')
+        .select('user_id', { count: 'exact', head: true })
+        .eq('role', 'administrator')
+      if (countError) throw countError
+      if (count <= 1) {
+        return res.status(409).json({ error: 'No se puede eliminar la última cuenta administradora.' })
+      }
+    }
+
+    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId, false)
+    if (deleteError) throw deleteError
+    return res.status(204).end()
+  } catch (error) {
+    console.error('Registered customer account deletion failed', error)
+    return res.status(503).json({ error: 'No se pudo eliminar la cuenta y sus datos asociados.' })
   }
 })
 

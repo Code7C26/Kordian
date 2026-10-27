@@ -11,7 +11,7 @@ async function readPayload(response) {
   return payload
 }
 
-export default function BusinessCatalogPanel({ onStoreStateChange }) {
+export default function BusinessCatalogPanel({ onStoreStateChange, adminStoreId = null }) {
   const { accessToken } = useCustomerAuth()
   const { t } = useLanguage()
   const [products, setProducts] = useState([])
@@ -32,6 +32,13 @@ export default function BusinessCatalogPanel({ onStoreStateChange }) {
     const controller = new AbortController()
     setLoading(true)
     setError('')
+    if (adminStoreId === '') {
+      setProducts([])
+      setStoreName('')
+      setLoading(false)
+      onStoreStateChange?.('ready', null)
+      return () => controller.abort()
+    }
     onStoreStateChange?.('loading')
 
     const params = new URLSearchParams({ page: String(page), limit: '40' })
@@ -39,7 +46,10 @@ export default function BusinessCatalogPanel({ onStoreStateChange }) {
 
     fetch(apiUrl(`/business/catalog?${params.toString()}`), {
       signal: controller.signal,
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(adminStoreId ? { 'X-Admin-Store-Id': adminStoreId } : {}),
+      },
     })
       .then(readPayload)
       .then((payload) => {
@@ -66,7 +76,7 @@ export default function BusinessCatalogPanel({ onStoreStateChange }) {
       })
 
     return () => controller.abort()
-  }, [accessToken, onStoreStateChange, page, refreshKey, search])
+  }, [accessToken, adminStoreId, onStoreStateChange, page, refreshKey, search])
 
   const submitSearch = (event) => {
     event.preventDefault()
@@ -91,6 +101,7 @@ export default function BusinessCatalogPanel({ onStoreStateChange }) {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
+          ...(adminStoreId ? { 'X-Admin-Store-Id': adminStoreId } : {}),
         },
         body: JSON.stringify({ available, cashPrice }),
       })
@@ -114,7 +125,7 @@ export default function BusinessCatalogPanel({ onStoreStateChange }) {
             <Store className="h-5 w-5" aria-hidden="true" />
           </span>
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">{t('Supermercado asignado')}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">{t(adminStoreId !== null ? 'Supermercado seleccionado' : 'Supermercado asignado')}</p>
             <p className="font-black text-stone-900 dark:text-white">{storeName || t('Cargando…')}</p>
           </div>
         </div>
@@ -143,7 +154,11 @@ export default function BusinessCatalogPanel({ onStoreStateChange }) {
       {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{t(error)}</p>}
       {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">{notice}</p>}
 
-      {loading ? (
+      {adminStoreId === '' ? (
+        <p className="rounded-2xl border border-stone-200 bg-white p-8 text-center text-sm text-stone-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
+          {t('Selecciona un supermercado para gestionar su catálogo.')}
+        </p>
+      ) : loading ? (
         <div className="flex items-center justify-center gap-2 rounded-2xl bg-white p-10 text-sm font-semibold text-stone-500 dark:bg-stone-800 dark:text-stone-300" role="status">
           <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> {t('Cargando catálogo…')}
         </div>

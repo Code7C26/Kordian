@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LoaderCircle, Save, Search, Users } from 'lucide-react'
+import { LoaderCircle, Save, Search, Trash2, Users } from 'lucide-react'
 import { adminFetch, readApiResponse } from '../config/api.js'
 import ClearableSearchInput from './ClearableSearchInput.jsx'
 
@@ -16,6 +16,7 @@ export default function RegisteredUserAccounts() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [busyUserId, setBusyUserId] = useState('')
+  const [busyAction, setBusyAction] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -62,6 +63,7 @@ export default function RegisteredUserAccounts() {
     if (!ACCOUNT_TYPES.some((type) => type.value === role)) return
 
     setBusyUserId(account.user_id)
+    setBusyAction('save')
     setError('')
     setNotice('')
     try {
@@ -80,6 +82,42 @@ export default function RegisteredUserAccounts() {
       setError(saveError.message)
     } finally {
       setBusyUserId('')
+      setBusyAction('')
+    }
+  }
+
+  const deleteAccount = async (account) => {
+    const confirmed = window.confirm(
+      `¿Eliminar permanentemente la cuenta de ${account.username} (${account.email}) y todos sus datos? Esta acción no se puede deshacer.`
+    )
+    if (!confirmed) return
+
+    setBusyUserId(account.user_id)
+    setBusyAction('delete')
+    setError('')
+    setNotice('')
+    try {
+      const response = await adminFetch(`/admin/customer-accounts/${encodeURIComponent(account.user_id)}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) await readApiResponse(response, 'No se pudo eliminar la cuenta.')
+      setAccounts((current) => current.filter((item) => item.user_id !== account.user_id))
+      setDraftRoles((current) => {
+        const next = { ...current }
+        delete next[account.user_id]
+        return next
+      })
+      setTotal((current) => Math.max(0, current - 1))
+      setNotice(`Se eliminó la cuenta de ${account.username} y sus datos asociados.`)
+      if (accounts.length === 1 && page > 1) {
+        setPage((current) => Math.max(1, current - 1))
+        setLoading(true)
+      }
+    } catch (deleteError) {
+      setError(deleteError.message)
+    } finally {
+      setBusyUserId('')
+      setBusyAction('')
     }
   }
 
@@ -136,7 +174,7 @@ export default function RegisteredUserAccounts() {
             const busy = busyUserId === account.user_id
             const savedRole = role === account.role
             return (
-              <article key={account.user_id} className="grid gap-3 rounded-xl border border-stone-200 p-4 dark:border-stone-700 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-center">
+              <article key={account.user_id} className="grid gap-3 rounded-xl border border-stone-200 p-4 dark:border-stone-700 sm:grid-cols-[minmax(0,1fr)_12rem_auto_auto] sm:items-center">
                 <div className="min-w-0">
                   <p className="truncate font-bold text-stone-900 dark:text-white">{account.username}</p>
                   <p className="truncate text-xs text-stone-500 dark:text-stone-400">{account.email}</p>
@@ -160,8 +198,18 @@ export default function RegisteredUserAccounts() {
                   onClick={() => saveRole(account)}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {busy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+                  {busy && busyAction === 'save' ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
                   Guardar
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => deleteAccount(account)}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                  aria-label={`Eliminar cuenta de ${account.username}`}
+                >
+                  {busy && busyAction === 'delete' ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+                  Eliminar
                 </button>
               </article>
             )

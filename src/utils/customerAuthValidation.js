@@ -1,5 +1,6 @@
 const USERNAME_PATTERN = /^[a-zA-Z0-9]{6,32}$/
 const PASSWORD_PATTERN = /^[a-zA-Z0-9]{4,}$/
+const REGISTRATION_PASSWORD_PATTERN = /^[a-zA-Z0-9]{8,}$/
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export function validateCustomerRegistration({ username = '', email = '', password = '', confirmation = '' } = {}) {
@@ -9,7 +10,7 @@ export function validateCustomerRegistration({ username = '', email = '', passwo
 
   if (!USERNAME_PATTERN.test(cleanUsername)) errors.username = 'El usuario debe tener entre 6 y 32 caracteres alfanuméricos.'
   if (!EMAIL_PATTERN.test(cleanEmail)) errors.email = 'Ingresa un correo electrónico válido.'
-  if (!PASSWORD_PATTERN.test(String(password))) errors.password = 'La contraseña debe tener al menos 4 caracteres alfanuméricos.'
+  if (!REGISTRATION_PASSWORD_PATTERN.test(String(password))) errors.password = 'La contraseña debe tener al menos 8 caracteres alfanuméricos.'
   if (password !== confirmation) errors.confirmation = 'Las contraseñas no coinciden.'
 
   return errors
