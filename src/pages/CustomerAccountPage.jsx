@@ -45,7 +45,7 @@ export default function CustomerAccountPage({ section = 'profile' }) {
     </main>
   )
   if (!user && section !== 'profile') return <Navigate to="/ingresar" replace />
-  if (section === 'business' && profile?.role !== 'business') {
+  if (section === 'business' && !['business', 'administrator'].includes(profile?.role)) {
     return <Navigate to="/mi-cuenta" replace />
   }
 
@@ -88,7 +88,7 @@ export default function CustomerAccountPage({ section = 'profile' }) {
   const username = profile?.username || user.user_metadata?.username || 'Cliente'
 
   if (section === 'business') {
-    return <BusinessPortalPage user={{ email: user.email || username }} onSignOut={signOut} />
+    return <BusinessPortalPage user={{ email: user.email || username }} onSignOut={signOut} isAdministrator={profile?.role === 'administrator'} />
   }
 
   return (

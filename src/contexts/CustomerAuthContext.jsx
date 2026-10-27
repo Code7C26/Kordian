@@ -207,6 +207,18 @@ export function CustomerAuthProvider({ children }) {
     return result
   }
 
+  const createAdminSession = useCallback(async () => {
+    if (!session?.access_token) throw new Error('Inicia sesión con una cuenta administradora para continuar.')
+    const result = await requestJson('/auth/admin-session', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+    localStorage.setItem('adminAuth', 'true')
+    localStorage.setItem('adminToken', result.token)
+    localStorage.setItem('currentAdmin', result.username)
+    return result
+  }, [session])
+
   const requestPasswordReset = async (identifier, accountType = 'customer') => {
     const path = accountType === 'admin' ? '/auth/admin-password-reset' : '/auth/customer-password-reset'
     const body = accountType === 'admin'
@@ -247,6 +259,7 @@ export function CustomerAuthProvider({ children }) {
       toggleFavorite,
       signUp,
       signIn,
+      createAdminSession,
       requestPasswordReset,
       updatePassword,
       signOut,

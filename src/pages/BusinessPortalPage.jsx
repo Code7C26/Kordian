@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -11,6 +11,8 @@ import {
   PackagePlus,
   Store,
 } from 'lucide-react'
+import { apiUrl } from '../config/api.js'
+import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import BusinessCatalogPanel from './BusinessCatalogPanel.jsx'
 import BusinessPriceHistoryPanel from './BusinessPriceHistoryPanel.jsx'
@@ -22,13 +24,50 @@ const modules = [
   { id: 'history', label: 'Historial de Precios', icon: Clock3 },
 ]
 
-export default function BusinessPortalPage({ user, onSignOut }) {
+export default function BusinessPortalPage({ user, onSignOut, isAdministrator = false }) {
   const { t } = useLanguage()
+  const { accessToken } = useCustomerAuth()
   const [activeModule, setActiveModule] = useState('overview')
   const [storeState, setStoreState] = useState({ status: 'loading', store: null, error: '' })
+  const [stores, setStores] = useState([])
+  const [selectedStoreId, setSelectedStoreId] = useState('')
+  const [storesLoading, setStoresLoading] = useState(isAdministrator)
+  const [storesError, setStoresError] = useState('')
   const reportStoreState = useCallback((status, store = null, error = '') => {
     setStoreState({ status, store, error })
   }, [])
+
+  useEffect(() => {
+    if (!isAdministrator) return undefined
+    const controller = new AbortController()
+    setStoresLoading(true)
+    setStoresError('')
+    fetch(apiUrl('/business/stores'), {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(payload.error || 'No se pudieron cargar los supermercados.')
+        return payload
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) setStores(Array.isArray(payload.stores) ? payload.stores : [])
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') setStoresError(error.message)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setStoresLoading(false)
+      })
+    return () => controller.abort()
+  }, [accessToken, isAdministrator])
+
+  useEffect(() => {
+    if (isAdministrator && !selectedStoreId) {
+      setStoreState({ status: 'ready', store: null, error: '' })
+    }
+  }, [isAdministrator, selectedStoreId])
 
   const assignedStore = storeState.store
   const moduleTitle = modules.find((module) => module.id === activeModule)?.label || 'Resumen'
@@ -89,11 +128,34 @@ export default function BusinessPortalPage({ user, onSignOut }) {
               <h1 className="mt-1 text-2xl font-black text-white">{t(moduleTitle)}</h1>
               <p className="mt-1 text-xs text-stone-400">{t('Administra la información de tu comercio y la sucursal.')}</p>
             </div>
-            <button type="button" onClick={onSignOut} className="inline-flex items-center gap-2 rounded-lg border border-stone-700 px-3 py-2 text-xs font-semibold text-stone-300 transition hover:border-stone-500 hover:text-white">
-              <LogOut className="h-4 w-4" aria-hidden="true" /> {t('Cerrar sesión')}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              {isAdministrator && (
+                <label className="flex items-center gap-2 text-xs font-semibold text-stone-300">
+                  {t('Supermercado')}
+                  <select
+                    value={selectedStoreId}
+                    onChange={(event) => {
+                      setSelectedStoreId(event.target.value)
+                      setStoreState({ status: 'loading', store: null, error: '' })
+                    }}
+                    disabled={storesLoading || stores.length === 0}
+                    className="max-w-56 rounded-lg border border-stone-700 bg-[#100f0e] px-3 py-2 text-xs text-white disabled:opacity-60"
+                  >
+                    <option value="">{storesLoading ? t('Cargando…') : t('Selecciona un supermercado')}</option>
+                    {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
+                  </select>
+                </label>
+              )}
+              <button type="button" onClick={onSignOut} className="inline-flex items-center gap-2 rounded-lg border border-stone-700 px-3 py-2 text-xs font-semibold text-stone-300 transition hover:border-stone-500 hover:text-white">
+                <LogOut className="h-4 w-4" aria-hidden="true" /> {t('Cerrar sesión')}
+              </button>
+            </div>
           </header>
 
+          {storesError && <p role="alert" className="mb-5 rounded-lg border border-rose-900 bg-rose-950/50 px-4 py-3 text-xs text-rose-200">{t(storesError)}</p>}
+          {isAdministrator && !storesLoading && !storesError && stores.length === 0 && (
+            <p role="status" className="mb-5 rounded-lg border border-amber-900 bg-amber-950/40 px-4 py-3 text-xs text-amber-200">{t('No hay supermercados disponibles para gestionar.')}</p>
+          )}
           {storeState.status === 'error' && (
             <p role="alert" className="mb-5 rounded-lg border border-rose-900 bg-rose-950/50 px-4 py-3 text-xs text-rose-200">
               {t(storeState.error)}
@@ -104,7 +166,7 @@ export default function BusinessPortalPage({ user, onSignOut }) {
             <div className="space-y-5">
               {storeState.status === 'ready' && !assignedStore && (
                 <p role="status" className="rounded-lg border border-rose-900 bg-rose-950/50 px-4 py-3 text-xs text-rose-200">
-                  {t('Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.')}
+                  {t(isAdministrator ? 'Selecciona un supermercado para gestionar.' : 'Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.')}
                 </p>
               )}
               <section className="rounded-xl border border-stone-800 bg-[#1c1917] p-5 sm:p-6">
@@ -125,7 +187,7 @@ export default function BusinessPortalPage({ user, onSignOut }) {
                       ? t('Verificando cuenta…')
                       : assignedStore
                         ? assignedStore.name
-                        : t('Pendiente de asignación')}
+                        : t(isAdministrator ? 'Selecciona un supermercado' : 'Pendiente de asignación')}
                   </span>
                 </div>
               </section>
@@ -169,17 +231,17 @@ export default function BusinessPortalPage({ user, onSignOut }) {
                 </dl>
               ) : (
                 <p role="status" className="mt-5 rounded-lg border border-amber-900 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
-                  {t('Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.')}
+                  {t(isAdministrator ? 'Selecciona un supermercado para gestionar.' : 'Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.')}
                 </p>
               )}
             </section>
           )}
 
           <div hidden={activeModule !== 'catalog'} className="business-dark-panel">
-            <BusinessCatalogPanel onStoreStateChange={reportStoreState} />
+            <BusinessCatalogPanel key={isAdministrator ? selectedStoreId : 'assigned'} adminStoreId={isAdministrator ? selectedStoreId : null} onStoreStateChange={reportStoreState} />
           </div>
 
-          {activeModule === 'history' && <BusinessPriceHistoryPanel />}
+          {activeModule === 'history' && <BusinessPriceHistoryPanel adminStoreId={isAdministrator ? selectedStoreId : null} />}
 
           <div className="mt-8 md:hidden">
             <Link to="/" className="inline-flex items-center gap-2 text-xs font-semibold text-stone-400 hover:text-white">

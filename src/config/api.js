@@ -107,15 +107,18 @@ async function fetchWithApiFallback(
   path,
   options = {},
   bases = DEFAULT_API_BASES,
-  rememberBackend = false
+  rememberBackend = false,
+  discoverReviewBackend = true
 ) {
   const normalizedPath = path.startsWith('/')
     ? path
     : `/${path}`
 
-  const preferredBase =
-    (await findReviewGroupingBackend()) ||
-    localStorage.getItem(API_BASE_STORAGE_KEY)
+  const preferredBase = (
+    discoverReviewBackend
+      ? await findReviewGroupingBackend()
+      : null
+  ) || localStorage.getItem(API_BASE_STORAGE_KEY)
 
   const orderedBases = [
     ...new Set([preferredBase, ...bases].filter(Boolean)),
@@ -208,6 +211,7 @@ export function adminLogin(options = {}) {
 
 export async function adminFetch(path, options = {}) {
   const token = localStorage.getItem('adminToken')
+  const isDeleteRequest = options.method?.toUpperCase() === 'DELETE'
 
   const headers = new Headers(
     options.headers || {}
@@ -227,8 +231,11 @@ export async function adminFetch(path, options = {}) {
         ...options,
         headers,
       },
-      DEFAULT_API_BASES,
-      true
+      isDeleteRequest
+        ? [localStorage.getItem(API_BASE_STORAGE_KEY) || API_BASE_URL]
+        : DEFAULT_API_BASES,
+      true,
+      !isDeleteRequest
     )
 
     if (response.status === 401) {

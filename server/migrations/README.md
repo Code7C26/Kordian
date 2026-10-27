@@ -57,6 +57,11 @@ el detalle del precio y una copia del usuario/email asociado al reporte. Solo
 el endpoint autenticado del panel de administración puede consultar los
 reportes; la tabla no expone políticas de lectura o escritura al cliente.
 
+Para permitir que el panel elimine cuentas y todos sus datos asociados, ejecutar
+`20261027_customer_account_deletion.sql` en el SQL Editor de Supabase antes de
+desplegar esa función. Al borrar una cuenta, sus reportes, favoritos, perfiles
+y listas de compra asociadas se eliminan mediante claves foráneas en cascada.
+
 ## Tipos de cuenta de usuarios
 
 Ejecutar `20261022_customer_account_roles.sql` en el SQL Editor de Supabase
