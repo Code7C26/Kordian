@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { BriefcaseBusiness, LoaderCircle, Save } from 'lucide-react'
 import { adminFetch, apiFetch, readApiResponse } from '../config/api.js'
 import ClearableSearchInput from './ClearableSearchInput.jsx'
+import { matchesSearchTerms } from '../utils/searchTerms.js'
 
 export default function BusinessStoreAssignments() {
   const [accounts, setAccounts] = useState([])
@@ -43,10 +44,9 @@ export default function BusinessStoreAssignments() {
   }, [])
 
   const filteredAccounts = useMemo(() => {
-    const normalizedSearch = search.trim().toLocaleLowerCase()
-    if (!normalizedSearch) return accounts
+    if (!search.trim()) return accounts
     return accounts.filter((account) => (
-      `${account.username} ${account.email}`.toLocaleLowerCase().includes(normalizedSearch)
+      matchesSearchTerms([account.username, account.email], search)
     ))
   }, [accounts, search])
 
