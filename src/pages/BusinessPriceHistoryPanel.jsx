@@ -4,6 +4,7 @@ import { apiUrl } from '../config/api.js'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
 import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
+import { matchesSearchTerms } from '../utils/searchTerms.js'
 
 export default function BusinessPriceHistoryPanel() {
   const { accessToken } = useCustomerAuth()
@@ -46,7 +47,7 @@ export default function BusinessPriceHistoryPanel() {
     maximumFractionDigits: 2,
   }), [language])
   const filteredHistory = history.filter((item) =>
-    translateProductName(item.productName).toLowerCase().includes(search.trim().toLowerCase()),
+    matchesSearchTerms(translateProductName(item.productName), search),
   )
 
   return (

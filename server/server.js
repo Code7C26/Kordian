@@ -3257,7 +3257,11 @@ app.get('/admin/customer-accounts', requireAdmin, async (req, res) => {
       .order('username', { ascending: true })
       .range((page - 1) * pageSize, page * pageSize - 1)
     if (search) {
-      query = query.or(`username.ilike.%${search}%,email.ilike.%${search}%`)
+      const searchTerms = search.split(/\s+/).filter(Boolean)
+      const termFilters = searchTerms.map((term) => (
+        `or(username.ilike.%${term}%,email.ilike.%${term}%)`
+      ))
+      query = query.or(`and(${termFilters.join(',')})`)
     }
     const { data, error, count } = await query
     if (error) throw error
@@ -3367,13 +3371,16 @@ app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (r
     let hasMore
 
     if (search) {
-      const { data: productRows, error: productsError } = await analysisWriter
+      const searchTerms = search.split(/\s+/).filter(Boolean)
+      let productsQuery = analysisWriter
         .from('products')
         .select('id, name, image')
-        .ilike('name', `%${search}%`)
         .order('name', { ascending: true })
         .order('id', { ascending: true })
-        .range(offset, offset + pageSize)
+      searchTerms.forEach((term) => {
+        productsQuery = productsQuery.ilike('name', `%${term}%`)
+      })
+      const { data: productRows, error: productsError } = await productsQuery.range(offset, offset + pageSize)
       if (productsError) throw productsError
 
       hasMore = (productRows || []).length > pageSize
