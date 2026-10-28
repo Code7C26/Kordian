@@ -1,45 +1,42 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fetchAnalysisProducts, fetchProductAnalysis } from './analysisApi.js'
+import { readFile } from 'node:fs/promises'
+import { fetchProductAnalysis } from './analysisApi.js'
 
-test('returns product analyses from a successful response', async () => {
-  const analyses = [{ product: { id: 1 }, score: 0 }]
-  const result = await fetchAnalysisProducts('/analysis/products', {
-    fetchImpl: async () => ({
-      ok: true,
-      json: async () => analyses,
-    }),
-  })
+const appSource = await readFile(new URL('../App.jsx', import.meta.url), 'utf8')
+const calculatorSource = await readFile(new URL('../pages/PriceInflationPage.jsx', import.meta.url), 'utf8')
 
-  assert.equal(result, analyses)
+test('catalog loading and filter effects never request the bulk analysis endpoint', () => {
+  assert.doesNotMatch(appSource, /apiUrl\(['"]\/analysis\/products['"]\)/)
+  assert.doesNotMatch(appSource, /analysisResultsCache/)
+  assert.doesNotMatch(appSource, /fetchAnalysisProducts/)
 })
 
-test('rejects unsuccessful responses', async () => {
-  await assert.rejects(
-    fetchAnalysisProducts('/analysis/products', {
-      fetchImpl: async () => ({ ok: false, status: 503 }),
-    }),
-    /status 503/,
-  )
+test('catalog explanations and comparisons request only the selected product analysis', () => {
+  assert.match(appSource, /activeAnalysisProductId = selectedProductForExplanation\?\.id \?\? selectedProductForComparison\?\.id/)
+  assert.match(appSource, /apiUrl\(`\/analysis\/products\/\$\{encodeURIComponent\(productId\)\}`\)/)
 })
 
-test('rejects malformed successful responses', async () => {
-  await assert.rejects(
-    fetchAnalysisProducts('/analysis/products', {
-      fetchImpl: async () => ({ ok: true, json: async () => ({ data: [] }) }),
-    }),
-    /must be an array/,
-  )
+test('inflation calculator requests only the selected product analysis', () => {
+  assert.match(calculatorSource, /activeProductId = selectedProduct\?\.id/)
+  assert.match(calculatorSource, /fetchProductAnalysis\(\r?\n      apiUrl\(`\/analysis\/products\/\$\{encodeURIComponent\(productId\)\}`\)/)
+  assert.doesNotMatch(calculatorSource, /apiUrl\(['"]\/analysis\/products['"]\)/)
 })
 
 test('returns one product analysis from a successful response', async () => {
   const analysis = { product: { id: 10 }, score: 0 }
+  let requestedUrl
   const result = await fetchProductAnalysis('/analysis/products/10', {
-    fetchImpl: async () => ({
-      ok: true,
-      json: async () => analysis,
-    }),
+    fetchImpl: async (url) => {
+      requestedUrl = url
+      return {
+        ok: true,
+        json: async () => analysis,
+      }
+    },
   })
+
+  assert.equal(requestedUrl, '/analysis/products/10')
 
   assert.equal(result, analysis)
 })

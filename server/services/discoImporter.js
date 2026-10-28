@@ -9,18 +9,13 @@ const numeric = (value) => {
 
 const normalizeName = (value) => String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
 
-const durableProductTerms = ['microondas', 'horno', 'televisor', 'televisores', 'heladera', 'lavarropas', 'aire acondicionado', 'notebook', 'celular', 'computadora']
 const invalidProductNamePattern = /\b(envio|envios|entrega|delivery|shipping|oferta|promo|promocion|promociones)\b/i
 const productMeasurePattern = /\b\d+(?:[.,]\d+)?\s*(?:kg|kgs|kilo(?:s)?|g|gr|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|uds?|u)\b/i
 
-function normalizeDiscoPrice(value, productName, categories = []) {
+function normalizeDiscoPrice(value) {
   const price = numeric(value)
-  const searchableText = normalizeName([productName, ...categories].join(' '))
-  const isDurableProduct = durableProductTerms.some((term) => searchableText.includes(normalizeName(term)))
-
-  // Disco occasionally returns prices one hundred times too small.
   if (price > 0 && price < 100) return price * 100
-  return isDurableProduct && price > 0 && price < 1000 ? price * 100 : price
+  return price
 }
 
 function getTokenPrice(token) {
@@ -88,15 +83,13 @@ function getOffer(item) {
   const offer = seller?.commertialOffer || {}
   const rawPrice = offer.Price || offer.PriceWithoutDiscount || offer.FullSellingPrice
   const tokenPrice = getTokenPrice(offer.PriceToken)
-  const normalizedPrice = normalizeDiscoPrice(rawPrice, item.productName, item.categories)
+  const normalizedPrice = normalizeDiscoPrice(rawPrice)
   const rawNumericPrice = Number(rawPrice)
   const tokenMatchesScaledPrice = tokenPrice && rawNumericPrice > 0 && Math.abs(tokenPrice - rawNumericPrice * 100) < 0.01
-  const normalizedProductName = normalizeName(item.productName)
-  const isDurableProduct = durableProductTerms.some((term) => normalizedProductName.includes(normalizeName(term)))
-    && !/(pochoclo|popcorn|comida|pizza|empanada|para microondas)/.test(normalizedProductName)
+  const price = tokenMatchesScaledPrice && rawNumericPrice < 100 ? tokenPrice : normalizedPrice
   return {
-    price: tokenMatchesScaledPrice && (rawNumericPrice < 100 || (isDurableProduct && rawNumericPrice < 10000)) ? tokenPrice : normalizedPrice,
-    listPrice: normalizeDiscoPrice(offer.ListPrice || offer.PriceWithoutDiscount, item.productName, item.categories),
+    price,
+    listPrice: normalizeDiscoPrice(offer.ListPrice || offer.PriceWithoutDiscount),
     available: Boolean(offer.IsAvailable),
     quantity: numeric(offer.AvailableQuantity),
     seller: seller?.sellerName || 'Disco',

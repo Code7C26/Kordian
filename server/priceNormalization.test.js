@@ -22,3 +22,9 @@ test('normalizeDiscoStoredPrice repairs low-scale historical offers', () => {
   assert.equal(normalizeDiscoStoredPrice(150, 'disco'), 150)
   assert.equal(normalizeDiscoStoredPrice(1.29, 'manual'), 1.29)
 })
+
+test('normalizes Mami prices below one hundred from thousands of pesos', () => {
+  assert.equal(normalizeDiscoStoredPrice(3.49, 'mami'), 3490)
+  assert.equal(normalizeDiscoStoredPrice(1.19, 'mami'), 1190)
+  assert.equal(normalizeDiscoStoredPrice(3490, 'mami'), 3490)
+})

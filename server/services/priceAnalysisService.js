@@ -9,6 +9,29 @@ const numeric = (value) => Number.isFinite(Number(value)) ? Number(value) : 0
 const { normalizeDiscoStoredPrice } = require('../priceNormalization')
 const classificationCache = new WeakMap()
 
+function filterKnownPriceScaleArtifacts(history, product) {
+  const discoPrices = new Map((product.offers || [])
+    .filter((offer) => offer.supermarket === 'Disco')
+    .map((offer) => [String(offer.id), normalizeDiscoStoredPrice(offer.cash_price, product.source)]))
+  const mamiPrices = new Map((product.offers || [])
+    .filter((offer) => offer.supermarket === 'Mami')
+    .map((offer) => [String(offer.id), normalizeDiscoStoredPrice(offer.cash_price, product.source)]))
+  const currentPrices = new Map([...discoPrices, ...mamiPrices])
+
+  if (!currentPrices.size) return history
+
+  return history.filter((point) => {
+    const currentPrice = currentPrices.get(String(point.offer_id))
+    if (!currentPrice || currentPrice <= 0) return true
+
+    const historicalPrice = normalizeDiscoStoredPrice(point.cash_price, product.source)
+    if (!historicalPrice || historicalPrice <= 0) return true
+
+    const ratio = historicalPrice / currentPrice
+    return !(ratio >= 95 && ratio <= 105) && !(ratio <= 1 / 95 && ratio >= 1 / 105)
+  })
+}
+
 function buildPricePeriods(history) {
   const points = (history || [])
     .map((point) => ({
@@ -70,6 +93,11 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   const { comparables, analysis, status, classifications, productIndex } = analysisContext
   const classification = classifications.get(String(product.id))
   const references = comparables.findComparableReferences(product, products, classifications, productIndex)
+  const relevantHistory = filterKnownPriceScaleArtifacts(history, product)
+    .map((point) => ({
+      ...point,
+      cash_price: normalizeDiscoStoredPrice(point.cash_price, product.source),
+    }))
   const offers = (product.offers || []).map((offer) => ({
     ...offer,
     price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
@@ -77,7 +105,7 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   })).filter((offer) => offer.price > 0)
   const currentPrice = offers.length ? Math.min(...offers.map((offer) => offer.price)) : 0
   const behavior = analysis.analyzePriceBehavior({
-    history: history.map((point) => ({ date: point.observed_at, avgPrice: point.cash_price })),
+    history: relevantHistory.map((point) => ({ date: point.observed_at, avgPrice: point.cash_price })),
     offers,
     currentPrice,
     inflationRate: status.getCategoryInflationRate(categoryName),
@@ -98,12 +126,12 @@ async function analyzeProduct(product, products = [], history = [], categoryName
     peerDifference: references.referencePrice && normalizedCurrentPrice
       ? ((normalizedCurrentPrice - references.referencePrice) / references.referencePrice) * 100
       : null,
-    dataPoints: history.length,
+    dataPoints: relevantHistory.length,
     analysis: behavior,
     supermarketCount: offers.length,
     comparableCount: references.references.length,
   })
-  const pricePeriods = buildPricePeriods(history)
+  const pricePeriods = buildPricePeriods(relevantHistory)
   const populatedPeriods = pricePeriods.filter((period) => period.recordCount > 0).length
 
   return {
@@ -119,7 +147,7 @@ async function analyzeProduct(product, products = [], history = [], categoryName
       reasons: classificationResult.reasons,
     },
     references,
-    priceHistory: history.map((point) => ({
+    priceHistory: relevantHistory.map((point) => ({
       date: point.observed_at,
       offerId: point.offer_id,
       avgPrice: numeric(point.cash_price),
@@ -134,4 +162,4 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   }
 }
 
-module.exports = { analyzeProduct, createAnalysisContext }
+module.exports = { analyzeProduct, createAnalysisContext, filterKnownPriceScaleArtifacts }

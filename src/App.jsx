@@ -148,7 +148,6 @@ export default function App() {
   )
   const catalogReferenceCache = useRef(null)
   const catalogTotalRequest = useRef(null)
-  const analysisResultsCache = useRef(null)
   const lastCatalogRefreshKey = useRef(catalogRefreshKey)
   const analysisCache = useRef(new Map())
   const [productsPage, setProductsPage] = useState(1)
@@ -512,36 +511,6 @@ export default function App() {
           if (name && !stores.has(name)) stores.set(name, { id: name, name, image: supermarketImages.get(name) || '' })
         }))
         setStoresList([...stores.values()])
-
-        if (!analysisResultsCache.current && !filters.searchQuery.trim() && !favoritesOnlyView) {
-          setAnalysisLoadState('loading')
-          fetchCachedCatalogResponse(apiUrl('/analysis/products'), { signal: controller.signal, ttlMs: 60_000 })
-            .then((analysisResults) => {
-              if (!Array.isArray(analysisResults)) throw new TypeError('Price analysis response must be an array')
-              if (!mounted) return
-              analysisResultsCache.current = analysisResults
-              setAnalysisLoadState('loaded')
-              const resultsByProduct = new Map(analysisResults.map((item) => [String(item.product?.id), item]))
-              setProducts((current) => current.map((product) => {
-                const analysis = resultsByProduct.get(String(product.id))
-                if (!analysis) return product
-                return {
-                  ...product,
-                  analysis,
-                  status: analysis.classification === 'PRECIO_NORMAL'
-                    ? 'EN_PRECIO'
-                    : analysis.classification || product.status,
-                  priceHistory: analysis.priceHistory || product.priceHistory,
-                }
-              }))
-            })
-            .catch((error) => {
-              if (error.name !== 'AbortError') {
-                console.error('Error loading price analysis', error)
-                if (mounted) setAnalysisLoadState('error')
-              }
-            })
-        }
       } catch (error) {
         if (!mounted) return
         const timedOut = error.name === 'TimeoutError'
@@ -568,7 +537,6 @@ export default function App() {
 
   useEffect(() => {
     analysisCache.current.clear()
-    analysisResultsCache.current = null
   }, [catalogRefreshKey])
 
   const activeAnalysisProductId = selectedProductForExplanation?.id ?? selectedProductForComparison?.id
