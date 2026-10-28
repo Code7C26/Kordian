@@ -17,6 +17,7 @@ import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
 import { fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
+import { filterProductOffers, isTargetSerenisimaMilk } from './utils/productOffers.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 import brandLogo from '../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
@@ -453,7 +454,7 @@ export default function App() {
         setCategories(cats)
         const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
         const enriched = validProducts.map((product) => {
-          const offers = (product.offers || [])
+          const offers = filterProductOffers(product, product.offers || [])
             .map((offer) => ({
               ...offer,
               price: Number(offer.cash_price ?? offer.cashPrice ?? offer.price ?? 0),
@@ -465,7 +466,9 @@ export default function App() {
             (lowest, offer) => (!lowest || offer.price < lowest.price ? offer : lowest),
             null,
           )
-          const currentPrice = Number(product.currentPrice || primary?.price || product.price || 0)
+          const currentPrice = Number(
+            (isTargetSerenisimaMilk(product) ? primary?.price : product.currentPrice || primary?.price || product.price) || 0,
+          )
           const avgMarketPrice = offers.length
             ? offers.reduce((sum, offer) => sum + offer.price, 0) / offers.length
             : Number(product.avgMarketPrice || 0)
@@ -933,7 +936,7 @@ export default function App() {
                     clearLabel={t('Limpiar búsqueda')}
                     onChange={(e) => updateFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
                     onClear={() => updateFilters((prev) => ({ ...prev, searchQuery: '' }))}
-                    placeholder={t('Ej: Leche, Playadito, TV...')}
+                    placeholder={t('Ej: Leche, coca')}
                     className="w-full pl-9 pr-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                   />
                   <Search className="w-4 h-4 text-stone-400 absolute left-3 top-3" />
@@ -1139,9 +1142,6 @@ export default function App() {
             <div className="flex flex-wrap gap-3">
               <button onClick={() => openReportModal()} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
                 {t('Reportar precio')}
-              </button>
-              <button onClick={() => setBasketOpen(true)} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
-                {t('Ver Mi Canasta Ahorro')}
               </button>
             </div>
           </div>

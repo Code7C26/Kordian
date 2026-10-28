@@ -29,13 +29,15 @@ incluirla en el frontend.
 
 La URL pública del frontend es `https://ar-price.netlify.app` y está configurada
 como `FRONTEND_URL` en `render.yaml`. En Supabase Auth, agregar
-`https://ar-price.netlify.app/ingresar?confirmation=success` y
+`https://ar-price.netlify.app/registro-exitoso` y
 `https://ar-price.netlify.app/restablecer-contrasena` a las Redirect URLs
 permitidas.
 
 Los enlaces de confirmación de registro redirigen a
-`/ingresar?confirmation=success`. El frontend usa una regla SPA para que las
-rutas de la aplicación abran correctamente.
+`/registro-exitoso`, donde se informa si la cuenta quedó verificada. El backend
+debe tener `FRONTEND_URL` configurada con la URL pública del frontend; no debe
+usar una dirección `localhost` en producción. El frontend usa una regla SPA
+para que las rutas de la aplicación abran correctamente.
 
 Si la confirmación de correo está habilitada en Supabase Auth, cada usuario
 debe confirmar el correo recibido antes de iniciar sesión. Si está
@@ -56,6 +58,11 @@ Los usuarios autenticados envían los reportes al backend; el servidor guarda
 el detalle del precio y una copia del usuario/email asociado al reporte. Solo
 el endpoint autenticado del panel de administración puede consultar los
 reportes; la tabla no expone políticas de lectura o escritura al cliente.
+
+Para permitir que el panel elimine cuentas y todos sus datos asociados, ejecutar
+`20261027_customer_account_deletion.sql` en el SQL Editor de Supabase antes de
+desplegar esa función. Al borrar una cuenta, sus reportes, favoritos, perfiles
+y listas de compra asociadas se eliminan mediante claves foráneas en cascada.
 
 ## Tipos de cuenta de usuarios
 
@@ -220,6 +227,8 @@ La aplicacion no incluye credenciales de propietario de Supabase, por lo que la 
 ## Listas de compras compartidas
 
 Ejecutar `20261018_shared_shopping_lists.sql` en el SQL Editor de Supabase antes de desplegar la API que ofrece `/shared-lists`. Las tablas tienen RLS habilitado sin políticas públicas; las operaciones pasan por el backend, que valida el access token del cliente y comprueba la membresía antes de leer o cambiar una lista. Por eso el servicio de Render debe tener `SUPABASE_SERVICE_ROLE_KEY` configurada solo como variable privada del servidor.
+
+Para habilitar búsqueda de usuarios e invitaciones con notificaciones, ejecutar también `20261027_shared_list_invitations.sql`. La migración completa los perfiles faltantes de cuentas ya registradas usando su nombre existente o la parte anterior al `@` de su email, y resuelve nombres repetidos con un sufijo para que puedan aparecer en la búsqueda sin volver a registrarse. El selector lista las cuentas de cliente existentes; cada destinatario puede aceptar o rechazar la invitación desde Notificaciones. La función de aceptación se ejecuta en el backend con la clave service role.
 
 ## Catálogo gestionado por comercios
 

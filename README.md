@@ -4,7 +4,7 @@ Desarrollo de software y soluciones
 Slogan: **Tecnología que crece con vos.**
 
 <p align="center">
-  <img src="assents/Kordian/gif_flor.gif">
+  <img src="assents/Kordian/flor.gif">
 </p>
 
 ---
@@ -13,7 +13,7 @@ Slogan: **Tecnología que crece con vos.**
 Slogan: **Ahorrar no es suerte, es información.**
 
 <p align="center">
-  <img src="assents/Ar-Price/gif_avion.gif">
+  <img src="assents/Ar-Price/avion.gif">
 </p>
 
 ## Descripción del Proyecto

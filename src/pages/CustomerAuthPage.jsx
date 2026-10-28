@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { LoaderCircle, LockKeyhole, UserRound } from 'lucide-react'
+import { ArrowLeft, Check, Eye, EyeOff, LoaderCircle, LockKeyhole, Moon, Sun, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import { validateCustomerRegistration } from '../utils/customerAuthValidation.js'
 import BrandHeader from '../components/BrandHeader.jsx'
+import CustomerRegistrationSuccessPage from './CustomerRegistrationSuccessPage.jsx'
 
 export default function CustomerAuthPage({ mode = 'login' }) {
   const isRegistration = mode === 'register'
   const location = useLocation()
   const navigate = useNavigate()
   const { signIn, signUp, requestPasswordReset } = useCustomerAuth()
-  const { t } = useLanguage()
+  const { language, setLanguage, t } = useLanguage()
   const confirmationComplete = new URLSearchParams(location.search).get('confirmation') === 'success'
   const passwordUpdated = new URLSearchParams(location.search).get('password') === 'updated'
   const requestedNext = new URLSearchParams(location.search).get('next')
@@ -25,6 +26,8 @@ export default function CustomerAuthPage({ mode = 'login' }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
   const [errors, setErrors] = useState({})
   const [toast, setToast] = useState(() => confirmationComplete
     ? { message: 'Correo confirmado. Ya puedes iniciar sesión.', type: 'success' }
@@ -33,11 +36,33 @@ export default function CustomerAuthPage({ mode = 'login' }) {
       : null)
   const [busy, setBusy] = useState(false)
   const [isRecovering, setIsRecovering] = useState(false)
+  const [darkMode, setDarkMode] = useState(() =>
+    localStorage.getItem('arprice_theme') === 'dark' ||
+    (!('arprice_theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  )
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode)
+    document.body.classList.toggle('dark', darkMode)
+    localStorage.setItem('arprice_theme', darkMode ? 'dark' : 'light')
+  }, [darkMode])
+
+  useEffect(() => {
+    setUsername('')
+    setEmail('')
+    setPassword('')
+    setConfirmation('')
+    setShowPassword(false)
+    setShowConfirmation(false)
+    setErrors({})
+  }, [isRegistration, location.pathname])
 
   useEffect(() => {
     if (!confirmationComplete || !location.hash) return
     window.history.replaceState(window.history.state, '', `${location.pathname}${location.search}`)
   }, [confirmationComplete, location.hash, location.pathname, location.search])
+
+  if (confirmationComplete) return <CustomerRegistrationSuccessPage />
 
   const showToast = (message, type = 'error') => setToast({ message, type })
 
@@ -64,6 +89,11 @@ export default function CustomerAuthPage({ mode = 'login' }) {
     try {
       if (isRegistration) {
         const result = await signUp({ username, email, password })
+        if (result.user?.identities?.length === 0) {
+          setErrors({ email: 'Este correo ya se encuentra registrado.' })
+          showToast('Este correo ya se encuentra registrado.')
+          return
+        }
         if (result.session) {
           navigate(nextPath, { replace: true })
           return
@@ -76,7 +106,12 @@ export default function CustomerAuthPage({ mode = 'login' }) {
     } catch (error) {
       const message = String(error?.message || '')
       const normalized = message.toLowerCase()
-      const friendly = normalized.includes('already registered') || normalized.includes('already been registered')
+      const emailAlreadyRegistered = normalized.includes('already registered')
+        || normalized.includes('already been registered')
+        || normalized.includes('already exists')
+        || normalized.includes('email_exists')
+        || normalized.includes('user_already_exists')
+      const friendly = emailAlreadyRegistered
         ? 'Este correo ya se encuentra registrado.'
         : normalized.includes('customer_profiles_username_lower_unique') || normalized.includes('duplicate key') || normalized.includes('username')
           ? 'Este usuario ya se encuentra registrado o no es válido.'
@@ -86,6 +121,7 @@ export default function CustomerAuthPage({ mode = 'login' }) {
             ? 'Credenciales inválidas.'
             : message || 'No se pudo completar la solicitud.'
       if (isRegistration && normalized.includes('username')) setErrors({ username: 'Este usuario ya se encuentra registrado.' })
+      if (isRegistration && emailAlreadyRegistered) setErrors({ email: 'Este correo ya se encuentra registrado.' })
       if (!isRegistration) setErrors({ credentials: friendly })
       showToast(friendly)
     } finally {
@@ -116,17 +152,49 @@ export default function CustomerAuthPage({ mode = 'login' }) {
   return (
     <main className="min-h-screen bg-stone-100 px-4 py-8 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6">
       <div className="mx-auto max-w-6xl">
-      <BrandHeader className="mb-6" />
+      <BrandHeader className="mb-6">
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200 dark:hover:bg-stone-800 sm:px-3"
+            aria-label={t('Volver')}
+            title={t('Volver')}
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">{t('Volver')}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setDarkMode((current) => !current)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-stone-200 bg-white text-stone-700 transition hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200 dark:hover:bg-stone-800"
+            aria-label={t(darkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro')}
+            title={t(darkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro')}
+          >
+            {darkMode
+              ? <Sun className="h-5 w-5 text-amber-400" aria-hidden="true" />
+              : <Moon className="h-5 w-5 text-sky-600" aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
+            className="inline-flex h-10 min-w-10 items-center justify-center rounded-lg border border-stone-200 bg-white px-2 text-sm font-bold text-stone-700 transition hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200 dark:hover:bg-stone-800"
+            aria-label={t(language === 'es' ? 'Cambiar idioma a inglés' : 'Switch language to Spanish')}
+            title={t(language === 'es' ? 'Cambiar idioma a inglés' : 'Switch language to Spanish')}
+          >
+            {language === 'es' ? 'EN' : 'ES'}
+          </button>
+        </div>
+      </BrandHeader>
       <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center gap-12">
         <section className="hidden max-w-md flex-1 lg:block">
-          <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-400">Ar-Price · Alta Gracia</p>
           <h1 className="mt-4 text-4xl font-black leading-tight">{t(isRegistration ? 'Tu próxima compra empieza acá.' : 'Qué bueno verte de nuevo.')}</h1>
-          <p className="mt-4 max-w-sm text-base leading-7 text-stone-600 dark:text-stone-400">
-            {t(isRegistration ? 'Crea tu cuenta para guardar favoritos y seguir tus precios.' : 'Ingresa para volver a tus favoritos y alertas de precios.')}
+          <p className="mt-3 text-lg text-stone-600 dark:text-stone-400">
+            {t(isRegistration
+              ? 'Regístrate en Ar-Price para desbloquear todas las funcionalidades'
+              : 'Inicia sesión para empezar a comparar precios')}
           </p>
-          <div className="mt-8 h-1 w-20 rounded bg-emerald-500" />
         </section>
-
         <section className="w-full max-w-md border-y border-stone-200 bg-white px-5 py-7 dark:border-stone-800 dark:bg-stone-900 sm:rounded-xl sm:border sm:px-8 sm:py-8">
           <div className="mb-7">
             <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
@@ -174,7 +242,7 @@ export default function CustomerAuthPage({ mode = 'login' }) {
                 </div>
                 <div>
                   <label htmlFor="customer-email" className="mb-1.5 block text-sm font-semibold">{t('Email')}</label>
-                  <input id="customer-email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} className={fieldClass(Boolean(errors.email))} placeholder="usuario@email.com" aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'email-error' : undefined} />
+                  <input id="customer-email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => { setEmail(event.target.value); setErrors((current) => ({ ...current, email: undefined })) }} className={fieldClass(Boolean(errors.email))} placeholder="usuario@email.com" aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'email-error' : undefined} />
                   {errors.email && <p id="email-error" className="mt-1 text-xs font-medium text-rose-600">{t(errors.email)}</p>}
                 </div>
               </>
@@ -187,7 +255,13 @@ export default function CustomerAuthPage({ mode = 'login' }) {
 
             <div>
               <label htmlFor="customer-password" className="mb-1.5 block text-sm font-semibold">{t('Contraseña')}</label>
-              <input id="customer-password" name="password" type="password" autoComplete={isRegistration ? 'new-password' : 'current-password'} required minLength={4} pattern="[A-Za-z0-9]{4,}" value={password} onChange={(event) => setPassword(event.target.value)} className={fieldClass(Boolean(errors.password || errors.credentials))} placeholder={t('Mínimo 4 caracteres alfanuméricos')} aria-invalid={Boolean(errors.password || errors.credentials)} aria-describedby={errors.password ? 'password-error' : undefined} />
+              <div className="relative">
+                <input id="customer-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={isRegistration ? 'new-password' : 'current-password'} required minLength={isRegistration ? 8 : 4} maxLength={isRegistration ? 8 : undefined} pattern={isRegistration ? '(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{8}' : '[A-Za-z0-9]{4,}'} value={password} onChange={(event) => setPassword(event.target.value)} className={`${fieldClass(Boolean(errors.password || errors.credentials))} pr-12`} placeholder={t('Mínimo 8 caracteres alfanuméricos')} aria-invalid={Boolean(errors.password || errors.credentials)} aria-describedby={errors.password ? 'password-error' : undefined} />
+                <button type="button" onClick={() => setShowPassword((visible) => !visible)} className="absolute inset-y-0 right-0 inline-flex items-center px-3 text-stone-500 hover:text-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 dark:text-stone-400 dark:hover:text-stone-200" aria-label={t(showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña')} aria-pressed={showPassword}>
+                  {showPassword ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
+                </button>
+              </div>
+              {isRegistration && <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">{t('Exactamente 8 caracteres, con letras y números. Ejemplo: Abc12345.')}</p>}
                   {errors.password && <p id="password-error" className="mt-1 text-xs font-medium text-rose-600">{t(errors.password)}</p>}
                   {!isRegistration && errors.credentials && <p className="mt-1 text-xs font-medium text-rose-600">{t(errors.credentials)}</p>}
             </div>
@@ -203,7 +277,12 @@ export default function CustomerAuthPage({ mode = 'login' }) {
             {isRegistration && (
               <div>
                 <label htmlFor="customer-confirmation" className="mb-1.5 block text-sm font-semibold">{t('Repetir contraseña')}</label>
-                <input id="customer-confirmation" name="password-confirmation" type="password" autoComplete="new-password" required minLength={4} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={fieldClass(Boolean(errors.confirmation))} placeholder={t('Escribe nuevamente tu contraseña')} aria-invalid={Boolean(errors.confirmation)} aria-describedby={errors.confirmation ? 'confirmation-error' : undefined} />
+                <div className="relative">
+                  <input id="customer-confirmation" name="password-confirmation" type={showConfirmation ? 'text' : 'password'} autoComplete="new-password" required minLength={8} maxLength={8} pattern="(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{8}" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={`${fieldClass(Boolean(errors.confirmation))} pr-12`} placeholder={t('Repite la contraseña')} aria-invalid={Boolean(errors.confirmation)} aria-describedby={errors.confirmation ? 'confirmation-error' : undefined} />
+                  <button type="button" onClick={() => setShowConfirmation((visible) => !visible)} className="absolute inset-y-0 right-0 inline-flex items-center px-3 text-stone-500 hover:text-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 dark:text-stone-400 dark:hover:text-stone-200" aria-label={t(showConfirmation ? 'Ocultar contraseña' : 'Mostrar contraseña')} aria-pressed={showConfirmation}>
+                    {showConfirmation ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
+                  </button>
+                </div>
                 {errors.confirmation && <p id="confirmation-error" className="mt-1 text-xs font-medium text-rose-600">{t(errors.confirmation)}</p>}
               </div>
             )}
@@ -235,7 +314,10 @@ export default function CustomerAuthPage({ mode = 'login' }) {
 
       {toast && (
         <div className={`fixed inset-x-4 bottom-4 z-50 mx-auto max-w-md rounded-lg px-4 py-3 text-sm font-semibold text-white shadow-xl ${toast.type === 'success' ? 'bg-emerald-700' : 'bg-rose-700'}`} role={toast.type === 'error' ? 'alert' : 'status'} aria-live="polite">
-          {t(toast.message)}
+          <div className="flex items-center gap-2">
+            {toast.type === 'success' && <Check className="registration-success-check h-5 w-5 shrink-0" strokeWidth={3} aria-hidden="true" />}
+            <span>{t(toast.message)}</span>
+          </div>
         </div>
       )}
     </main>

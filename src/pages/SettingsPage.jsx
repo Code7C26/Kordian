@@ -132,7 +132,7 @@ export default function SettingsPage() {
               </section>
             )}
 
-            {!authLoading && profile?.role === 'business' && (
+            {!authLoading && ['business', 'administrator'].includes(profile?.role) && (
               <section className="py-5">
                 <Link
                   to="/panel-gestion"
@@ -151,6 +151,7 @@ export default function SettingsPage() {
               <section className="py-5">
                 <Link
                   to="/admin"
+                  state={{ adminEntry: 'settings' }}
                   className="flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-white dark:hover:bg-stone-900"
                 >
                   <ShieldCheck className="h-5 w-5 text-sky-600 dark:text-sky-400" aria-hidden="true" />

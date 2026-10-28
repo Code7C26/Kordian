@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getProductOffers } from './productOffers.js'
+import { filterProductOffers, getProductOffers } from './productOffers.js'
 
 test('counts the primary store offer when there are no alternative stores', () => {
   const offers = getProductOffers({
@@ -39,4 +39,56 @@ test('ignores offers without a valid price or store', () => {
   })
 
   assert.deepEqual(offers, [])
+})
+
+test('excludes the phantom stores from the two-percent Serenisima milk comparison', () => {
+  const product = {
+    name: 'LECHE LA SERENISIMA PARCIALMENTE DESCREMADA CLASICA MAS LIVIANA 2% GRASA SACHET X 1 LT.',
+    primaryStore: { id: 1, name: 'Becerra' },
+    currentPrice: 1900,
+    otherStores: [
+      { id: 2, price: 1800, supermarket: 'Carrefour' },
+      { id: 3, price: 2000, supermarket: 'Mami' },
+      { id: 4, price: 2100, supermarket: 'Disco' },
+    ],
+  }
+
+  const offers = getProductOffers(product)
+
+  assert.equal(offers.length, 1)
+  assert.equal(offers[0].supermarket, 'Disco')
+  assert.equal(offers[0].price, 2100)
+})
+
+test('matches the exact compact product name shown in the comparison panel', () => {
+  const product = {
+    name: 'Leche Descremada La Serenísima 2sachet 1lt',
+    primaryStore: { id: 1, name: 'Disco' },
+    currentPrice: 2050,
+    otherStores: [
+      { id: 2, price: 2050, supermarket: 'Becerra' },
+      { id: 3, price: 2050, supermarket: 'Carrefour' },
+      { id: 4, price: 2050, supermarket: 'Mami' },
+    ],
+  }
+
+  assert.deepEqual(
+    getProductOffers(product).map(({ supermarket }) => supermarket),
+    ['Disco'],
+  )
+})
+
+test('keeps those stores for other products and filters matching source SKU variants', () => {
+  const offers = [
+    { id: 1, price: 1000, supermarket: 'Carrefour' },
+    { id: 2, price: 1200, supermarket: 'Disco' },
+    { id: 3, price: 1100, supermarket: 'Mami' },
+    { id: 4, price: 1300, supermarket: 'Becerra' },
+  ]
+
+  assert.deepEqual(filterProductOffers({ name: 'Leche La Serenisima Entera 3% Sachet x 1 lt' }, offers), offers)
+  assert.deepEqual(
+    filterProductOffers({ source_product_id: 'prod3262764' }, offers),
+    [offers[1]],
+  )
 })

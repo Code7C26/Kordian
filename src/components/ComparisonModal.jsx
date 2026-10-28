@@ -112,7 +112,9 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
               </div>
               <h2 className="text-xl font-bold text-stone-900 dark:text-white leading-tight">{displayName}</h2>
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-                {t('Precios disponibles en ')}{sortedStores.length} {t(sortedStores.length === 1 ? 'comercio' : 'comercios')}
+                {sortedStores.length === 1
+                  ? t('Precio disponible en 1 comercio')
+                  : <>{t('Precios disponibles en ')}{sortedStores.length} {t('comercios')}</>}
               </p>
             </div>
           </div>

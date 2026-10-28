@@ -45,7 +45,7 @@ const {
   productTranslationIpRateLimit,
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
-const { getFrontendUrl } = require('./passwordRecoveryRedirect')
+const { getCustomerConfirmationRedirectUrl, getFrontendUrl } = require('./passwordRecoveryRedirect')
 const { createProductTranslationService } = require('./services/productTranslation')
 const {
   PRICE_STATUS_RULES_VERSION,
@@ -2868,11 +2868,6 @@ function getPasswordRecoveryRedirectUrl(accountType) {
   return redirectUrl.toString()
 }
 
-function getCustomerConfirmationRedirectUrl() {
-  const frontendUrl = getFrontendUrl()
-  return new URL('/ingresar?confirmation=success', frontendUrl).toString()
-}
-
 app.post('/auth/customer-password-reset', customerPasswordResetIpRateLimit, async (req, res) => {
   try {
     if (!requireCustomerAuthStorage(res)) return
@@ -2982,8 +2977,8 @@ app.post('/auth/customer-register', async (req, res) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' })
     }
-    if (!/^[a-zA-Z0-9]{4,}$/.test(password)) {
-      return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres alfanuméricos.' })
+    if (!/^[a-zA-Z0-9]{8,}$/.test(password)) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres alfanuméricos.' })
     }
 
     let existingProfile
@@ -3012,13 +3007,21 @@ app.post('/auth/customer-register', async (req, res) => {
     })
     if (error) {
       const normalizedMessage = String(error.message || '').toLowerCase()
-      if (normalizedMessage.includes('already registered') || normalizedMessage.includes('already been registered')) {
+      if (
+        ['email_exists', 'user_already_exists'].includes(error.code)
+        || normalizedMessage.includes('already registered')
+        || normalizedMessage.includes('already been registered')
+        || normalizedMessage.includes('already exists')
+      ) {
         return res.status(409).json({ error: 'Este correo ya se encuentra registrado.' })
       }
       if (normalizedMessage.includes('database error saving new user')) {
         return res.status(503).json({ error: 'No se pudo crear el perfil. Verifica la migración de perfiles en Supabase.' })
       }
       return res.status(400).json({ error: error.message || 'No se pudo crear la cuenta.' })
+    }
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return res.status(409).json({ error: 'Este correo ya se encuentra registrado.' })
     }
 
     res.status(201).json({
@@ -3109,6 +3112,168 @@ async function requireCustomerAuth(req, res, next) {
     return res.status(503).json({ error: 'No se pudo verificar la sesión. Inténtalo nuevamente.' })
   }
 }
+
+app.post('/auth/admin-session', requireCustomerAuth, async (req, res) => {
+  try {
+    const profile = await getCustomerProfile(req.customerUser)
+    if (profile.role !== 'administrator') {
+      return res.status(403).json({ error: 'Esta cuenta no tiene permisos de administrador.' })
+    }
+    const username = String(profile.username || '').trim()
+    if (!username) {
+      return res.status(403).json({ error: 'No se pudo validar el usuario administrador.' })
+    }
+    const token = createAdminToken(username)
+    if (!token) {
+      return res.status(503).json({ error: 'La sesión administrativa no está configurada en el servidor.' })
+    }
+    return res.json({ token, username })
+  } catch (error) {
+    console.error('Admin session creation failed', error)
+    return sendCustomerAuthUnavailable(res, error)
+  }
+})
+
+app.get('/customer/users', requireCustomerAuth, async (req, res) => {
+  try {
+    const { data: profiles, error: profilesError } = await analysisWriter
+      .from('customer_profiles')
+      .select('user_id, username, role')
+    if (profilesError) throw profilesError
+
+    const customers = (profiles || [])
+      .filter((profile) => profile.role === 'customer' && profile.user_id !== req.customerUser.id)
+      .map((profile) => ({ userId: profile.user_id, username: profile.username }))
+      .sort((first, second) => first.username.localeCompare(second.username))
+    return res.json(customers)
+  } catch (error) {
+    console.error('Customer user search failed', error)
+    return res.status(503).json({ error: 'No se pudieron buscar usuarios.' })
+  }
+})
+
+app.get('/customer/notifications', requireCustomerAuth, async (req, res) => {
+  try {
+    const { data: invitations, error: invitationsError } = await analysisWriter
+      .from('shared_shopping_list_invitations')
+      .select('id, list_id, inviter_user_id, created_at')
+      .eq('invitee_user_id', req.customerUser.id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+    if (invitationsError) throw invitationsError
+    if (!invitations?.length) return res.json([])
+
+    const listIds = [...new Set(invitations.map((invitation) => invitation.list_id))]
+    const inviterIds = [...new Set(invitations.map((invitation) => invitation.inviter_user_id))]
+    const [{ data: lists, error: listsError }, { data: profiles, error: profilesError }] = await Promise.all([
+      analysisWriter.from('shared_shopping_lists').select('id, name').in('id', listIds),
+      analysisWriter.from('customer_profiles').select('user_id, username').in('user_id', inviterIds),
+    ])
+    if (listsError) throw listsError
+    if (profilesError) throw profilesError
+
+    const listNames = new Map((lists || []).map((list) => [list.id, list.name]))
+    const usernames = new Map((profiles || []).map((profile) => [profile.user_id, profile.username]))
+    return res.json(invitations.map((invitation) => ({
+      id: invitation.id,
+      listId: invitation.list_id,
+      listName: listNames.get(invitation.list_id) || 'Lista compartida',
+      inviterUsername: usernames.get(invitation.inviter_user_id) || 'Usuario',
+      createdAt: invitation.created_at,
+    })))
+  } catch (error) {
+    console.error('Customer notifications fetch failed', error)
+    return res.status(503).json({ error: 'No se pudieron cargar las notificaciones.' })
+  }
+})
+
+app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, async (req, res) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
+    return res.status(400).json({ error: 'La invitación no es válida.' })
+  }
+
+  try {
+    const { data: invitation, error: invitationError } = await analysisWriter
+      .from('shared_shopping_list_invitations')
+      .select('id, list_id, status')
+      .eq('id', req.params.notificationId)
+      .eq('invitee_user_id', req.customerUser.id)
+      .maybeSingle()
+    if (invitationError) throw invitationError
+    if (!invitation || invitation.status === 'declined') {
+      return res.status(404).json({ error: 'La invitación ya no está disponible.' })
+    }
+
+    if (invitation.status === 'pending') {
+      const { data: acceptedInvitation, error: acceptanceError } = await analysisWriter
+        .from('shared_shopping_list_invitations')
+        .update({ status: 'accepted', responded_at: new Date().toISOString() })
+        .eq('id', invitation.id)
+        .eq('invitee_user_id', req.customerUser.id)
+        .eq('status', 'pending')
+        .select('id')
+        .maybeSingle()
+      if (acceptanceError) throw acceptanceError
+      if (!acceptedInvitation) {
+        const { data: currentInvitation, error: verificationError } = await analysisWriter
+          .from('shared_shopping_list_invitations')
+          .select('status')
+          .eq('id', invitation.id)
+          .eq('invitee_user_id', req.customerUser.id)
+          .maybeSingle()
+        if (verificationError) throw verificationError
+        if (currentInvitation?.status !== 'accepted') {
+          return res.status(404).json({ error: 'La invitación ya no está disponible.' })
+        }
+      }
+    }
+
+    const { error: membershipError } = await analysisWriter
+      .from('shared_shopping_list_members')
+      .upsert(
+        { list_id: invitation.list_id, user_id: req.customerUser.id, role: 'member' },
+        { onConflict: 'list_id,user_id', ignoreDuplicates: true },
+      )
+    if (membershipError) throw membershipError
+
+    const { data: list, error: listError } = await analysisWriter
+      .from('shared_shopping_lists')
+      .select('id, name')
+      .eq('id', invitation.list_id)
+      .maybeSingle()
+    if (listError) throw listError
+    if (!list) {
+      return res.status(404).json({ error: 'La lista compartida ya no está disponible.' })
+    }
+    return res.json(list)
+  } catch (error) {
+    console.error('Shared-list invitation acceptance failed', error)
+    return res.status(503).json({ error: 'No se pudo aceptar la invitación. Inténtalo nuevamente.' })
+  }
+})
+
+app.post('/customer/notifications/:notificationId/decline', requireCustomerAuth, async (req, res) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
+    return res.status(400).json({ error: 'La invitación no es válida.' })
+  }
+
+  try {
+    const { data, error } = await analysisWriter
+      .from('shared_shopping_list_invitations')
+      .update({ status: 'declined', responded_at: new Date().toISOString() })
+      .eq('id', req.params.notificationId)
+      .eq('invitee_user_id', req.customerUser.id)
+      .eq('status', 'pending')
+      .select('id')
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'La invitación ya no está disponible.' })
+    return res.json({ success: true })
+  } catch (error) {
+    console.error('Shared-list invitation decline failed', error)
+    return res.status(503).json({ error: 'No se pudo rechazar la invitación. Inténtalo nuevamente.' })
+  }
+})
 
 app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
   try {
@@ -3245,17 +3410,22 @@ async function requireBusinessStore(req, res, next) {
       .eq('user_id', req.customerUser.id)
       .maybeSingle()
     if (profileError) throw profileError
-    if (profile?.role !== 'business') {
+    if (!['business', 'administrator'].includes(profile?.role)) {
       return res.status(403).json({ error: 'Esta función está disponible solo para cuentas comerciales.' })
     }
-    if (!profile.supermarket_id) {
+    const adminStoreId = String(req.headers['x-admin-store-id'] || '')
+    const selectedStoreId = profile.role === 'administrator' ? adminStoreId : profile.supermarket_id
+    if (profile.role === 'administrator' && !selectedStoreId) {
+      return res.status(400).json({ error: 'Selecciona un supermercado para gestionar.' })
+    }
+    if (!selectedStoreId) {
       return res.status(409).json({ error: 'Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.' })
     }
 
     const { data: store, error: storeError } = await analysisWriter
       .from('supermarkets')
       .select('id, name')
-      .eq('id', profile.supermarket_id)
+      .eq('id', selectedStoreId)
       .maybeSingle()
     if (storeError) throw storeError
     if (!store) {
@@ -3269,6 +3439,24 @@ async function requireBusinessStore(req, res, next) {
     return res.status(503).json({ error: 'No se pudo verificar la asignación comercial.' })
   }
 }
+
+app.get('/business/stores', requireCustomerAuth, async (req, res) => {
+  try {
+    const profile = await getCustomerProfile(req.customerUser)
+    if (profile.role !== 'administrator') {
+      return res.status(403).json({ error: 'Solo las cuentas administradoras pueden elegir un supermercado.' })
+    }
+    const { data, error } = await analysisWriter
+      .from('supermarkets')
+      .select('id, name')
+      .order('name', { ascending: true })
+    if (error) throw error
+    return res.json({ stores: data || [] })
+  } catch (error) {
+    console.error('Business store options could not be loaded', error)
+    return res.status(503).json({ error: 'No se pudieron cargar los supermercados disponibles.' })
+  }
+})
 
 app.get('/admin/business-accounts', requireAdmin, async (req, res) => {
   try {
@@ -3359,6 +3547,47 @@ app.put('/admin/customer-accounts/:userId', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Registered customer account role update failed', error)
     return res.status(503).json({ error: 'No se pudo actualizar el tipo de cuenta. Verifica que la migración de roles esté aplicada.' })
+  }
+})
+
+app.delete('/admin/customer-accounts/:userId', requireAdmin, async (req, res) => {
+  const userId = String(req.params.userId || '')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+    return res.status(400).json({ error: 'La cuenta seleccionada no es válida.' })
+  }
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'La administración de cuentas requiere SUPABASE_SERVICE_ROLE_KEY en el backend.' })
+  }
+
+  try {
+    const { data: account, error: accountError } = await supabaseAdmin
+      .from('customer_profiles')
+      .select('user_id, username, role')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (accountError) throw accountError
+    if (!account) return res.status(404).json({ error: 'No se encontró la cuenta seleccionada.' })
+    if (String(account.username).toLowerCase() === String(req.admin || '').toLowerCase()) {
+      return res.status(403).json({ error: 'No puedes eliminar la cuenta de administrador que estás utilizando.' })
+    }
+
+    if (account.role === 'administrator') {
+      const { count, error: countError } = await supabaseAdmin
+        .from('customer_profiles')
+        .select('user_id', { count: 'exact', head: true })
+        .eq('role', 'administrator')
+      if (countError) throw countError
+      if (count <= 1) {
+        return res.status(409).json({ error: 'No se puede eliminar la última cuenta administradora.' })
+      }
+    }
+
+    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId, false)
+    if (deleteError) throw deleteError
+    return res.status(204).end()
+  } catch (error) {
+    console.error('Registered customer account deletion failed', error)
+    return res.status(503).json({ error: 'No se pudo eliminar la cuenta y sus datos asociados.' })
   }
 })
 
@@ -3537,6 +3766,52 @@ app.get('/business/price-history', requireCustomerAuth, requireBusinessStore, as
   }
 })
 
+app.get('/business/disco-price-history', requireCustomerAuth, async (req, res) => {
+  try {
+    const profile = await getCustomerProfile(req.customerUser)
+    if (!['business', 'administrator'].includes(profile.role)) {
+      return res.status(403).json({ error: 'Esta función está disponible solo para cuentas comerciales.' })
+    }
+
+    const { data: historyRows, error } = await analysisWriter
+      .from('price_history')
+      .select('id, product_id, offer_id, observed_at, cash_price, source, product:products(name), offer:offers!inner(supermarket)')
+      .eq('offer.supermarket', 'Disco')
+      .order('observed_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(500)
+    if (error) throw error
+
+    const rowsByOffer = new Map()
+    for (const row of historyRows || []) {
+      if (row.offer_id === null) continue
+      const offerId = String(row.offer_id)
+      const offerRows = rowsByOffer.get(offerId) || []
+      offerRows.push(row)
+      rowsByOffer.set(offerId, offerRows)
+    }
+
+    const history = [...rowsByOffer.values()]
+      .flatMap((offerRows) => {
+        const chronologicalRows = [...offerRows].reverse()
+        return chronologicalRows.map((row, index) => ({
+          id: row.id,
+          productName: row.product?.name || 'Producto',
+          previousPrice: index > 0 ? Number(chronologicalRows[index - 1].cash_price) : null,
+          cashPrice: Number(row.cash_price),
+          observedAt: row.observed_at,
+          source: row.source,
+        }))
+      })
+      .sort((left, right) => new Date(right.observedAt) - new Date(left.observedAt))
+
+    return res.json({ history })
+  } catch (error) {
+    console.error('Disco price history listing failed', error)
+    return res.status(503).json({ error: 'No se pudo cargar el historial de precios de Disco.' })
+  }
+})
+
 app.put('/business/catalog/:productId', requireCustomerAuth, requireBusinessStore, async (req, res) => {
   const productId = Number(req.params.productId)
   const available = req.body?.available
@@ -3642,6 +3917,59 @@ async function isSharedListMember(listId, userId) {
   if (error) throw error
   return data
 }
+
+app.post('/shared-lists/:listId/invitations', requireCustomerAuth, async (req, res) => {
+  const recipientUserId = String(req.body?.userId || '')
+  const username = String(req.body?.username || '').trim().toLowerCase()
+  const isValidRecipientUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipientUserId)
+  const isValidUsername = /^[a-z0-9]{2,32}$/.test(username)
+  if (!isValidRecipientUserId && !isValidUsername) {
+    return res.status(400).json({ error: 'Selecciona un usuario válido para invitar.' })
+  }
+
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+
+    let recipientQuery = analysisWriter
+      .from('customer_profiles')
+      .select('user_id, username, role')
+    if (isValidRecipientUserId) {
+      recipientQuery = recipientQuery.eq('user_id', recipientUserId)
+    } else {
+      recipientQuery = recipientQuery.eq('username', username)
+    }
+    const { data: recipient, error: recipientError } = await recipientQuery.maybeSingle()
+    if (recipientError) throw recipientError
+    if (recipient?.role !== 'customer') {
+      return res.status(404).json({ error: 'No se encontró un cliente con ese usuario.' })
+    }
+    if (recipient.user_id === req.customerUser.id) {
+      return res.status(400).json({ error: 'No puedes invitarte a tu propia lista.' })
+    }
+
+    const recipientMembership = await isSharedListMember(req.params.listId, recipient.user_id)
+    if (recipientMembership) return res.status(409).json({ error: 'Ese usuario ya participa en la lista.' })
+
+    const { data: invitation, error: invitationError } = await analysisWriter
+      .from('shared_shopping_list_invitations')
+      .insert({
+        list_id: req.params.listId,
+        inviter_user_id: req.customerUser.id,
+        invitee_user_id: recipient.user_id,
+      })
+      .select('id')
+      .single()
+    if (invitationError?.code === '23505') {
+      return res.status(409).json({ error: 'Ya le enviaste una invitación a esa persona.' })
+    }
+    if (invitationError) throw invitationError
+    return res.status(201).json({ id: invitation.id, username: recipient.username })
+  } catch (error) {
+    console.error('Shared-list invitation creation failed', error)
+    return res.status(503).json({ error: 'No se pudo enviar la invitación.' })
+  }
+})
 
 app.get('/shared-lists', requireCustomerAuth, async (req, res) => {
   try {

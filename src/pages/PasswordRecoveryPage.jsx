@@ -27,7 +27,7 @@ export default function PasswordRecoveryPage() {
       return
     }
     if (!isValidCustomerPassword(password)) {
-      setError('La contraseña debe tener al menos 4 caracteres alfanuméricos.')
+      setError('La contraseña debe tener exactamente 8 caracteres e incluir letras y números.')
       return
     }
     if (password !== confirmation) {
@@ -60,7 +60,7 @@ export default function PasswordRecoveryPage() {
         </p>
         <h1 className="mt-1 text-2xl font-black">{t('Crear contraseña nueva')}</h1>
         <p className="mt-2 text-sm text-stone-600 dark:text-stone-400">
-          {t('Elige una contraseña de al menos 4 caracteres alfanuméricos.')}
+          {t('Elige una contraseña de exactamente 8 caracteres e incluye letras y números.')}
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
@@ -71,12 +71,15 @@ export default function PasswordRecoveryPage() {
               type="password"
               autoComplete="new-password"
               required
-              minLength={4}
-              pattern="[A-Za-z0-9]{4,}"
+              minLength={8}
+              maxLength={8}
+              pattern="(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{8}"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              placeholder={t('Ejemplo: Abc12345')}
               className="w-full rounded-lg border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-100 dark:border-stone-700 dark:bg-stone-950 dark:focus:ring-sky-950"
             />
+            <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">{t('Exactamente 8 caracteres, con letras y números. Ejemplo: Abc12345.')}</p>
           </div>
           <div>
             <label htmlFor="recovery-confirmation" className="mb-1.5 block text-sm font-semibold">{t('Repetir contraseña')}</label>
@@ -85,9 +88,11 @@ export default function PasswordRecoveryPage() {
               type="password"
               autoComplete="new-password"
               required
-              minLength={4}
+              minLength={8}
+              maxLength={8}
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}
+              placeholder={t('Repite la contraseña')}
               className="w-full rounded-lg border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-100 dark:border-stone-700 dark:bg-stone-950 dark:focus:ring-sky-950"
             />
           </div>

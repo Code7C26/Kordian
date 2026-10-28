@@ -6,7 +6,7 @@ import { useLanguage, useProductNameTranslator } from '../contexts/LanguageConte
 import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
 import { matchesSearchTerms } from '../utils/searchTerms.js'
 
-export default function BusinessPriceHistoryPanel() {
+export default function BusinessPriceHistoryPanel({ adminStoreId = null, realDiscoMode = false }) {
   const { accessToken } = useCustomerAuth()
   const { language, t } = useLanguage()
   const [history, setHistory] = useState([])
@@ -20,10 +20,18 @@ export default function BusinessPriceHistoryPanel() {
     const controller = new AbortController()
     setLoading(true)
     setError('')
+    setHistory([])
+    if (adminStoreId === '') {
+      setLoading(false)
+      return () => controller.abort()
+    }
 
-    fetch(apiUrl('/business/price-history'), {
+    fetch(apiUrl(realDiscoMode ? '/business/disco-price-history' : '/business/price-history'), {
       signal: controller.signal,
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(adminStoreId ? { 'X-Admin-Store-Id': adminStoreId } : {}),
+      },
     })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}))
@@ -39,7 +47,7 @@ export default function BusinessPriceHistoryPanel() {
       })
 
     return () => controller.abort()
-  }, [accessToken, refreshKey])
+  }, [accessToken, adminStoreId, realDiscoMode, refreshKey])
 
   const currency = useMemo(() => new Intl.NumberFormat(language === 'en' ? 'en-US' : 'es-AR', {
     style: 'currency',
@@ -56,7 +64,7 @@ export default function BusinessPriceHistoryPanel() {
         <div>
           <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-sky-400">{t('Panel para comercios')}</p>
           <h2 className="mt-1 text-lg font-black text-white">{t('Cambios recientes')}</h2>
-          <p className="mt-1 text-xs text-stone-400">{t('Registros recientes de cambios de precio en tu sucursal.')}</p>
+          <p className="mt-1 text-xs text-stone-400">{t(realDiscoMode ? 'Cambios de precio registrados para las ofertas de Disco.' : 'Registros recientes de cambios de precio en tu sucursal.')}</p>
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
           <label className="relative min-w-0 flex-1 sm:w-64">
@@ -70,6 +78,7 @@ export default function BusinessPriceHistoryPanel() {
         </div>
       </div>
 
+      {adminStoreId === '' && <p role="status" className="rounded-lg border border-amber-900 bg-amber-950/40 px-4 py-3 text-xs text-amber-200">{t('Selecciona un supermercado para consultar su historial de precios.')}</p>}
       {error && <p role="alert" className="rounded-lg border border-rose-900 bg-rose-950/50 px-4 py-3 text-xs text-rose-200">{t(error)}</p>}
 
       <div className="overflow-hidden rounded-xl border border-stone-800 bg-[#1c1917]">

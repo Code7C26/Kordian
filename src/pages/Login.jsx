@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { LoaderCircle, Moon, Sun } from 'lucide-react'
-import { adminLogin } from '../config/api.js'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
@@ -10,7 +9,7 @@ export default function Login() {
   const { t } = useLanguage()
   const navigate = useNavigate()
   const location = useLocation()
-  const { requestPasswordReset } = useCustomerAuth()
+  const { signIn, createAdminSession, requestPasswordReset, signOut } = useCustomerAuth()
   const [darkMode, setDarkMode] = useState(() =>
     localStorage.getItem('arprice_theme') === 'dark' ||
     (!('arprice_theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -44,31 +43,18 @@ export default function Login() {
     setError('')
     setIsSubmitting(true)
     try {
-      const res = await adminLogin({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password }),
-      })
-      const payload = await res.json().catch(() => ({}))
-
-      if (!res.ok) {
-        setError(res.status === 401
-          ? 'Usuario o contraseña incorrectos. En producción necesitas una cuenta registrada con rol Administrador; las credenciales de desarrollo local no están habilitadas.'
-          : payload.error || 'Error al autenticar')
+      const result = await signIn({ identifier: username.trim(), password })
+      if (result.profile?.role !== 'administrator') {
+        await signOut({ showNotice: false })
+        setError('Esta cuenta no tiene permisos de administrador.')
         return
       }
 
-      if (!payload.token) {
-        setError('El servidor no devolvió un token de acceso.')
-        return
-      }
-      localStorage.setItem('adminAuth', 'true')
-      localStorage.setItem('adminToken', payload.token)
-      localStorage.setItem('currentAdmin', username.trim())
-      navigate('/admin')
+      await createAdminSession(result.session.access_token)
+      navigate('/admin', { replace: true, state: { adminEntry: 'login' } })
     } catch (err) {
       console.error('Admin login failed', err)
-      setError('No se pudo conectar con el servidor de autenticación.')
+      setError(err.message || 'No se pudo conectar con el servidor de autenticación.')
     } finally {
       setIsSubmitting(false)
     }
@@ -148,10 +134,12 @@ export default function Login() {
             <form onSubmit={handleLogin} className="space-y-4">
             {recoveryMessage && <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400" role="status">{t(recoveryMessage)}</p>}
             <div>
-            <label className="block text-sm font-semibold text-stone-700 dark:text-stone-200 mb-2">{t('Usuario')}</label>
+            <label className="block text-sm font-semibold text-stone-700 dark:text-stone-200 mb-2">{t('Usuario o correo electrónico')}</label>
               <input
                 type="text"
-                placeholder={t('Usuario')}
+                autoComplete="username"
+                required
+                placeholder={t('Usuario o correo electrónico')}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-stone-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100 dark:focus:border-sky-400 dark:focus:ring-sky-900/30"
@@ -186,12 +174,6 @@ export default function Login() {
           </form>
             )}
 
-          {import.meta.env.DEV && (
-            <div className="mt-6 rounded-3xl bg-sky-50 p-4 text-sm text-sky-700 dark:bg-sky-950/40 dark:text-sky-200">
-              <p className="font-medium">{t('Usuario local por defecto:')}</p>
-              <p className="mt-1 font-semibold">admin / 1234</p>
-            </div>
-          )}
         </div>
         </div>
       </div>

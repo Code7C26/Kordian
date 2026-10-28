@@ -41,7 +41,7 @@ const ADMIN_PAGES = [
   { id: 'reportes', label: 'Reportes de precios', icon: Flag },
   { id: 'vista-previa', label: 'Vista previa', icon: Eye },
   { id: 'agrupacion', label: 'Agrupación', icon: GitMerge },
-  { id: 'usuario', label: 'Usuario', icon: Users },
+  { id: 'usuario', label: 'Usuarios registrados', icon: Users },
   { id: 'comercios', label: 'Comercios', icon: BriefcaseBusiness },
 ]
 
@@ -2638,7 +2638,7 @@ export default function Admin() {
                   {id === 'reportes' && priceReportsCount > 0 && (
                     <span
                       aria-label={`${priceReportsCount} ${t('reportes de precios')}`}
-                      className="inline-flex min-w-5 items-center justify-center rounded-full bg-sky-200 px-1.5 py-0.5 text-[10px] font-black leading-none text-sky-900 dark:bg-sky-800 dark:text-sky-100"
+                      className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-black leading-none text-white dark:bg-red-500 dark:text-white"
                     >
                       {priceReportsCount >= 100 ? '+99' : priceReportsCount}
                     </span>
