@@ -32,6 +32,7 @@ const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
 const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
 const { buildCatalogTaxonomyReview } = require('./services/catalogTaxonomyReview')
+const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
 const {
   clearReviewDecisions,
   listReviewDecisions,
