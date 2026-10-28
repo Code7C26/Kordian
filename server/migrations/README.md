@@ -29,13 +29,15 @@ incluirla en el frontend.
 
 La URL pública del frontend es `https://ar-price.netlify.app` y está configurada
 como `FRONTEND_URL` en `render.yaml`. En Supabase Auth, agregar
-`https://ar-price.netlify.app/ingresar?confirmation=success` y
+`https://ar-price.netlify.app/registro-exitoso` y
 `https://ar-price.netlify.app/restablecer-contrasena` a las Redirect URLs
 permitidas.
 
 Los enlaces de confirmación de registro redirigen a
-`/ingresar?confirmation=success`. El frontend usa una regla SPA para que las
-rutas de la aplicación abran correctamente.
+`/registro-exitoso`, donde se informa si la cuenta quedó verificada. El backend
+debe tener `FRONTEND_URL` configurada con la URL pública del frontend; no debe
+usar una dirección `localhost` en producción. El frontend usa una regla SPA
+para que las rutas de la aplicación abran correctamente.
 
 Si la confirmación de correo está habilitada en Supabase Auth, cada usuario
 debe confirmar el correo recibido antes de iniciar sesión. Si está

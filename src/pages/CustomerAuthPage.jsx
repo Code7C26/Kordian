@@ -5,6 +5,7 @@ import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import { validateCustomerRegistration } from '../utils/customerAuthValidation.js'
 import BrandHeader from '../components/BrandHeader.jsx'
+import CustomerRegistrationSuccessPage from './CustomerRegistrationSuccessPage.jsx'
 
 export default function CustomerAuthPage({ mode = 'login' }) {
   const isRegistration = mode === 'register'
@@ -57,6 +58,8 @@ export default function CustomerAuthPage({ mode = 'login' }) {
     if (!confirmationComplete || !location.hash) return
     window.history.replaceState(window.history.state, '', `${location.pathname}${location.search}`)
   }, [confirmationComplete, location.hash, location.pathname, location.search])
+
+  if (confirmationComplete) return <CustomerRegistrationSuccessPage />
 
   const showToast = (message, type = 'error') => setToast({ message, type })
 

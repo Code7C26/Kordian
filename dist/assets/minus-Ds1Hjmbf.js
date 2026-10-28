@@ -1,0 +1,1 @@
+import{r as e}from"./Logo_final_Negativo-D9Z_H40t.js";var t=e(`minus`,[[`path`,{d:`M5 12h14`,key:`1ays0h`}]]);export{t};

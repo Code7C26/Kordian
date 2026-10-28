@@ -23,6 +23,7 @@ const PriceInflationPage = lazy(() => import('./pages/PriceInflationPage.jsx'))
 const CouponsPage = lazy(() => import('./pages/CouponsPage.jsx'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'))
 const PasswordRecoveryPage = lazy(() => import('./pages/PasswordRecoveryPage.jsx'))
+const CustomerRegistrationSuccessPage = lazy(() => import('./pages/CustomerRegistrationSuccessPage.jsx'))
 
 function HomeRoute() {
   const location = useLocation()
@@ -47,6 +48,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/favoritos" element={<FavoritesPage />} />
               <Route path="/ingresar" element={<CustomerAuthPage mode="login" />} />
               <Route path="/registro" element={<CustomerAuthPage mode="register" />} />
+              <Route path="/registro-exitoso" element={<CustomerRegistrationSuccessPage />} />
               <Route path="/restablecer-contrasena" element={<PasswordRecoveryPage />} />
               <Route path="/mi-cuenta" element={<CustomerAccountPage section="profile" />} />
               <Route path="/perfil" element={<CustomerAccountPage section="profile" />} />

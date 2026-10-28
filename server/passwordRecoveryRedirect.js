@@ -14,4 +14,8 @@ function getFrontendUrl(configuredUrl = process.env.FRONTEND_URL) {
   return parsedUrl.toString()
 }
 
-module.exports = { getFrontendUrl }
+function getCustomerConfirmationRedirectUrl(configuredUrl) {
+  return new URL('/registro-exitoso', getFrontendUrl(configuredUrl)).toString()
+}
+
+module.exports = { getCustomerConfirmationRedirectUrl, getFrontendUrl }

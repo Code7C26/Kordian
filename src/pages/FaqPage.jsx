@@ -14,7 +14,11 @@ const questions = [
   },
   {
     question: '¿Para qué sirve una cuenta?',
-    answer: 'Al registrarte puedes acceder a tu perfil y guardar productos favoritos. La disponibilidad de funciones puede variar según el estado de tu cuenta.',
+    answer: 'Al registrarte en AR-PrIce puedes acceder a nuevas funciones como la lista de compras compartida, guardar productos como favoritos y agregar productos a la canasta.',
+  },
+  {
+    question: '¿Como registro mi comercio en Ar-Price?',
+    answer: 'Para registrar tu comercio en Ar-Price debes ponerte en contacto con la empresa mediante el siguiente mail: kordian.empresa@gmail.com',
   },
   {
     question: '¿Cómo agrego productos a mi canasta?',

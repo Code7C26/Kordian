@@ -207,11 +207,11 @@ export function CustomerAuthProvider({ children }) {
     return result
   }
 
-  const createAdminSession = useCallback(async () => {
-    if (!session?.access_token) throw new Error('Inicia sesión con una cuenta administradora para continuar.')
+  const createAdminSession = useCallback(async (accessToken = session?.access_token) => {
+    if (!accessToken) throw new Error('Inicia sesión con una cuenta administradora para continuar.')
     const result = await requestJson('/auth/admin-session', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
     })
     localStorage.setItem('adminAuth', 'true')
     localStorage.setItem('adminToken', result.token)
