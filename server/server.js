@@ -18,6 +18,7 @@ const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
   : null
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
 const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
+const { syncMamiLowPrices } = require('./services/mamiPriceSync')
 const {
   fetchPreview: fetchCarrefourPreview,
   fetchProductById: fetchCarrefourProductById,
@@ -111,6 +112,13 @@ function requireAdmin(req, res, next) {
 }
 
 const { parsePrice, normalizeNumericValue } = require('./priceNormalization')
+
+function sameMoneyValue(first, second) {
+  const firstPrice = Number(first)
+  const secondPrice = Number(second)
+  if (!Number.isFinite(firstPrice) || !Number.isFinite(secondPrice)) return first === second
+  return Number(firstPrice.toFixed(2)) === Number(secondPrice.toFixed(2))
+}
 
 function normalizeBrandName(value) {
   return String(value ?? '')
@@ -511,7 +519,7 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
         const existingOffer = match.product.offers?.find((offer) => offer.supermarket === 'Carrefour')
         if (existingOffer) {
           const nextListPrice = Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null
-          const priceChanged = Number(existingOffer.cash_price) !== Number(item.price)
+          const priceChanged = !sameMoneyValue(existingOffer.cash_price, item.price)
           const listPriceChanged = (Number(existingOffer.list_price) || null) !== nextListPrice
           if (priceChanged || listPriceChanged) {
             const { error } = await analysisWriter.from('offers')
@@ -824,7 +832,7 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
         if (sourceProductId) seenSourceProductIds.add(sourceProductId)
         const existingOffer = existing.offers?.find((offer) => offer.supermarket === 'Mami')
         if (existingOffer) {
-          if (Number(existingOffer.cash_price) !== Number(item.price)) {
+          if (!sameMoneyValue(existingOffer.cash_price, item.price)) {
             const { error } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
             if (error) failImport('No se pudo actualizar el precio de Mami', error.message)
             updatedOfferPrices.push({ id: existingOffer.id, cashPrice: existingOffer.cash_price })
@@ -907,6 +915,41 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
         ...unchanged.map((entry) => ({ type: 'mami_import', status: 'unchanged', ...entry })),
         ...skipped.map((entry) => ({ type: 'mami_import', status: 'skipped', ...entry })),
       ],
+    })
+
+    app.post('/admin/import/mami/update-prices', requireAdmin, async (req, res) => {
+      try {
+        const result = await syncMamiLowPrices({
+          database: analysisWriter,
+          historyRecorder: recordPriceHistory,
+        })
+
+        if (result.updated.length) {
+          const firstChange = result.updated[0]
+          const percentage = firstChange.previousCashPrice > 0
+            ? ((firstChange.updatedCashPrice - firstChange.previousCashPrice) / firstChange.previousCashPrice) * 100
+            : 0
+          const { error: logError } = await analysisWriter.from('price_update_log').insert({
+            admin_username: req.admin,
+            filters: { source: 'mami_price_repair' },
+            percentage,
+            products_updated: result.updated.length,
+            changes: result.updated,
+          })
+          if (logError) throw logError
+        }
+
+        invalidateCatalogPageCache()
+        res.json({
+          checked: result.checked,
+          updated: result.updated,
+          unchanged: result.unchanged.length,
+          skipped: result.skipped,
+        })
+      } catch (error) {
+        console.error('Error repairing low Mami prices', error)
+        res.status(502).json({ error: 'No se pudieron verificar los precios bajos de Mami', detail: error.message })
+      }
     })
 
     if (logError) console.error('Error recording Mami import update', logError)
@@ -992,7 +1035,7 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         seenSourceProductIds.add(sourceProductId)
         const existingOffer = existing.offers?.find((offer) => offer.supermarket === 'Disco')
         if (existingOffer) {
-          if (Number(existingOffer.cash_price) !== Number(item.price)) {
+          if (!sameMoneyValue(existingOffer.cash_price, item.price)) {
             const { error: offerUpdateError } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
             if (offerUpdateError) {
               return res.status(500).json({ error: 'No se pudo actualizar la oferta de Disco', detail: offerUpdateError.message, code: offerUpdateError.code })
@@ -1109,8 +1152,15 @@ app.post('/admin/import/disco/update-prices', requireAdmin, async (req, res) => 
       historyRecorder: recordPriceHistory,
       onCatalogChange: invalidateCatalogPageCache,
       adminUsername: req.admin,
+      maxCurrentPrice: req.body?.onlyLowPrices ? 1000 : null,
+      minCurrentPrice: req.body?.onlyHighPrices ? 50000 : null,
     })
-    res.json({ updated: result.updated.length, unchanged: result.unchanged.length, unavailable: result.unavailable })
+    res.json({
+      updated: result.updated.length,
+      unchanged: result.unchanged.length,
+      unavailable: result.unavailable,
+      suspicious: result.suspicious,
+    })
   } catch (error) {
     console.error('Error updating Disco prices', error)
     res.status(502).json({ error: 'No se pudieron actualizar los precios de Disco', detail: error.message })
@@ -1131,6 +1181,7 @@ app.get('/admin/import/disco/sync-status', requireAdmin, async (req, res) => {
       lastSyncAt: data?.updated_at || null,
       updated: data?.products_updated || 0,
       changes: Array.isArray(data?.changes) ? data.changes.length : 0,
+      suspicious: Array.isArray(data?.filters?.suspicious) ? data.filters.suspicious : [],
     })
   } catch (error) {
     console.error('Error fetching Disco sync status', error)
@@ -1282,7 +1333,7 @@ async function importDiscoSearchResults(search) {
       || findCrossSourceProductMatch(item, existingProducts, 'disco')
     const existingOffer = existing?.offers?.find((offer) => offer.supermarket === 'Disco')
     if (existing && existingOffer) {
-      if (Number(existingOffer.cash_price) !== Number(item.price)) {
+      if (!sameMoneyValue(existingOffer.cash_price, item.price)) {
         const latestHistory = latestHistoryByOffer.get(String(existingOffer.id))
         const hasManualOverride = ['admin', 'admin_edit', 'bulk_admin'].includes(latestHistory?.source)
         if (hasManualOverride) continue
@@ -2520,10 +2571,12 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
       return res.status(500).json({ error: error.message || 'Error updating offer' })
     }
 
-    if (!skipPriceChangeRecording) {
+    const previousPrice = Number(previousOffer.cash_price)
+    const updatedPrice = Number(data.cash_price)
+    const priceChanged = !sameMoneyValue(previousOffer.cash_price, data.cash_price)
+
+    if (!skipPriceChangeRecording && priceChanged) {
       await recordPriceHistory({ productId: data.product_id, offerId: data.id, cashPrice: data.cash_price, source: 'admin_edit' })
-      const previousPrice = Number(previousOffer.cash_price)
-      const updatedPrice = Number(data.cash_price)
       const percentage = previousPrice > 0 && updatedPrice > 0
         ? ((updatedPrice - previousPrice) / previousPrice) * 100
         : 0
@@ -2540,7 +2593,7 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
         }],
       })
       if (logError) return res.status(500).json({ error: 'Precio actualizado, pero no se pudo registrar la actualización' })
-    } else if (Number(previousOffer.cash_price) !== Number(data.cash_price)) {
+    } else if (skipPriceChangeRecording && priceChanged) {
       scheduleRelatedPriceStatusRefresh(data.product_id)
     }
 
@@ -3531,7 +3584,7 @@ app.put('/business/catalog/:productId', requireCustomerAuth, requireBusinessStor
     }
 
     let offer = existingOffer
-    const priceChanged = !existingOffer || Number(existingOffer.cash_price) !== cashPrice
+    const priceChanged = !existingOffer || !sameMoneyValue(existingOffer.cash_price, cashPrice)
     if (existingOffer && priceChanged) {
       const { data, error } = await analysisWriter
         .from('offers')
@@ -3996,7 +4049,7 @@ if (process.env.DISCO_SYNC_ENABLED === 'true') {
         historyRecorder: recordPriceHistory,
         onCatalogChange: invalidateCatalogPageCache,
       })
-      console.log(`Disco scheduled sync: ${result.updated.length} updated, ${result.unchanged.length} unchanged, ${result.unavailable.length} unavailable`)
+      console.log(`Disco scheduled sync: ${result.updated.length} updated, ${result.unchanged.length} unchanged, ${result.unavailable.length} unavailable, ${result.suspicious.length} suspicious`)
     } catch (error) {
       console.error('Disco scheduled sync failed:', error.message)
     } finally {

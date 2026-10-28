@@ -17,9 +17,20 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
   const cheapestStore = sortedStores[0] || { price: 0, supermarket: '' };
   const history = Array.isArray(product.priceHistory) ? product.priceHistory : [];
   const serverPeriods = Array.isArray(product.analysis?.pricePeriods) ? product.analysis.pricePeriods : [];
-  const datedHistory = history
-    .map((point) => ({ ...point, timestamp: new Date(point.date).getTime() }))
-    .filter((point) => Number.isFinite(point.timestamp) && (Number(point.avgPrice || 0) > 0 || Number(point.minPrice || 0) > 0));
+  const historyByDate = history
+    .map((point, index) => ({ ...point, timestamp: new Date(point.date).getTime(), originalIndex: index }))
+    .filter((point) => Number.isFinite(point.timestamp) && (Number(point.avgPrice || 0) > 0 || Number(point.minPrice || 0) > 0))
+    .sort((first, second) => first.timestamp - second.timestamp || first.originalIndex - second.originalIndex)
+  const lastPriceByOffer = new Map()
+  const datedHistory = historyByDate.filter((point) => {
+    if (point.offerId === null || point.offerId === undefined) return true
+    const price = Number(point.avgPrice || point.minPrice || 0)
+    const normalizedPrice = Number(price.toFixed(2))
+    const offerId = String(point.offerId)
+    if (lastPriceByOffer.get(offerId) === normalizedPrice) return false
+    lastPriceByOffer.set(offerId, normalizedPrice)
+    return true
+  })
   const latestHistoryTime = datedHistory.length ? Math.max(...datedHistory.map((point) => point.timestamp)) : 0;
   const threeMonthsAgo = latestHistoryTime ? new Date(latestHistoryTime) : null;
   threeMonthsAgo?.setMonth(threeMonthsAgo.getMonth() - 3);
@@ -64,9 +75,8 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
   const isInflated = product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO';
   const statusLabel = t(product.status === 'OFERTA' ? 'En oferta' : isInflated ? 'Inflado' : 'En precio');
   const selectedPeriodRecords = selectedPeriod
-    ? history
-      .map((record) => ({ ...record, timestamp: new Date(record.date).getTime(), price: Number(record.avgPrice || record.minPrice || 0) }))
-      .filter((record) => Number.isFinite(record.timestamp) && record.price > 0)
+    ? datedHistory
+      .map((record) => ({ ...record, price: Number(record.avgPrice || record.minPrice || 0) }))
       .sort((first, second) => {
         const firstStore = sortedStores.find((store) => String(store.id) === String(first.offerId));
         const secondStore = sortedStores.find((store) => String(store.id) === String(second.offerId));
@@ -76,9 +86,9 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
       .filter((record) => record.timestamp >= new Date(selectedPeriod.periodStart).getTime()
         && record.timestamp <= new Date(selectedPeriod.periodEnd).getTime())
       .map((record) => {
-        const previousRecord = history
-          .map((candidate) => ({ ...candidate, timestamp: new Date(candidate.date).getTime(), price: Number(candidate.avgPrice || candidate.minPrice || 0) }))
-          .filter((candidate) => Number.isFinite(candidate.timestamp) && candidate.price > 0 && candidate.timestamp < record.timestamp && candidate.offerId === record.offerId)
+        const previousRecord = datedHistory
+          .map((candidate) => ({ ...candidate, price: Number(candidate.avgPrice || candidate.minPrice || 0) }))
+          .filter((candidate) => candidate.timestamp < record.timestamp && String(candidate.offerId) === String(record.offerId))
           .sort((first, second) => second.timestamp - first.timestamp)[0];
         return {
           ...record,

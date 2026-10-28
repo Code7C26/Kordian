@@ -1,10 +1,41 @@
 const { fetchDiscoProductById } = require('./discoImporter')
 
-async function syncDiscoPrices({
+let activeSync = null
+
+function normalizePrice(value) {
+  const price = Number(value)
+  return Number.isFinite(price) ? Number(price.toFixed(2)) : null
+}
+
+async function mapWithConcurrency(items, concurrency, callback) {
+  const results = new Array(items.length)
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++
+      results[index] = await callback(items[index])
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+function syncDiscoPrices(options) {
+  if (activeSync) return activeSync
+  activeSync = runDiscoPriceSync(options).finally(() => {
+    activeSync = null
+  })
+  return activeSync
+}
+
+async function runDiscoPriceSync({
   database,
   historyRecorder,
   onCatalogChange = () => {},
   adminUsername = 'system',
+  fetchProductById = fetchDiscoProductById,
+  maxCurrentPrice = null,
+  minCurrentPrice = null,
 }) {
   const { data: products, error: productsError } = await database
     .from('products')
@@ -13,50 +44,97 @@ async function syncDiscoPrices({
 
   if (productsError) throw productsError
 
-  const updated = []
-  const unchanged = []
-  const unavailable = []
-  for (const product of products || []) {
-    if (!product.source_product_id) continue
-    const current = await fetchDiscoProductById(product.source_product_id)
+  const candidates = (products || []).filter((product) => {
+    const hasMaximum = maxCurrentPrice != null && Number.isFinite(Number(maxCurrentPrice))
+    const hasMinimum = minCurrentPrice != null && Number.isFinite(Number(minCurrentPrice))
+    if (!hasMaximum && !hasMinimum) return true
+
     const offer = product.offers?.find((candidate) => candidate.supermarket === 'Disco')
-    if (!current || !offer) {
-      unavailable.push({ productId: product.id, name: product.name })
-      continue
+    if (!offer || Number(offer.cash_price) <= 0) return false
+
+    const price = Number(offer.cash_price)
+    if (hasMaximum && price >= Number(maxCurrentPrice)) return false
+    if (hasMinimum && price < Number(minCurrentPrice)) return false
+    return true
+  })
+  const results = await mapWithConcurrency(candidates, 5, async (product) => {
+    if (!product.source_product_id) return { status: 'unavailable', productId: product.id, name: product.name }
+    const offer = product.offers?.find((candidate) => candidate.supermarket === 'Disco')
+    if (!offer) return { status: 'unavailable', productId: product.id, name: product.name }
+    const current = await fetchProductById(product.source_product_id)
+    if (!current) {
+      return { status: 'unavailable', productId: product.id, name: product.name }
     }
-    if (!current.available || current.price <= 0) {
+    if (!current.available) {
       const { error: historyDeleteError } = await database.from('price_history').delete().eq('offer_id', offer.id)
       if (historyDeleteError) throw historyDeleteError
       const { error: deleteError } = await database.from('offers').delete().eq('id', offer.id)
       if (deleteError) throw deleteError
       onCatalogChange()
-      unavailable.push({ productId: product.id, name: product.name, removedOfferId: offer.id })
-      continue
+      return { status: 'unavailable', productId: product.id, name: product.name, removedOfferId: offer.id }
     }
-    const previousPrice = Number(offer.cash_price)
-    if (previousPrice === current.price) {
-      unchanged.push({ productId: product.id, name: product.name })
-      continue
+    const currentPrice = normalizePrice(current.price)
+    if (!currentPrice || currentPrice <= 0) {
+      return { status: 'unavailable', productId: product.id, name: product.name, reason: 'invalid_price' }
     }
-    const { error: updateError } = await database.from('offers').update({ cash_price: current.price }).eq('id', offer.id)
+    const previousPrice = normalizePrice(offer.cash_price)
+    if (previousPrice === currentPrice) {
+      return { status: 'unchanged', productId: product.id, name: product.name }
+    }
+    const isScaleCorrection = previousPrice > currentPrice
+      && previousPrice / currentPrice >= 95
+      && previousPrice / currentPrice <= 105
+    const changeRatio = previousPrice > 0
+      ? Math.max(previousPrice, currentPrice) / Math.min(previousPrice, currentPrice)
+      : 1
+    if (changeRatio >= 10 && !isScaleCorrection) {
+      return {
+        status: 'suspicious',
+        productId: product.id,
+        name: product.name,
+        previousCashPrice: previousPrice,
+        sourceCashPrice: currentPrice,
+        ratio: Number(changeRatio.toFixed(2)),
+      }
+    }
+    const { error: updateError } = await database.from('offers').update({ cash_price: currentPrice }).eq('id', offer.id)
     if (updateError) throw updateError
     onCatalogChange()
-    await historyRecorder({ productId: product.id, offerId: offer.id, cashPrice: current.price, source: 'disco_sync' })
-    updated.push({ productId: product.id, offerId: offer.id, previousCashPrice: previousPrice, updatedCashPrice: current.price })
-  }
+    await historyRecorder({ productId: product.id, offerId: offer.id, cashPrice: currentPrice, source: 'disco_sync' })
+    return {
+      status: 'updated',
+      productId: product.id,
+      offerId: offer.id,
+      previousCashPrice: previousPrice,
+      updatedCashPrice: currentPrice,
+    }
+  })
+  const updated = results.filter((result) => result.status === 'updated')
+  const unchanged = results.filter((result) => result.status === 'unchanged')
+  const unavailable = results.filter((result) => result.status === 'unavailable')
+  const suspicious = results.filter((result) => result.status === 'suspicious')
 
-  if (updated.length) {
+  if (updated.length || suspicious.length) {
+    const firstChange = updated[0]
+    const percentage = firstChange?.previousCashPrice > 0
+      ? ((firstChange.updatedCashPrice - firstChange.previousCashPrice) / firstChange.previousCashPrice) * 100
+      : 0
     const { error: logError } = await database.from('price_update_log').insert({
       admin_username: adminUsername,
-      filters: { source: 'disco_sync' },
-      percentage: 0,
+      filters: {
+        source: 'disco_sync',
+        ...(maxCurrentPrice != null ? { max_current_price: maxCurrentPrice } : {}),
+        ...(minCurrentPrice != null ? { min_current_price: minCurrentPrice } : {}),
+        suspicious,
+      },
+      percentage,
       products_updated: updated.length,
       changes: updated,
     })
     if (logError) throw logError
   }
 
-  return { updated, unchanged, unavailable }
+  return { updated, unchanged, unavailable, suspicious }
 }
 
 module.exports = { syncDiscoPrices }

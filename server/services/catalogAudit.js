@@ -10,6 +10,7 @@ function numeric(value) {
 function isSuspiciousPrice(product, offer) {
   const price = numeric(offer.cash_price)
   if (price <= 0) return 'non_positive'
+  if (product.source === 'mami' && price < 100) return 'scaled_down_mami'
   if (product.source === 'disco' && price < 100) return 'scaled_down'
   if (product.source === 'disco' && BEVERAGE_PATTERN.test(product.name || '') && price < 1000) return 'scaled_down_beverage'
   if (product.source === 'disco' && DURABLE_PATTERN.test(product.name || '') && price < 1000) return 'scaled_down_durable'
