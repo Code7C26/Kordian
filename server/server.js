@@ -3142,29 +3142,39 @@ app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, 
   try {
     const { data: invitation, error: invitationError } = await analysisWriter
       .from('shared_shopping_list_invitations')
-      .select('id, list_id')
+      .select('id, list_id, status')
       .eq('id', req.params.notificationId)
       .eq('invitee_user_id', req.customerUser.id)
-      .eq('status', 'pending')
       .maybeSingle()
     if (invitationError) throw invitationError
-    if (!invitation) return res.status(404).json({ error: 'La invitación ya no está disponible.' })
-
-    const { data, error } = await analysisWriter.rpc('accept_shared_shopping_list_invitation', {
-      invitation_id_input: req.params.notificationId,
-      accepting_user_id_input: req.customerUser.id,
-    })
-    if (!error) {
-      const acceptedInvitation = Array.isArray(data) ? data[0] : data
-      if (!acceptedInvitation) return res.status(404).json({ error: 'La invitación ya no está disponible.' })
-      return res.json({ id: acceptedInvitation.list_id, name: acceptedInvitation.list_name })
+    if (!invitation || invitation.status === 'declined') {
+      return res.status(404).json({ error: 'La invitación ya no está disponible.' })
     }
 
-    const acceptanceFunctionMissing = ['PGRST202', '42883'].includes(error.code)
-      || /could not find the function.*accept_shared_shopping_list_invitation|function .*accept_shared_shopping_list_invitation.*does not exist/i.test(error.message || '')
-    if (!acceptanceFunctionMissing) throw error
+    if (invitation.status === 'pending') {
+      const { data: acceptedInvitation, error: acceptanceError } = await analysisWriter
+        .from('shared_shopping_list_invitations')
+        .update({ status: 'accepted', responded_at: new Date().toISOString() })
+        .eq('id', invitation.id)
+        .eq('invitee_user_id', req.customerUser.id)
+        .eq('status', 'pending')
+        .select('id')
+        .maybeSingle()
+      if (acceptanceError) throw acceptanceError
+      if (!acceptedInvitation) {
+        const { data: currentInvitation, error: verificationError } = await analysisWriter
+          .from('shared_shopping_list_invitations')
+          .select('status')
+          .eq('id', invitation.id)
+          .eq('invitee_user_id', req.customerUser.id)
+          .maybeSingle()
+        if (verificationError) throw verificationError
+        if (currentInvitation?.status !== 'accepted') {
+          return res.status(404).json({ error: 'La invitación ya no está disponible.' })
+        }
+      }
+    }
 
-    console.warn('Shared-list acceptance RPC is unavailable; using the compatible membership flow')
     const { error: membershipError } = await analysisWriter
       .from('shared_shopping_list_members')
       .upsert(
@@ -3173,35 +3183,15 @@ app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, 
       )
     if (membershipError) throw membershipError
 
-    const { data: acceptedInvitation, error: acceptanceError } = await analysisWriter
-      .from('shared_shopping_list_invitations')
-      .update({ status: 'accepted', responded_at: new Date().toISOString() })
-      .eq('id', invitation.id)
-      .eq('invitee_user_id', req.customerUser.id)
-      .eq('status', 'pending')
-      .select('id')
-      .maybeSingle()
-    if (acceptanceError) throw acceptanceError
-    if (!acceptedInvitation) {
-      const { data: currentInvitation, error: verificationError } = await analysisWriter
-        .from('shared_shopping_list_invitations')
-        .select('status')
-        .eq('id', invitation.id)
-        .eq('invitee_user_id', req.customerUser.id)
-        .maybeSingle()
-      if (verificationError) throw verificationError
-      if (currentInvitation?.status !== 'accepted') {
-        return res.status(404).json({ error: 'La invitación ya no está disponible.' })
-      }
-    }
-
     const { data: list, error: listError } = await analysisWriter
       .from('shared_shopping_lists')
       .select('id, name')
       .eq('id', invitation.list_id)
       .maybeSingle()
     if (listError) throw listError
-    if (!list) return res.status(404).json({ error: 'La lista compartida ya no está disponible.' })
+    if (!list) {
+      return res.status(404).json({ error: 'La lista compartida ya no está disponible.' })
+    }
     return res.json(list)
   } catch (error) {
     console.error('Shared-list invitation acceptance failed', error)
