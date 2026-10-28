@@ -8,9 +8,12 @@ test('accepts usernames with at least six alphanumeric characters and validates 
   assert.equal(isValidCustomerUsername('user1'), false)
   assert.equal(isValidCustomerUsername('user.name'), false)
   assert.equal(isValidCustomerUsername('user 12'), false)
-  assert.equal(isValidCustomerPassword('a1b2'), true)
-  assert.equal(isValidCustomerPassword('abc'), false)
-  assert.equal(isValidCustomerPassword('abc!'), false)
+  assert.equal(isValidCustomerPassword('a1b2C3d4'), true)
+  assert.equal(isValidCustomerPassword('abcdefgh'), false)
+  assert.equal(isValidCustomerPassword('12345678'), false)
+  assert.equal(isValidCustomerPassword('a1b2C3d'), false)
+  assert.equal(isValidCustomerPassword('a1b2C3d45'), false)
+  assert.equal(isValidCustomerPassword('a1b2C3!4'), false)
 })
 
 test('reports invalid registration fields and mismatched passwords', () => {
@@ -33,19 +36,31 @@ test('accepts a fully valid registration', () => {
   }), {})
 })
 
-test('requires registration passwords to contain at least eight alphanumeric characters', () => {
+test('requires registration passwords to contain exactly eight alphanumeric characters including letters and numbers', () => {
   const errors = validateCustomerRegistration({
     username: 'cliente2026',
     email: 'cliente@email.com',
-    password: 'abc1234',
-    confirmation: 'abc1234',
+    password: 'abcd123',
+    confirmation: 'abcd123',
   })
 
-  assert.equal(errors.password, 'La contraseña debe tener al menos 8 caracteres alfanuméricos.')
+  assert.equal(errors.password, 'La contraseña debe tener exactamente 8 caracteres e incluir letras y números.')
   assert.equal(validateCustomerRegistration({
     username: 'cliente2026',
     email: 'cliente@email.com',
-    password: 'abc12345!',
-    confirmation: 'abc12345!',
-  }).password, 'La contraseña debe tener al menos 8 caracteres alfanuméricos.')
+    password: 'abc123456',
+    confirmation: 'abc123456',
+  }).password, 'La contraseña debe tener exactamente 8 caracteres e incluir letras y números.')
+  assert.equal(validateCustomerRegistration({
+    username: 'cliente2026',
+    email: 'cliente@email.com',
+    password: 'abcdefgh',
+    confirmation: 'abcdefgh',
+  }).password, 'La contraseña debe tener exactamente 8 caracteres e incluir letras y números.')
+  assert.equal(validateCustomerRegistration({
+    username: 'cliente2026',
+    email: 'cliente@email.com',
+    password: '12345678',
+    confirmation: '12345678',
+  }).password, 'La contraseña debe tener exactamente 8 caracteres e incluir letras y números.')
 })

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { apiUrl } from '../config/api.js'
+import { useLanguage } from './LanguageContext.jsx'
 
 const CustomerAuthContext = createContext(null)
 const CUSTOMER_SESSION_KEY = 'arprice_customer_session'
@@ -55,13 +56,21 @@ async function requestCustomerJson(path, accessToken, options = {}) {
 }
 
 export function CustomerAuthProvider({ children }) {
+  const { t } = useLanguage()
   const [session, setSession] = useState(() => readStoredSession())
+  const [logoutNotice, setLogoutNotice] = useState(false)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [favorites, setFavorites] = useState([])
   const [favoritesAccountId, setFavoritesAccountId] = useState(session?.user?.id || null)
   const [favoritesLoading, setFavoritesLoading] = useState(false)
   const [favoritesError, setFavoritesError] = useState('')
+
+  useEffect(() => {
+    if (!logoutNotice) return undefined
+    const timeoutId = window.setTimeout(() => setLogoutNotice(false), 3500)
+    return () => window.clearTimeout(timeoutId)
+  }, [logoutNotice])
 
   const refreshProfile = useCallback(async () => {
     if (!session?.access_token) {
@@ -237,15 +246,18 @@ export function CustomerAuthProvider({ children }) {
     body: JSON.stringify({ accessToken, tokenHash, password }),
   })
 
-  const signOut = async () => {
+  const signOut = async ({ showNotice = true } = {}) => {
+    const hadSession = Boolean(session)
     sessionStorage.removeItem(CUSTOMER_SESSION_KEY)
     setSession(null)
     setProfile(null)
     setFavorites([])
     setFavoritesAccountId(null)
+    if (showNotice && hadSession) setLogoutNotice(true)
   }
 
   return (
+    <>
     <CustomerAuthContext.Provider value={{
       configured: true,
       loading,
@@ -266,6 +278,12 @@ export function CustomerAuthProvider({ children }) {
     }}>
       {children}
     </CustomerAuthContext.Provider>
+    {logoutNotice && (
+      <div className="fixed bottom-5 left-1/2 z-[100] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900 shadow-lg dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100" role="status" aria-live="polite">
+        {t('Cerraste sesión en tu cuenta')}
+      </div>
+    )}
+    </>
   )
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Eye, EyeOff, LoaderCircle, LockKeyhole, Moon, Sun, UserRound } from 'lucide-react'
+import { ArrowLeft, Check, Eye, EyeOff, LoaderCircle, LockKeyhole, Moon, Sun, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import { validateCustomerRegistration } from '../utils/customerAuthValidation.js'
@@ -48,10 +48,13 @@ export default function CustomerAuthPage({ mode = 'login' }) {
   }, [darkMode])
 
   useEffect(() => {
+    setUsername('')
+    setEmail('')
     setPassword('')
     setConfirmation('')
     setShowPassword(false)
     setShowConfirmation(false)
+    setErrors({})
   }, [isRegistration, location.pathname])
 
   useEffect(() => {
@@ -186,6 +189,11 @@ export default function CustomerAuthPage({ mode = 'login' }) {
       <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center gap-12">
         <section className="hidden max-w-md flex-1 lg:block">
           <h1 className="mt-4 text-4xl font-black leading-tight">{t(isRegistration ? 'Tu próxima compra empieza acá.' : 'Qué bueno verte de nuevo.')}</h1>
+          <p className="mt-3 text-lg text-stone-600 dark:text-stone-400">
+            {t(isRegistration
+              ? 'Regístrate en Ar-Price para desbloquear todas las funcionalidades'
+              : 'Inicia sesión para empezar a comparar precios')}
+          </p>
         </section>
         <section className="w-full max-w-md border-y border-stone-200 bg-white px-5 py-7 dark:border-stone-800 dark:bg-stone-900 sm:rounded-xl sm:border sm:px-8 sm:py-8">
           <div className="mb-7">
@@ -248,12 +256,12 @@ export default function CustomerAuthPage({ mode = 'login' }) {
             <div>
               <label htmlFor="customer-password" className="mb-1.5 block text-sm font-semibold">{t('Contraseña')}</label>
               <div className="relative">
-                <input id="customer-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={isRegistration ? 'new-password' : 'current-password'} required minLength={isRegistration ? 8 : 4} pattern={isRegistration ? '[A-Za-z0-9]{8,}' : '[A-Za-z0-9]{4,}'} value={password} onChange={(event) => setPassword(event.target.value)} className={`${fieldClass(Boolean(errors.password || errors.credentials))} pr-12`} placeholder={t(isRegistration ? 'Mínimo 8 caracteres alfanuméricos' : 'Mínimo 4 caracteres alfanuméricos')} aria-invalid={Boolean(errors.password || errors.credentials)} aria-describedby={errors.password ? 'password-error' : undefined} />
+                <input id="customer-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={isRegistration ? 'new-password' : 'current-password'} required minLength={isRegistration ? 8 : 4} maxLength={isRegistration ? 8 : undefined} pattern={isRegistration ? '(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{8}' : '[A-Za-z0-9]{4,}'} value={password} onChange={(event) => setPassword(event.target.value)} className={`${fieldClass(Boolean(errors.password || errors.credentials))} pr-12`} placeholder={t('Mínimo 8 caracteres alfanuméricos')} aria-invalid={Boolean(errors.password || errors.credentials)} aria-describedby={errors.password ? 'password-error' : undefined} />
                 <button type="button" onClick={() => setShowPassword((visible) => !visible)} className="absolute inset-y-0 right-0 inline-flex items-center px-3 text-stone-500 hover:text-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 dark:text-stone-400 dark:hover:text-stone-200" aria-label={t(showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña')} aria-pressed={showPassword}>
                   {showPassword ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
                 </button>
               </div>
-              {isRegistration && <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">{t('La contraseña debe tener al menos 8 caracteres y usar solo letras y números.')}</p>}
+              {isRegistration && <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">{t('Exactamente 8 caracteres, con letras y números. Ejemplo: Abc12345.')}</p>}
                   {errors.password && <p id="password-error" className="mt-1 text-xs font-medium text-rose-600">{t(errors.password)}</p>}
                   {!isRegistration && errors.credentials && <p className="mt-1 text-xs font-medium text-rose-600">{t(errors.credentials)}</p>}
             </div>
@@ -270,7 +278,7 @@ export default function CustomerAuthPage({ mode = 'login' }) {
               <div>
                 <label htmlFor="customer-confirmation" className="mb-1.5 block text-sm font-semibold">{t('Repetir contraseña')}</label>
                 <div className="relative">
-                  <input id="customer-confirmation" name="password-confirmation" type={showConfirmation ? 'text' : 'password'} autoComplete="new-password" required minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={`${fieldClass(Boolean(errors.confirmation))} pr-12`} placeholder={t('Escribe nuevamente tu contraseña')} aria-invalid={Boolean(errors.confirmation)} aria-describedby={errors.confirmation ? 'confirmation-error' : undefined} />
+                  <input id="customer-confirmation" name="password-confirmation" type={showConfirmation ? 'text' : 'password'} autoComplete="new-password" required minLength={8} maxLength={8} pattern="(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{8}" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={`${fieldClass(Boolean(errors.confirmation))} pr-12`} placeholder={t('Repite la contraseña')} aria-invalid={Boolean(errors.confirmation)} aria-describedby={errors.confirmation ? 'confirmation-error' : undefined} />
                   <button type="button" onClick={() => setShowConfirmation((visible) => !visible)} className="absolute inset-y-0 right-0 inline-flex items-center px-3 text-stone-500 hover:text-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 dark:text-stone-400 dark:hover:text-stone-200" aria-label={t(showConfirmation ? 'Ocultar contraseña' : 'Mostrar contraseña')} aria-pressed={showConfirmation}>
                     {showConfirmation ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
                   </button>
@@ -306,7 +314,10 @@ export default function CustomerAuthPage({ mode = 'login' }) {
 
       {toast && (
         <div className={`fixed inset-x-4 bottom-4 z-50 mx-auto max-w-md rounded-lg px-4 py-3 text-sm font-semibold text-white shadow-xl ${toast.type === 'success' ? 'bg-emerald-700' : 'bg-rose-700'}`} role={toast.type === 'error' ? 'alert' : 'status'} aria-live="polite">
-          {t(toast.message)}
+          <div className="flex items-center gap-2">
+            {toast.type === 'success' && <Check className="registration-success-check h-5 w-5 shrink-0" strokeWidth={3} aria-hidden="true" />}
+            <span>{t(toast.message)}</span>
+          </div>
         </div>
       )}
     </main>
