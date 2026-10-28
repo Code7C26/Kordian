@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 
 export default function ProtectedRoute({
   children,
 }) {
   const { loading, profile, accessToken, createAdminSession } = useCustomerAuth()
+  const location = useLocation()
   const [adminSessionReady, setAdminSessionReady] = useState(false)
   const [adminSessionError, setAdminSessionError] = useState('')
-  const isAuthenticated =
-    localStorage.getItem(
-      'adminAuth'
-    ) === 'true' && Boolean(localStorage.getItem('adminToken'))
+  const hasAdminSession = localStorage.getItem('adminAuth') === 'true'
+    && Boolean(localStorage.getItem('adminToken'))
+  const isSettingsEntry = location.state?.adminEntry === 'settings'
+  const isLoginEntry = location.state?.adminEntry === 'login'
 
   useEffect(() => {
-    if (isAuthenticated || loading || profile?.role !== 'administrator' || !accessToken) return
+    if (!isSettingsEntry || loading || profile?.role !== 'administrator' || !accessToken) return
 
     let active = true
     createAdminSession()
@@ -28,11 +29,14 @@ export default function ProtectedRoute({
     return () => {
       active = false
     }
-  }, [accessToken, createAdminSession, isAuthenticated, loading, profile?.role])
+  }, [accessToken, createAdminSession, isSettingsEntry, loading, profile?.role])
 
-  if (!isAuthenticated) {
-    if (loading || (profile?.role === 'administrator' && accessToken && !adminSessionReady && !adminSessionError)) {
+  if (isSettingsEntry) {
+    if (loading) {
       return <p className="p-6 text-center text-sm text-stone-600 dark:text-stone-300" role="status">Verificando acceso de administrador...</p>
+    }
+    if (profile?.role !== 'administrator' || !accessToken) {
+      return <Navigate to="/login" replace />
     }
     if (adminSessionError) {
       return (
@@ -42,9 +46,12 @@ export default function ProtectedRoute({
         </main>
       )
     }
-    if (adminSessionReady) return children
-    return <Navigate to="/login" />
+    if (!adminSessionReady) {
+      return <p className="p-6 text-center text-sm text-stone-600 dark:text-stone-300" role="status">Verificando acceso de administrador...</p>
+    }
+    return children
   }
 
-  return children
+  if (isLoginEntry && hasAdminSession) return children
+  return <Navigate to="/login" replace />
 }

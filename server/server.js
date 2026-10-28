@@ -44,7 +44,7 @@ const {
   productTranslationIpRateLimit,
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
-const { getFrontendUrl } = require('./passwordRecoveryRedirect')
+const { getCustomerConfirmationRedirectUrl, getFrontendUrl } = require('./passwordRecoveryRedirect')
 const { createProductTranslationService } = require('./services/productTranslation')
 const {
   PRICE_STATUS_RULES_VERSION,
@@ -2813,11 +2813,6 @@ function getPasswordRecoveryRedirectUrl(accountType) {
   const redirectUrl = new URL('/restablecer-contrasena', frontendUrl)
   redirectUrl.searchParams.set('account', accountType)
   return redirectUrl.toString()
-}
-
-function getCustomerConfirmationRedirectUrl() {
-  const frontendUrl = getFrontendUrl()
-  return new URL('/ingresar?confirmation=success', frontendUrl).toString()
 }
 
 app.post('/auth/customer-password-reset', customerPasswordResetIpRateLimit, async (req, res) => {

@@ -965,7 +965,7 @@ export default function App() {
                     clearLabel={t('Limpiar búsqueda')}
                     onChange={(e) => updateFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
                     onClear={() => updateFilters((prev) => ({ ...prev, searchQuery: '' }))}
-                    placeholder={t('Ej: Leche, Playadito, TV...')}
+                    placeholder={t('Ej: Leche, coca')}
                     className="w-full pl-9 pr-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
                   />
                   <Search className="w-4 h-4 text-stone-400 absolute left-3 top-3" />
