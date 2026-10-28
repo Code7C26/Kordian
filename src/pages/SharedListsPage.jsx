@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Check, Copy, ListPlus, LoaderCircle, Plus, Share2, Trash2, Users } from 'lucide-react'
+import { ArrowLeft, Check, Copy, ListPlus, LoaderCircle, Plus, Search, Share2, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { apiUrl } from '../config/api.js'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
@@ -19,6 +19,11 @@ export default function SharedListsPage() {
   const [selectedList, setSelectedList] = useState(null)
   const [newListName, setNewListName] = useState('')
   const [inviteCode, setInviteCode] = useState('')
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [inviteSearch, setInviteSearch] = useState('')
+  const [inviteUsers, setInviteUsers] = useState([])
+  const [inviteUsersError, setInviteUsersError] = useState('')
+  const [searchingUsers, setSearchingUsers] = useState(false)
   const [itemName, setItemName] = useState('')
   const [quantity, setQuantity] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -44,9 +49,49 @@ export default function SharedListsPage() {
       },
     })
     const payload = response.status === 204 ? null : await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(payload?.error || 'No se pudo completar la operación.')
+    if (!response.ok) {
+      const errorMessage = response.status === 404 && path === '/customer/users'
+        ? 'El servidor no tiene habilitada la búsqueda de clientes. Despliega la actualización del backend para poder invitar usuarios.'
+        : payload?.error || 'No se pudo completar la operación.'
+      throw new Error(errorMessage)
+    }
     return payload
   }, [accessToken])
+
+  useEffect(() => {
+    if (!inviteOpen) {
+      setInviteUsers([])
+      setInviteUsersError('')
+      setSearchingUsers(false)
+      return undefined
+    }
+
+    let active = true
+    setInviteUsers([])
+    setInviteUsersError('')
+    setSearchingUsers(true)
+    setError('')
+    const timer = window.setTimeout(() => {
+      request('/customer/users')
+        .then((users) => {
+          if (active) setInviteUsers(users)
+        })
+        .catch((searchError) => {
+          if (active) {
+            setInviteUsers([])
+            setInviteUsersError(searchError.message)
+          }
+        })
+        .finally(() => {
+          if (active) setSearchingUsers(false)
+        })
+    }, 250)
+
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [inviteOpen, request])
 
   const loadLists = useCallback(async () => {
     const data = await request('/shared-lists')
@@ -286,8 +331,34 @@ export default function SharedListsPage() {
     }
   }
 
+  const inviteUser = async (inviteUserProfile) => {
+    if (!selectedList) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await request(`/shared-lists/${encodeURIComponent(selectedList.id)}/invitations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: inviteUserProfile.userId,
+          username: inviteUserProfile.username,
+        }),
+      })
+      setNotice(`${t('Invitación enviada a')} ${inviteUserProfile.username}.`)
+      setInviteSearch('')
+      setInviteUsers([])
+    } catch (inviteError) {
+      setError(inviteError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const pageClass = 'min-h-screen bg-stone-50 px-4 py-6 text-stone-900 dark:bg-stone-950 dark:text-stone-100 sm:px-6'
   const inputClass = 'w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-stone-700 dark:bg-stone-900 dark:focus:ring-sky-950'
+  const matchingInviteUsers = inviteUsers.filter((inviteUserProfile) => (
+    inviteUserProfile.username.toLowerCase().includes(inviteSearch.trim().toLowerCase())
+  ))
 
   return (
     <main className={pageClass}>
@@ -364,8 +435,13 @@ export default function SharedListsPage() {
                     <h2 className="text-xl font-black">{selectedList.name}</h2>
                     <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">{selectedList.memberCount} {t(selectedList.memberCount === 1 ? 'participante' : 'participantes')} · {t('Sincroniza automáticamente')}</p>
                   </div>
-                  <button type="button" onClick={shareList} className="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800">
-                    <Share2 className="h-4 w-4" aria-hidden="true" /> {t('Invitar')}
+                  <button type="button" onClick={() => {
+                    setInviteOpen((open) => !open)
+                    setInviteSearch('')
+                    setInviteUsers([])
+                    setError('')
+                  }} className="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800">
+                    <UserPlus className="h-4 w-4" aria-hidden="true" /> {t('Invitar')}
                   </button>
                 </div>
                 <section className="mt-4 rounded-xl bg-stone-50 p-3 dark:bg-stone-950/60" aria-label={t('Participantes de la lista')}>
@@ -380,6 +456,57 @@ export default function SharedListsPage() {
                     ))}
                   </div>
                 </section>
+                {inviteOpen && (
+                  <section className="mt-4 rounded-xl border border-stone-200 p-3 dark:border-stone-700" aria-label={t('Invitar usuarios')}>
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-bold">{t('Invitar a usuarios')}</h3>
+                      <button type="button" onClick={() => setInviteOpen(false)} aria-label={t('Cerrar')} className="rounded-lg p-1.5 text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800">
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                    <label className="sr-only" htmlFor="shared-list-user-search">{t('Busca por nombre de usuario')}</label>
+                    <div className="relative mt-3">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" aria-hidden="true" />
+                      <input
+                        id="shared-list-user-search"
+                        className={`${inputClass} pl-9`}
+                        maxLength={32}
+                        value={inviteSearch}
+                        onChange={(event) => setInviteSearch(event.target.value)}
+                        placeholder={t('Busca por nombre de usuario')}
+                        autoComplete="off"
+                      />
+                    </div>
+                    {inviteUsersError ? (
+                      <p className="mt-3 text-sm text-rose-700 dark:text-rose-300" role="alert">{t(inviteUsersError)}</p>
+                    ) : searchingUsers ? (
+                      <p className="mt-3 text-sm text-stone-500" role="status">{t('Buscando usuarios…')}</p>
+                    ) : matchingInviteUsers.length ? (
+                      <ul className="mt-3 max-h-80 divide-y divide-stone-200 overflow-y-auto dark:divide-stone-800">
+                        {matchingInviteUsers.map((inviteUserProfile) => (
+                          <li key={inviteUserProfile.username} className="flex items-center justify-between gap-3 py-2">
+                            <span className="text-sm font-semibold">{inviteUserProfile.username}</span>
+                            <button
+                              type="button"
+                              onClick={() => inviteUser(inviteUserProfile)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1 rounded-lg border border-sky-700 px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-50 disabled:opacity-50 dark:text-sky-300 dark:hover:bg-sky-950/40"
+                            >
+                              <UserPlus className="h-3.5 w-3.5" aria-hidden="true" /> {t('Invitar')}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">
+                        {inviteSearch.trim() ? t('No se encontraron usuarios.') : t('No hay otros usuarios registrados.')}
+                      </p>
+                    )}
+                    <button type="button" onClick={shareList} className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-sky-700 underline underline-offset-4 dark:text-sky-300">
+                      <Share2 className="h-3.5 w-3.5" aria-hidden="true" /> {t('Compartir enlace privado')}
+                    </button>
+                  </section>
+                )}
                 <form onSubmit={addItem} className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_96px_auto]">
                   <label className="sr-only" htmlFor="shared-list-item-name">{t('Artículo')}</label>
                   <input id="shared-list-item-name" className={inputClass} maxLength={160} value={itemName} onChange={(event) => setItemName(event.target.value)} placeholder={t('Agregar artículo')} />

@@ -1,22 +1,42 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { ArrowLeft, LogOut, UserRound } from 'lucide-react'
+import { ArrowLeft, Bell, LogOut, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import { apiUrl } from '../config/api.js'
 import BusinessPortalPage from './BusinessPortalPage.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
 
+async function requestCustomerAccount(path, accessToken, options = {}) {
+  const response = await fetch(apiUrl(path), {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    },
+  })
+  const payload = response.status === 204 ? null : await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(payload?.error || 'No se pudo completar la solicitud.')
+  return payload
+}
+
 const pageContent = {
   profile: { title: 'Mi cuenta', description: 'Datos de tu cuenta de Ar-Price.' },
-  alerts: { title: 'Mis alertas', description: 'Aquí se mostrarán las alertas de precios asociadas a tu cuenta.' },
+  alerts: { title: 'Notificaciones', description: 'Aquí aparecerán las invitaciones para tus listas compartidas.' },
   business: { title: 'Panel de gestión para comercio', description: 'Administra el catálogo y revisa la actividad de tu comercio.' },
 }
 
 export default function CustomerAccountPage({ section = 'profile' }) {
   const { t } = useLanguage()
-  const { loading, user, profile, refreshProfile, signOut } = useCustomerAuth()
+  const { loading, user, profile, accessToken, refreshProfile, signOut } = useCustomerAuth()
   const [profileError, setProfileError] = useState('')
   const [isRefreshingProfile, setIsRefreshingProfile] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [notificationsError, setNotificationsError] = useState('')
+  const [notificationsNotice, setNotificationsNotice] = useState('')
+  const [acceptingNotificationId, setAcceptingNotificationId] = useState('')
   const content = pageContent[section] || pageContent.profile
 
   useEffect(() => {
@@ -35,6 +55,64 @@ export default function CustomerAccountPage({ section = 'profile' }) {
       active = false
     }
   }, [loading, refreshProfile, section, user])
+
+  useEffect(() => {
+    if (loading || !accessToken || section !== 'alerts') return undefined
+    let active = true
+    setNotificationsLoading(true)
+    setNotificationsError('')
+    requestCustomerAccount('/customer/notifications', accessToken)
+      .then((result) => {
+        if (active) setNotifications(result)
+      })
+      .catch((error) => {
+        if (active) setNotificationsError(error.message || 'No se pudieron cargar las notificaciones.')
+      })
+      .finally(() => {
+        if (active) setNotificationsLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [accessToken, loading, section])
+
+  const acceptNotification = async (notification) => {
+    setAcceptingNotificationId(notification.id)
+    setNotificationsError('')
+    setNotificationsNotice('')
+    try {
+      const list = await requestCustomerAccount(
+        `/customer/notifications/${encodeURIComponent(notification.id)}/accept`,
+        accessToken,
+        { method: 'POST' },
+      )
+      setNotifications((current) => current.filter((item) => item.id !== notification.id))
+      setNotificationsNotice(`${t('Te uniste a')} “${list.name}”.`)
+    } catch (error) {
+      setNotificationsError(error.message || 'No se pudo aceptar la invitación.')
+    } finally {
+      setAcceptingNotificationId('')
+    }
+  }
+
+  const declineNotification = async (notification) => {
+    setAcceptingNotificationId(notification.id)
+    setNotificationsError('')
+    setNotificationsNotice('')
+    try {
+      await requestCustomerAccount(
+        `/customer/notifications/${encodeURIComponent(notification.id)}/decline`,
+        accessToken,
+        { method: 'POST' },
+      )
+      setNotifications((current) => current.filter((item) => item.id !== notification.id))
+      setNotificationsNotice(t('Rechazaste la invitación.'))
+    } catch (error) {
+      setNotificationsError(error.message || 'No se pudo rechazar la invitación.')
+    } finally {
+      setAcceptingNotificationId('')
+    }
+  }
 
   if (loading) return (
     <main className="min-h-screen bg-stone-100 px-4 py-6 dark:bg-stone-950 sm:px-6">
@@ -130,9 +208,50 @@ export default function CustomerAccountPage({ section = 'profile' }) {
           )}
 
           {section === 'alerts' && (
-            <div className="mt-7 border-y border-stone-200 py-6 text-sm text-stone-600 dark:border-stone-800 dark:text-stone-400">
-              <p>{t('No tienes alertas guardadas por el momento.')}</p>
-              <Link to="/buscar" className="mt-4 inline-flex font-bold text-sky-700 underline underline-offset-4 dark:text-sky-300">{t('Buscar productos')}</Link>
+            <div className="mt-7 border-y border-stone-200 py-6 dark:border-stone-800">
+              {notificationsError && <p className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-200" role="alert">{t(notificationsError)}</p>}
+              {notificationsNotice && (
+                <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-3 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" role="status">
+                  <p>{notificationsNotice}</p>
+                  <Link to="/listas-compartidas" className="mt-2 inline-flex font-bold underline underline-offset-4">{t('Ver listas compartidas')}</Link>
+                </div>
+              )}
+              {notificationsLoading ? (
+                <p className="text-sm text-stone-500 dark:text-stone-400" role="status">{t('Cargando notificaciones…')}</p>
+              ) : notifications.length ? (
+                <ul className="space-y-3">
+                  {notifications.map((notification) => (
+                    <li key={notification.id} className="flex flex-col gap-3 rounded-xl border border-stone-200 p-4 dark:border-stone-800 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-3">
+                        <Bell className="mt-0.5 h-5 w-5 shrink-0 text-sky-700 dark:text-sky-300" aria-hidden="true" />
+                        <p className="text-sm text-stone-700 dark:text-stone-300">
+                          <strong>{notification.inviterUsername}</strong> {t('te invitó a la lista')} <strong>“{notification.listName}”</strong>.
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => acceptNotification(notification)}
+                          disabled={Boolean(acceptingNotificationId)}
+                          className="inline-flex items-center justify-center rounded-lg bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {acceptingNotificationId === notification.id ? t('Procesando…') : t('Aceptar invitación')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => declineNotification(notification)}
+                          disabled={Boolean(acceptingNotificationId)}
+                          className="inline-flex items-center justify-center rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold text-stone-700 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+                        >
+                          {t('Rechazar')}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-stone-600 dark:text-stone-400">{t('No tienes notificaciones por el momento.')}</p>
+              )}
             </div>
           )}
 

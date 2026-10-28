@@ -60,9 +60,6 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
             <div>
               <h2 className="text-xl font-bold text-stone-900 dark:text-white flex items-center gap-2">
                 <span>{t('Mi Canasta Ahorro')}</span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold">
-                  {basket.reduce((acc, i) => acc + i.quantity, 0)} {t('ítems')}
-                </span>
               </h2>
               <p className="text-xs text-stone-500 dark:text-stone-400">{t('Calculamos automáticamente qué comercio te conviene para comprar la lista entera')}</p>
             </div>

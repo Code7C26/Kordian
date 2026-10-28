@@ -228,6 +228,8 @@ La aplicacion no incluye credenciales de propietario de Supabase, por lo que la 
 
 Ejecutar `20261018_shared_shopping_lists.sql` en el SQL Editor de Supabase antes de desplegar la API que ofrece `/shared-lists`. Las tablas tienen RLS habilitado sin políticas públicas; las operaciones pasan por el backend, que valida el access token del cliente y comprueba la membresía antes de leer o cambiar una lista. Por eso el servicio de Render debe tener `SUPABASE_SERVICE_ROLE_KEY` configurada solo como variable privada del servidor.
 
+Para habilitar búsqueda de usuarios e invitaciones con notificaciones, ejecutar también `20261027_shared_list_invitations.sql`. La migración completa los perfiles faltantes de cuentas ya registradas usando su nombre existente o la parte anterior al `@` de su email, y resuelve nombres repetidos con un sufijo para que puedan aparecer en la búsqueda sin volver a registrarse. El selector lista las cuentas de cliente existentes; cada destinatario puede aceptar o rechazar la invitación desde Notificaciones. La función de aceptación se ejecuta en el backend con la clave service role.
+
 ## Catálogo gestionado por comercios
 
 Ejecutar `20261020_business_catalog_management.sql` después de crear `customer_profiles` y `supermarkets`. Desde el panel administrativo, la pestaña “Comercios” permite habilitar una cuenta comercial y asignarle un supermercado. El panel comercial solo puede publicar, actualizar o quitar las ofertas de ese supermercado; no puede modificar los productos ni las ofertas de otros comercios. El backend requiere `SUPABASE_SERVICE_ROLE_KEY` como variable privada del servidor.

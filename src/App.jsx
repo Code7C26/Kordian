@@ -1172,9 +1172,6 @@ export default function App() {
               <button onClick={() => openReportModal()} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
                 {t('Reportar precio')}
               </button>
-              <button onClick={() => setBasketOpen(true)} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500">
-                {t('Ver Mi Canasta Ahorro')}
-              </button>
             </div>
           </div>
           <div className="flex flex-col items-center justify-between gap-4 text-xs font-medium text-stone-400 sm:flex-row">
