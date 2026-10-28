@@ -50,6 +50,44 @@ html {
   animation: price-gradient-shift 6s ease-in-out infinite;
 }
 
+.registration-success-badge {
+  animation: registration-success-pop 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.registration-success-badge .registration-success-check path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: registration-check-draw 2s ease-in-out infinite;
+}
+
+@keyframes registration-success-pop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  20% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes registration-check-draw {
+  0%,
+  10% {
+    stroke-dashoffset: 24;
+  }
+
+  30%,
+  75% {
+    stroke-dashoffset: 0;
+  }
+
+  90%,
+  100% {
+    stroke-dashoffset: 24;
+  }
+}
+
 @keyframes price-gradient-shift {
   0%,
   100% {
@@ -62,7 +100,9 @@ html {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animated-price-gradient {
+  .animated-price-gradient,
+  .registration-success-badge,
+  .registration-success-check path {
     animation: none;
   }
 }

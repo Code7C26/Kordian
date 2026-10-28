@@ -45,7 +45,7 @@ export default function Login() {
     try {
       const result = await signIn({ identifier: username.trim(), password })
       if (result.profile?.role !== 'administrator') {
-        await signOut()
+        await signOut({ showNotice: false })
         setError('Esta cuenta no tiene permisos de administrador.')
         return
       }
