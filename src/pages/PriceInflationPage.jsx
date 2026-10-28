@@ -2,19 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
-  ArrowUpRight,
-  Calculator,
   CalendarDays,
+  Check,
   ChevronDown,
   CircleHelp,
   PackageSearch,
   Search,
   TrendingUp,
 } from 'lucide-react'
+import calculatorIcon from '../assets/flaticon/calculator.png'
 import { apiUrl } from '../config/api.js'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
 import { SupermarketLogo } from '../components/SupermarketLogo.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
+import { CategoryIconImage } from '../utils/categoryIconAssets.jsx'
 import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from '../services/catalogResponseCache.js'
 import { fetchProductAnalysis } from '../services/analysisApi.js'
 import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
@@ -31,6 +32,14 @@ const periods = [
   { label: '3 meses', months: 3 },
   { label: '6 meses', months: 6 },
   { label: '12 meses', months: 12 },
+]
+
+const countries = [
+  { id: 'AR', name: 'Argentina', annualInflation: 30 },
+  { id: 'BR', name: 'Brasil', annualInflation: 5 },
+  { id: 'CL', name: 'Chile', annualInflation: 4 },
+  { id: 'PY', name: 'Paraguay', annualInflation: 4 },
+  { id: 'UY', name: 'Uruguay', annualInflation: 5 },
 ]
 
 function getPriceHistory(product) {
@@ -162,8 +171,8 @@ export default function PriceInflationPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchRetryKey, setSearchRetryKey] = useState(0)
   const [amount, setAmount] = useState('100000')
-  const [variation, setVariation] = useState('0.0')
   const [period, setPeriod] = useState(3)
+  const [countryId, setCountryId] = useState('AR')
   const [isSearchingProducts, setIsSearchingProducts] = useState(false)
   const [productMenuOpen, setProductMenuOpen] = useState(false)
   const [highlightedProductIndex, setHighlightedProductIndex] = useState(0)
@@ -174,6 +183,8 @@ export default function PriceInflationPage() {
   const analysisCache = useRef(new Map())
   const productMenuRef = useRef(null)
   const productOptionRefs = useRef([])
+  const countryMenuRef = useRef(null)
+  const [countryMenuOpen, setCountryMenuOpen] = useState(false)
 
   useEffect(() => {
     const query = searchQuery.trim()
@@ -183,7 +194,6 @@ export default function PriceInflationPage() {
     setHighlightedProductIndex(0)
     setProductSearchError('')
     setHistoryError('')
-    setVariation('0.0')
 
     if (query.length < PRODUCT_SEARCH_MIN_LENGTH) {
       setIsSearchingProducts(false)
@@ -313,38 +323,40 @@ export default function PriceInflationPage() {
 
   const history = useMemo(() => getPriceHistory(selectedProduct), [selectedProduct])
   const visibleHistory = useMemo(() => getHistoryForPeriod(history, period), [history, period])
-  useEffect(() => {
-    const rate = getVariation(visibleHistory)
-    if (rate !== null) setVariation(rate.toFixed(1))
-  }, [visibleHistory])
   const observedVariation = visibleHistory.length > 1
     ? getVariation(visibleHistory)
     : null
+  const selectedCountry = countries.find((country) => country.id === countryId) || countries[0]
   const calculation = useMemo(() => {
     const initialAmount = Number(amount)
-    const inflation = Number(variation)
+    const annualRate = selectedCountry.annualInflation / 100
+    const inflation = ((1 + annualRate) ** (period / 12) - 1) * 100
     if (!Number.isFinite(initialAmount) || initialAmount < 0 || !Number.isFinite(inflation)) return null
     const updatedAmount = initialAmount * (1 + inflation / 100)
     return { initialAmount, inflation, updatedAmount, difference: updatedAmount - initialAmount }
-  }, [amount, variation])
+  }, [amount, period, selectedCountry])
 
   const inputClass = 'w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-stone-700 dark:bg-stone-900 dark:text-white dark:focus:ring-sky-950'
+
+  useEffect(() => {
+    if (!countryMenuOpen) return undefined
+
+    const closeOnOutsideClick = (event) => {
+      if (!countryMenuRef.current?.contains(event.target)) setCountryMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick)
+  }, [countryMenuOpen])
 
   const selectProduct = (id) => {
     setSelectedProductId(id)
     setProductMenuOpen(false)
-    const product = products.find((item) => String(item.id) === id)
-    const productHistory = getHistoryForPeriod(getPriceHistory(product), period)
-    const rate = getVariation(productHistory)
-    setVariation(rate === null ? '0.0' : rate.toFixed(1))
     setHistoryError('')
   }
 
   const selectPeriod = (months) => {
     setPeriod(months)
-    const periodHistory = getHistoryForPeriod(history, months)
-    const rate = getVariation(periodHistory)
-    if (rate !== null) setVariation(rate.toFixed(1))
   }
 
   const moveProductHighlight = (index) => {
@@ -364,14 +376,20 @@ export default function PriceInflationPage() {
 
         <section className="py-8 sm:py-10">
           <div className="flex items-start gap-4">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
-              <Calculator className="h-6 w-6" aria-hidden="true" />
+            <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-blue-600 to-indigo-700 text-white shadow-lg shadow-blue-900/20 ring-1 ring-white/30 dark:ring-white/10">
+              <span className="absolute inset-1 rounded-[0.8rem] border border-white/15" aria-hidden="true" />
+              <CategoryIconImage src={calculatorIcon} className="relative h-7 w-7 drop-shadow-sm" />
             </span>
             <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-sky-700 dark:text-sky-300">{t('Herramientas para ahorrar')}</p>
               <h1 className="mt-1 text-2xl font-black sm:text-3xl">{t('Calculadora de inflación')}</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600 dark:text-stone-400">
                 {t('Explora cómo cambian los precios y estima el impacto en tu presupuesto.')}
+              </p>
+              <p className="mt-1 text-[10px] text-stone-400 dark:text-stone-500">
+                {t('Ícono de calculadora por')}{' '}
+                <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-300" href="https://www.flaticon.com/authors/srip" target="_blank" rel="noreferrer">srip</a>
+                {' '}{t('en')}{' '}
+                <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-300" href="https://www.flaticon.com/free-icon/calculator_2344247" target="_blank" rel="noreferrer">Flaticon</a>
               </p>
             </div>
           </div>
@@ -598,7 +616,7 @@ export default function PriceInflationPage() {
                   <h2 className="font-black">{t('¿Cuánto necesitas hoy?')}</h2>
                 </div>
               </div>
-              <p className="mt-2 text-xs leading-5 text-sky-100">{t('Estima cómo cambia tu monto con la variación acumulada del período.')}</p>
+              <p className="mt-2 text-xs leading-5 text-sky-100">{t('Estima cómo cambia tu monto según la inflación aproximada del país y el período.')}</p>
 
               <label htmlFor="inflation-amount" className="mb-1.5 mt-5 block text-xs font-bold text-sky-50">{t('Presupuesto actual')}</label>
               <div className="relative">
@@ -625,13 +643,76 @@ export default function PriceInflationPage() {
                   </div>
                 </div>
                 <div>
-                  <label htmlFor="inflation-rate" className="mb-1.5 block text-xs font-bold text-sky-50">{t('Variación')}</label>
-                  <div className="relative">
-                    <input id="inflation-rate" type="number" step="0.1" value={variation} onChange={(event) => setVariation(event.target.value)} className="w-full rounded-xl border border-white/20 bg-white/10 py-2.5 pl-3 pr-8 text-xs font-semibold text-white outline-none focus:border-white/60" />
-                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-bold text-sky-200">%</span>
+                  <label id="inflation-country-label" className="mb-1.5 block text-xs font-bold text-sky-50">{t('País')}</label>
+                  <div className="relative"
+                    ref={countryMenuRef}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setCountryMenuOpen(false)
+                    }}
+                  >
+                    <button
+                      id="inflation-country"
+                      type="button"
+                      aria-haspopup="listbox"
+                      aria-expanded={countryMenuOpen}
+                      aria-label={`${t('País')}: ${selectedCountry.name}`}
+                      aria-controls="inflation-country-options"
+                      onClick={() => setCountryMenuOpen((open) => !open)}
+                      className="flex w-full items-center justify-between gap-2 rounded-xl border border-white/25 bg-white/10 px-3 py-2.5 text-left text-xs font-semibold text-white outline-none transition hover:bg-white/15 focus:border-white/60 focus:ring-2 focus:ring-white/20"
+                    >
+                      <span className="min-w-0 truncate">{selectedCountry.name}</span>
+                      <ChevronDown className={`h-4 w-4 shrink-0 text-sky-100 transition-transform ${countryMenuOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                    </button>
+                    {countryMenuOpen && (
+                      <div
+                        id="inflation-country-options"
+                        role="listbox"
+                        aria-labelledby="inflation-country-label"
+                        className="absolute right-0 top-full z-40 mt-2 w-full min-w-52 overflow-hidden rounded-xl border border-white/15 bg-slate-950/95 p-1.5 shadow-2xl shadow-slate-950/40 backdrop-blur-xl"
+                      >
+                        {countries.map((country) => {
+                          const isSelected = country.id === countryId
+                          return (
+                            <button
+                              key={country.id}
+                              type="button"
+                              role="option"
+                              aria-selected={isSelected}
+                              onClick={() => {
+                                setCountryId(country.id)
+                                setCountryMenuOpen(false)
+                              }}
+                              className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-xs transition-colors ${
+                                isSelected
+                                  ? 'bg-sky-500/20 text-white'
+                                  : 'text-slate-200 hover:bg-white/10'
+                              }`}
+                            >
+                              <span className="flex min-w-0 items-center gap-2.5">
+                                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-black ${
+                                  isSelected ? 'bg-sky-400/20 text-sky-200' : 'bg-white/10 text-slate-300'
+                                }`}>
+                                  {country.id}
+                                </span>
+                                <span className="font-semibold">{country.name}</span>
+                              </span>
+                              <span className="flex shrink-0 items-center gap-2">
+                                <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                                  isSelected ? 'bg-sky-400/15 text-sky-200' : 'bg-white/5 text-slate-300'
+                                }`}>
+                                  ~{country.annualInflation}%
+                                </span>
+                                {isSelected && <Check className="h-4 w-4 text-sky-300" aria-hidden="true" />}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
+              <p className="mt-2 text-[10px] leading-4 text-sky-100">{t('Tasa anual aproximada de referencia; no es un dato oficial actualizado. El cálculo para el período es estimado.')}</p>
 
               <div className="mt-5 rounded-xl border border-white/20 bg-white/10 p-4">
                 <p className="text-xs font-semibold text-sky-100">{t('Presupuesto proyectado')}</p>
@@ -647,35 +728,6 @@ export default function PriceInflationPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-sky-600 dark:text-sky-400">{t('Registros recientes')}</p>
-                  <h2 className="font-black">{t('Historial del producto')}</h2>
-                </div>
-                <CalendarDays className="h-4 w-4 text-stone-400" aria-hidden="true" />
-              </div>
-              {history.length ? (
-                <ul className="space-y-2">
-                  {[...visibleHistory].reverse().slice(0, 4).map((point, index) => (
-                    <li key={`${point.date}-${index}`} className="flex items-center justify-between gap-3 border-b border-stone-100 pb-2 last:border-0 last:pb-0 dark:border-stone-800">
-                      <span className="truncate text-xs text-stone-500 dark:text-stone-400">{point.date ? formatHistoryDate(point.date, language) : t('Registro de precio')}</span>
-                      <span className="shrink-0 text-sm font-bold">{currency.format(point.price)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-stone-500 dark:text-stone-400">{t('Aún no hay registros de precios disponibles.')}</p>
-              )}
-            </section>
-
-            <Link
-              to={selectedProduct ? `/buscar?q=${encodeURIComponent(selectedProduct.name)}` : '/buscar'}
-              className="flex items-center justify-between gap-3 rounded-xl bg-stone-900 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-sky-800 dark:bg-sky-950 dark:hover:bg-sky-900"
-            >
-              <span>{t('Encontrá un mejor precio')}</span>
-              <ArrowUpRight className="h-4 w-4 shrink-0" aria-hidden="true" />
-            </Link>
           </aside>
         </div>
       </div>

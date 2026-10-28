@@ -562,14 +562,6 @@ export default function App() {
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => setBasketOpen(true)}
-                className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                Ver Mi Canasta Ahorro
-              </button>
-            </div>
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-400 font-medium">

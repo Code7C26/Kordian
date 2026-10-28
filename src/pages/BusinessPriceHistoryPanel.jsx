@@ -6,7 +6,7 @@ import { useLanguage, useProductNameTranslator } from '../contexts/LanguageConte
 import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
 import { matchesSearchTerms } from '../utils/searchTerms.js'
 
-export default function BusinessPriceHistoryPanel({ adminStoreId = null }) {
+export default function BusinessPriceHistoryPanel({ adminStoreId = null, realDiscoMode = false }) {
   const { accessToken } = useCustomerAuth()
   const { language, t } = useLanguage()
   const [history, setHistory] = useState([])
@@ -26,7 +26,7 @@ export default function BusinessPriceHistoryPanel({ adminStoreId = null }) {
       return () => controller.abort()
     }
 
-    fetch(apiUrl('/business/price-history'), {
+    fetch(apiUrl(realDiscoMode ? '/business/disco-price-history' : '/business/price-history'), {
       signal: controller.signal,
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -47,7 +47,7 @@ export default function BusinessPriceHistoryPanel({ adminStoreId = null }) {
       })
 
     return () => controller.abort()
-  }, [accessToken, adminStoreId, refreshKey])
+  }, [accessToken, adminStoreId, realDiscoMode, refreshKey])
 
   const currency = useMemo(() => new Intl.NumberFormat(language === 'en' ? 'en-US' : 'es-AR', {
     style: 'currency',
@@ -64,7 +64,7 @@ export default function BusinessPriceHistoryPanel({ adminStoreId = null }) {
         <div>
           <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-sky-400">{t('Panel para comercios')}</p>
           <h2 className="mt-1 text-lg font-black text-white">{t('Cambios recientes')}</h2>
-          <p className="mt-1 text-xs text-stone-400">{t('Registros recientes de cambios de precio en tu sucursal.')}</p>
+          <p className="mt-1 text-xs text-stone-400">{t(realDiscoMode ? 'Cambios de precio registrados para las ofertas de Disco.' : 'Registros recientes de cambios de precio en tu sucursal.')}</p>
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
           <label className="relative min-w-0 flex-1 sm:w-64">

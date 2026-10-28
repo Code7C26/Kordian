@@ -27,12 +27,14 @@ const modules = [
 export default function BusinessPortalPage({ user, onSignOut, isAdministrator = false }) {
   const { t } = useLanguage()
   const { accessToken } = useCustomerAuth()
+  const isDiscoAccount = !isAdministrator && String(user?.email || '').trim().toLowerCase() === 'kordian.empresa@gmail.com'
   const [activeModule, setActiveModule] = useState('overview')
   const [storeState, setStoreState] = useState({ status: 'loading', store: null, error: '' })
   const [stores, setStores] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState('')
   const [storesLoading, setStoresLoading] = useState(isAdministrator)
   const [storesError, setStoresError] = useState('')
+  const [storeLogos, setStoreLogos] = useState({})
   const reportStoreState = useCallback((status, store = null, error = '') => {
     setStoreState({ status, store, error })
   }, [])
@@ -69,19 +71,58 @@ export default function BusinessPortalPage({ user, onSignOut, isAdministrator = 
     }
   }, [isAdministrator, selectedStoreId])
 
-  const assignedStore = storeState.store
+  const assignedStore = isDiscoAccount ? { id: 'disco', name: 'Disco' } : storeState.store
+  const assignedStoreName = assignedStore?.name || ''
+  const assignedStoreLogo = storeLogos[assignedStoreName.toLowerCase()]
   const moduleTitle = modules.find((module) => module.id === activeModule)?.label || 'Resumen'
+
+  useEffect(() => {
+    if (!assignedStoreName) return undefined
+
+    const controller = new AbortController()
+    fetch(apiUrl('/supermarkets'), { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(payload?.error || 'No se pudieron cargar los logos de supermercados.')
+        const supermarkets = Array.isArray(payload) ? payload : payload?.value
+        if (!Array.isArray(supermarkets)) throw new TypeError('Supermarket response must be an array')
+        const matchingStore = supermarkets.find((store) => (
+          String(store.name || '').toLowerCase() === assignedStoreName.toLowerCase()
+        ))
+        if (matchingStore?.image) {
+          setStoreLogos((current) => ({
+            ...current,
+            [assignedStoreName.toLowerCase()]: matchingStore.image,
+          }))
+        }
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          console.error('Business store logo could not be loaded', error)
+        }
+      })
+
+    return () => controller.abort()
+  }, [assignedStoreName])
 
   return (
     <main className="dark min-h-screen bg-[#0b0a09] text-stone-100">
       <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col md:flex-row">
         <aside className="flex w-full shrink-0 flex-col border-b border-slate-800 bg-[#070d1b] px-4 py-4 md:min-h-screen md:w-64 md:border-b-0 md:border-r md:px-3">
           <Link to="/" className="flex items-center gap-3 rounded-xl border border-sky-900/50 bg-sky-950/40 p-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white">
-              <BriefcaseBusiness className="h-5 w-5" aria-hidden="true" />
-            </span>
+            {assignedStoreLogo ? (
+              <img
+                src={assignedStoreLogo}
+                alt={assignedStore.name}
+                className={`h-10 w-14 shrink-0 rounded-lg object-contain p-1 ${assignedStore.name.toLowerCase() === 'disco' ? 'bg-[#070d1b]' : 'bg-white'}`}
+              />
+            ) : (
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white">
+                <BriefcaseBusiness className="h-5 w-5" aria-hidden="true" />
+              </span>
+            )}
             <span className="min-w-0">
-              <span className="block text-sm font-black text-white">{t('Comercio')}</span>
+              <span className="block text-sm font-black text-white">{assignedStore?.name || t('Comercio')}</span>
               <span className="block truncate text-[11px] text-slate-400">{t('Espacio privado')}</span>
             </span>
           </Link>
@@ -164,7 +205,7 @@ export default function BusinessPortalPage({ user, onSignOut, isAdministrator = 
 
           {activeModule === 'overview' && (
             <div className="space-y-5">
-              {storeState.status === 'ready' && !assignedStore && (
+              {!isDiscoAccount && storeState.status === 'ready' && !assignedStore && (
                 <p role="status" className="rounded-lg border border-rose-900 bg-rose-950/50 px-4 py-3 text-xs text-rose-200">
                   {t(isAdministrator ? 'Selecciona un supermercado para gestionar.' : 'Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.')}
                 </p>
@@ -183,7 +224,9 @@ export default function BusinessPortalPage({ user, onSignOut, isAdministrator = 
                       ? 'border-emerald-900 bg-emerald-950/50 text-emerald-300'
                       : 'border-stone-700 bg-stone-900 text-stone-300'
                   }`}>
-                    {storeState.status === 'loading'
+                    {isDiscoAccount
+                      ? assignedStore.name
+                      : storeState.status === 'loading'
                       ? t('Verificando cuenta…')
                       : assignedStore
                         ? assignedStore.name
@@ -216,18 +259,35 @@ export default function BusinessPortalPage({ user, onSignOut, isAdministrator = 
             <section className="rounded-xl border border-stone-800 bg-[#1c1917] p-5 sm:p-6">
               <h2 className="text-base font-black text-white">{t('Datos de Sucursal')}</h2>
               <p className="mt-1 text-xs text-stone-400">{t('Información de la sucursal asignada a tu cuenta.')}</p>
-              {storeState.status === 'loading' ? (
+              {storeState.status === 'loading' && !isDiscoAccount ? (
                 <p className="mt-6 text-sm text-stone-400" role="status">{t('Cargando…')}</p>
               ) : assignedStore ? (
                 <dl className="mt-5 divide-y divide-stone-800 border-y border-stone-800">
                   <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr]">
-                    <dt className="text-xs font-semibold text-stone-400">{t('Nombre de sucursal')}</dt>
+                    <dt className="text-xs font-semibold text-stone-400">{t(isDiscoAccount ? 'Supermercado' : 'Nombre de sucursal')}</dt>
                     <dd className="text-sm font-bold text-white">{assignedStore.name}</dd>
                   </div>
-                  <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr]">
-                    <dt className="text-xs font-semibold text-stone-400">{t('Estado de asignación')}</dt>
-                    <dd className="text-sm font-bold text-emerald-300">{t('Asignada')}</dd>
-                  </div>
+                  {isDiscoAccount ? (
+                    <>
+                      <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr]">
+                        <dt className="text-xs font-semibold text-stone-400">{t('Localidad indicada')}</dt>
+                        <dd className="text-sm font-bold text-white">{t('Alta Gracia, Córdoba')}</dd>
+                      </div>
+                      <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr]">
+                        <dt className="text-xs font-semibold text-stone-400">{t('Dirección de sucursal')}</dt>
+                        <dd className="text-sm font-bold text-white">Dr. Raúl Alfonsín 650, X5186</dd>
+                      </div>
+                      <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr]">
+                        <dt className="text-xs font-semibold text-stone-400">{t('Contacto general Disco')}</dt>
+                        <dd><a href="tel:08107778888" className="text-sm font-bold text-sky-300 hover:text-sky-200">0810-777-8888</a></dd>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr]">
+                      <dt className="text-xs font-semibold text-stone-400">{t('Estado de asignación')}</dt>
+                      <dd className="text-sm font-bold text-emerald-300">{t('Asignada')}</dd>
+                    </div>
+                  )}
                 </dl>
               ) : (
                 <p role="status" className="mt-5 rounded-lg border border-amber-900 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
@@ -238,10 +298,10 @@ export default function BusinessPortalPage({ user, onSignOut, isAdministrator = 
           )}
 
           <div hidden={activeModule !== 'catalog'} className="business-dark-panel">
-            <BusinessCatalogPanel key={isAdministrator ? selectedStoreId : 'assigned'} adminStoreId={isAdministrator ? selectedStoreId : null} onStoreStateChange={reportStoreState} />
+            <BusinessCatalogPanel key={isAdministrator ? selectedStoreId : 'assigned'} adminStoreId={isAdministrator ? selectedStoreId : null} onStoreStateChange={reportStoreState} realDiscoMode={isDiscoAccount} />
           </div>
 
-          {activeModule === 'history' && <BusinessPriceHistoryPanel adminStoreId={isAdministrator ? selectedStoreId : null} />}
+          {activeModule === 'history' && <BusinessPriceHistoryPanel adminStoreId={isAdministrator ? selectedStoreId : null} realDiscoMode={isDiscoAccount} />}
 
           <div className="mt-8 md:hidden">
             <Link to="/" className="inline-flex items-center gap-2 text-xs font-semibold text-stone-400 hover:text-white">

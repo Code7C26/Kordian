@@ -4,7 +4,7 @@ import ReactDOM from 'react-dom/client'
 
 import './index.css'
 
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 
 import ProtectedRoute from './components/ProtectedRoute'
 import { SelectedCityProvider } from './contexts/SelectedCityContext.jsx'
@@ -30,7 +30,12 @@ function HomeRoute() {
   if (hashParams.get('type') === 'recovery' && hashParams.has('access_token')) {
     return <Navigate to={`/restablecer-contrasena${location.hash}`} replace />
   }
-  return <App />
+  return (
+    <>
+      <App />
+      <Outlet />
+    </>
+  )
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -41,9 +46,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <BrowserRouter>
             <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-stone-50 text-sm font-semibold text-stone-500 dark:bg-stone-950 dark:text-stone-300" role="status">Cargando…</main>}>
               <Routes>
-              {/* HOME */}
-              <Route path="/" element={<HomeRoute />} />
-              <Route path="/buscar" element={<App />} />
+              <Route path="/" element={<HomeRoute />}>
+                <Route index element={null} />
+                <Route path="buscar" element={null} />
+              </Route>
               <Route path="/favoritos" element={<FavoritesPage />} />
               <Route path="/ingresar" element={<CustomerAuthPage mode="login" />} />
               <Route path="/registro" element={<CustomerAuthPage mode="register" />} />

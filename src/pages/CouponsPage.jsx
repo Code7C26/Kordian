@@ -1,13 +1,13 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BadgePercent, Check, Clock3, Tag, TicketPercent } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BadgePercent, Check, Clock3, Tag } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
+import carrefourLogo from '../assets/supermarkets/carrefour.svg'
+import discoLogo from '../assets/supermarkets/disco-logo.svg'
 
 const promotions = [
-  { store: 'Carrefour', type: 'Descuento en seleccionados', value: 'Hasta 30%', color: 'from-sky-600 to-blue-700', initials: 'C', tag: 'Destacado' },
-  { store: 'Disco', type: 'Beneficio en tu compra', value: '20% OFF', color: 'from-rose-500 to-red-600', initials: 'D', tag: 'Por tiempo limitado' },
-  { store: 'Jumbo', type: 'Ahorro en productos adheridos', value: '2x1', color: 'from-amber-500 to-orange-600', initials: 'J', tag: 'Selección especial' },
-  { store: 'Coto', type: 'Descuento con medios seleccionados', value: '15% OFF', color: 'from-emerald-600 to-teal-700', initials: 'C', tag: 'Ahorro extra' },
+  { store: 'Carrefour', type: 'Descuento en seleccionados', value: 'Hasta 30%', color: 'from-sky-600 to-blue-700', logo: carrefourLogo, logoBackground: 'bg-white', tag: 'Destacado' },
+  { store: 'Disco', type: 'Beneficio en tu compra', value: '20% OFF', color: 'from-rose-500 to-red-600', logo: discoLogo, logoBackground: 'bg-slate-950', tag: 'Por tiempo limitado' },
 ]
 
 export default function CouponsPage() {
@@ -23,9 +23,6 @@ export default function CouponsPage() {
 
         <section className="relative mt-7 overflow-hidden rounded-3xl bg-gradient-to-r from-sky-700 via-blue-700 to-indigo-800 p-6 text-white shadow-lg sm:p-9">
           <div className="relative z-10 max-w-2xl">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-bold">
-              <TicketPercent className="h-4 w-4" aria-hidden="true" /> {t('Promociones para aprovechar')}
-            </span>
             <h1 className="mt-4 text-3xl font-black leading-tight sm:text-4xl">{t('Cupones y descuentos')}</h1>
             <p className="mt-3 max-w-xl text-sm leading-6 text-sky-100 sm:text-base">
               {t('Explora beneficios y ofertas destacadas para encontrar nuevas formas de ahorrar en tus compras.')}
@@ -53,7 +50,9 @@ export default function CouponsPage() {
               <article key={`${promotion.store}-${promotion.value}`} className="group overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-stone-800 dark:bg-stone-900">
                 <div className={`flex items-center justify-between bg-gradient-to-r ${promotion.color} px-5 py-4 text-white`}>
                   <div className="flex items-center gap-3">
-                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-lg font-black text-stone-800">{promotion.initials}</span>
+                    <span className={`flex h-11 w-14 shrink-0 items-center justify-center rounded-xl p-2 ${promotion.logoBackground}`}>
+                      <img src={promotion.logo} alt={`${promotion.store} logo`} className="max-h-full max-w-full object-contain" />
+                    </span>
                     <div>
                       <p className="text-lg font-black">{promotion.store}</p>
                       <p className="text-xs font-semibold text-white/80">{t(promotion.tag)}</p>

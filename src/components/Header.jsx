@@ -11,6 +11,7 @@ import {
   Moon, 
   ShoppingBag, 
   Heart, 
+  Bell,
   ListFilter,
   LogIn,
   LogOut,
@@ -327,7 +328,7 @@ export function Header({
                     {user ? (
                       <>
                         <Link role="menuitem" to="/mis-alertas" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
-                          <Heart className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> {t('Mis alertas')}
+                          <Bell className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> {t('Notificaciones')}
                         </Link>
                         <button role="menuitem" type="button" onClick={() => { setOpenMenu(null); signOut() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <LogOut className="h-4 w-4 text-stone-500" aria-hidden="true" /> {t('Cerrar sesión')}
