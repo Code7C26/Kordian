@@ -65,6 +65,7 @@ export function CustomerAuthProvider({ children }) {
   const [favoritesAccountId, setFavoritesAccountId] = useState(session?.user?.id || null)
   const [favoritesLoading, setFavoritesLoading] = useState(false)
   const [favoritesError, setFavoritesError] = useState('')
+  const [pendingNotificationCount, setPendingNotificationCount] = useState(0)
 
   useEffect(() => {
     if (!logoutNotice) return undefined
@@ -166,6 +167,41 @@ export function CustomerAuthProvider({ children }) {
     }
   }, [session?.access_token, session?.user?.id])
 
+  const refreshNotifications = useCallback(async () => {
+    if (!session?.access_token) {
+      setPendingNotificationCount(0)
+      return []
+    }
+
+    const result = await requestCustomerJson('/customer/notifications', session.access_token)
+    setPendingNotificationCount(Array.isArray(result) ? result.length : 0)
+    return result
+  }, [session])
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      setPendingNotificationCount(0)
+      return undefined
+    }
+
+    let active = true
+    const loadNotifications = async () => {
+      try {
+        const result = await requestCustomerJson('/customer/notifications', session.access_token)
+        if (active) setPendingNotificationCount(Array.isArray(result) ? result.length : 0)
+      } catch (error) {
+        console.error('Customer notifications could not be loaded', error)
+      }
+    }
+
+    loadNotifications()
+    const intervalId = window.setInterval(loadNotifications, 30000)
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
+  }, [session?.access_token])
+
   const toggleFavorite = async (productId) => {
     const normalizedId = String(productId)
     if (!session?.access_token) throw new Error('Inicia sesión para guardar favoritos en tu cuenta.')
@@ -265,6 +301,8 @@ export function CustomerAuthProvider({ children }) {
       accessToken: session?.access_token || null,
       profile,
       refreshProfile,
+      pendingNotificationCount,
+      refreshNotifications,
       favorites: favoritesAccountId === (session?.user?.id || null) ? favorites : [],
       favoritesLoading,
       favoritesError,

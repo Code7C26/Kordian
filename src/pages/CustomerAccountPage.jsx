@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { ArrowLeft, Bell, LogOut, UserRound } from 'lucide-react'
+import { ArrowLeft, Bell, LoaderCircle, LogOut, Trash2, UserRound } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import { apiUrl } from '../config/api.js'
@@ -23,20 +23,29 @@ async function requestCustomerAccount(path, accessToken, options = {}) {
 
 const pageContent = {
   profile: { title: 'Mi cuenta', description: 'Datos de tu cuenta de Ar-Price.' },
-  alerts: { title: 'Notificaciones', description: 'Aquí aparecerán las invitaciones para tus listas compartidas.' },
+  alerts: { title: 'Notificaciones', description: 'Aquí aparecerán las invitaciones y los cambios de tus listas compartidas.' },
   business: { title: 'Panel de gestión para comercio', description: 'Administra el catálogo y revisa la actividad de tu comercio.' },
+}
+
+const sharedListActivityLabels = {
+  item_added: 'agregó un producto a la lista',
+  item_updated: 'actualizó un producto de la lista',
+  item_removed: 'quitó un producto de la lista',
+  member_removed: 'quitó a un participante de la lista',
+  member_joined: 'se unió a la lista',
+  member_left: 'abandonó la lista',
 }
 
 export default function CustomerAccountPage({ section = 'profile' }) {
   const { t } = useLanguage()
-  const { loading, user, profile, accessToken, refreshProfile, signOut } = useCustomerAuth()
+  const { loading, user, profile, accessToken, refreshProfile, refreshNotifications, signOut } = useCustomerAuth()
   const [profileError, setProfileError] = useState('')
   const [isRefreshingProfile, setIsRefreshingProfile] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [notificationsError, setNotificationsError] = useState('')
   const [notificationsNotice, setNotificationsNotice] = useState('')
-  const [acceptingNotificationId, setAcceptingNotificationId] = useState('')
+  const [processingNotificationId, setProcessingNotificationId] = useState('')
   const content = pageContent[section] || pageContent.profile
 
   useEffect(() => {
@@ -61,7 +70,7 @@ export default function CustomerAccountPage({ section = 'profile' }) {
     let active = true
     setNotificationsLoading(true)
     setNotificationsError('')
-    requestCustomerAccount('/customer/notifications', accessToken)
+    refreshNotifications()
       .then((result) => {
         if (active) setNotifications(result)
       })
@@ -74,10 +83,10 @@ export default function CustomerAccountPage({ section = 'profile' }) {
     return () => {
       active = false
     }
-  }, [accessToken, loading, section])
+  }, [accessToken, loading, refreshNotifications, section])
 
   const acceptNotification = async (notification) => {
-    setAcceptingNotificationId(notification.id)
+    setProcessingNotificationId(notification.id)
     setNotificationsError('')
     setNotificationsNotice('')
     try {
@@ -87,16 +96,17 @@ export default function CustomerAccountPage({ section = 'profile' }) {
         { method: 'POST' },
       )
       setNotifications((current) => current.filter((item) => item.id !== notification.id))
+      refreshNotifications().catch((error) => console.error('Customer notifications could not be refreshed', error))
       setNotificationsNotice(`${t('Te uniste a')} “${list.name}”.`)
     } catch (error) {
       setNotificationsError(error.message || 'No se pudo aceptar la invitación.')
     } finally {
-      setAcceptingNotificationId('')
+      setProcessingNotificationId('')
     }
   }
 
   const declineNotification = async (notification) => {
-    setAcceptingNotificationId(notification.id)
+    setProcessingNotificationId(notification.id)
     setNotificationsError('')
     setNotificationsNotice('')
     try {
@@ -106,11 +116,30 @@ export default function CustomerAccountPage({ section = 'profile' }) {
         { method: 'POST' },
       )
       setNotifications((current) => current.filter((item) => item.id !== notification.id))
+      refreshNotifications().catch((error) => console.error('Customer notifications could not be refreshed', error))
       setNotificationsNotice(t('Rechazaste la invitación.'))
     } catch (error) {
       setNotificationsError(error.message || 'No se pudo rechazar la invitación.')
     } finally {
-      setAcceptingNotificationId('')
+      setProcessingNotificationId('')
+    }
+  }
+
+  const deleteActivityNotification = async (notification) => {
+    setProcessingNotificationId(notification.id)
+    setNotificationsError('')
+    try {
+      await requestCustomerAccount(
+        `/customer/notifications/${encodeURIComponent(notification.id)}`,
+        accessToken,
+        { method: 'DELETE' },
+      )
+      setNotifications((current) => current.filter((item) => item.id !== notification.id))
+      refreshNotifications().catch((error) => console.error('Customer notifications could not be refreshed', error))
+    } catch (error) {
+      setNotificationsError(error.message || 'No se pudo eliminar la notificación.')
+    } finally {
+      setProcessingNotificationId('')
     }
   }
 
@@ -209,6 +238,11 @@ export default function CustomerAccountPage({ section = 'profile' }) {
 
           {section === 'alerts' && (
             <div className="mt-7 border-y border-stone-200 py-6 dark:border-stone-800">
+              {!notificationsLoading && notifications.length > 0 && (
+                <p className="mb-4 rounded-lg bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 dark:bg-sky-950/40 dark:text-sky-200" role="status">
+                  {notifications.length === 1 ? t('Tienes un mensaje en tus notificaciones.') : t('Tienes mensajes en tus notificaciones.')}
+                </p>
+              )}
               {notificationsError && <p className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-200" role="alert">{t(notificationsError)}</p>}
               {notificationsNotice && (
                 <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-3 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" role="status">
@@ -225,27 +259,59 @@ export default function CustomerAccountPage({ section = 'profile' }) {
                       <div className="flex items-start gap-3">
                         <Bell className="mt-0.5 h-5 w-5 shrink-0 text-sky-700 dark:text-sky-300" aria-hidden="true" />
                         <p className="text-sm text-stone-700 dark:text-stone-300">
-                          <strong>{notification.inviterUsername}</strong> {t('te invitó a la lista')} <strong>“{notification.listName}”</strong>.
+                          {notification.type === 'activity' ? (
+                            <>
+                              <strong>{notification.actorUsername}</strong>{' '}
+                              {t(sharedListActivityLabels[notification.action] || 'actualizó la lista')} <strong>“{notification.listName}”</strong>
+                              {notification.itemName && <>: <strong>{notification.itemName}</strong></>}.
+                            </>
+                          ) : (
+                            <>
+                              <strong>{notification.inviterUsername}</strong> {t('te invitó a la lista')} <strong>“{notification.listName}”</strong>.
+                            </>
+                          )}
                         </p>
                       </div>
-                      <div className="flex shrink-0 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => acceptNotification(notification)}
-                          disabled={Boolean(acceptingNotificationId)}
-                          className="inline-flex items-center justify-center rounded-lg bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {acceptingNotificationId === notification.id ? t('Procesando…') : t('Aceptar invitación')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => declineNotification(notification)}
-                          disabled={Boolean(acceptingNotificationId)}
-                          className="inline-flex items-center justify-center rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold text-stone-700 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
-                        >
-                          {t('Rechazar')}
-                        </button>
-                      </div>
+                      {notification.type === 'activity' ? (
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Link
+                            to={`/listas-compartidas?list=${encodeURIComponent(notification.listId)}`}
+                            className="inline-flex items-center justify-center rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold text-stone-700 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+                          >
+                            {t('Ver lista')}
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => deleteActivityNotification(notification)}
+                            disabled={Boolean(processingNotificationId)}
+                            aria-label={`${t('Eliminar notificación')} ${notification.listName}`}
+                            title={t('Eliminar notificación')}
+                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                          >
+                            {processingNotificationId === notification.id ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+                            {t('Eliminar')}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex shrink-0 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => acceptNotification(notification)}
+                            disabled={Boolean(processingNotificationId)}
+                            className="inline-flex items-center justify-center rounded-lg bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {processingNotificationId === notification.id ? t('Procesando…') : t('Aceptar invitación')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => declineNotification(notification)}
+                            disabled={Boolean(processingNotificationId)}
+                            className="inline-flex items-center justify-center rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold text-stone-700 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+                          >
+                            {t('Rechazar')}
+                          </button>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

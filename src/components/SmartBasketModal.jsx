@@ -1,19 +1,269 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   X, 
   ShoppingBag, 
   Trash2, 
   Plus, 
   Minus, 
-  Store 
+  Store,
+  ListPlus,
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { ProductImage } from './ProductImage';
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
+import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
+import { apiUrl } from '../config/api.js';
 import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveItem, onClearBasket }) {
   const { t } = useLanguage();
+  const { loading: authLoading, user, accessToken } = useCustomerAuth()
+  const [sharedLists, setSharedLists] = useState([])
+  const [selectedSharedListId, setSelectedSharedListId] = useState('')
+  const [sharedListsLoading, setSharedListsLoading] = useState(false)
+  const [addingToSharedList, setAddingToSharedList] = useState(false)
+  const [sharedListError, setSharedListError] = useState('')
+  const [sharedListNotice, setSharedListNotice] = useState('')
+  const [addedBasketSignature, setAddedBasketSignature] = useState('')
+  const [pendingBasketDuplicate, setPendingBasketDuplicate] = useState(null)
+  const [basketProductsQueue, setBasketProductsQueue] = useState(null)
+  const completedSharedListItems = useRef(new Set())
+  const selectedBasketProducts = useMemo(() => {
+    const productsById = new Map()
+    basket.forEach((item) => {
+      const productId = item.product?.id
+      const key = productId === undefined || productId === null
+        ? `name:${String(item.product?.name || '').trim().toLowerCase()}`
+        : `id:${productId}`
+      const existing = productsById.get(key)
+      if (existing) {
+        existing.quantity += Number(item.quantity || 0)
+      } else {
+        productsById.set(key, {
+          productId,
+          name: item.product?.name || '',
+          quantity: Number(item.quantity || 0),
+        })
+      }
+    })
+    return [...productsById.values()]
+  }, [basket])
+  const basketSignature = JSON.stringify(selectedBasketProducts)
   const translateProductName = useProductNameTranslator(basket.map((item) => item.product.name));
+
+  const normalizeListProductName = (name) => String(name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+
+  const getBasketProductKey = (product) => product.productId === undefined || product.productId === null
+    ? `name:${normalizeListProductName(product.name)}`
+    : `id:${product.productId}`
+
+  const findExistingListItem = (items, product) => items.find((item) => {
+    if (product.productId !== undefined && product.productId !== null
+      && item.product_id !== undefined && item.product_id !== null) {
+      return String(product.productId) === String(item.product_id)
+    }
+
+    return normalizeListProductName(item.product?.name || item.item_name)
+      === normalizeListProductName(product.name)
+  })
+
+  const postBasketProduct = async (listId, product) => {
+    const response = await fetch(apiUrl(`/shared-lists/${encodeURIComponent(listId)}/items`), {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + accessToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        itemName: product.name,
+        productId: product.productId === undefined || product.productId === null ? undefined : String(product.productId),
+        quantity: product.quantity,
+      }),
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload?.error || 'No se pudieron agregar los productos a la lista.')
+    return payload
+  }
+
+  const continueAddingBasketProducts = async (listId, products, existingItems, counts) => {
+    const currentItems = [...existingItems]
+    let addedCount = counts.added || 0
+    let mergedCount = counts.merged || 0
+    let skippedCount = counts.skipped || 0
+    let firstError = counts.error || ''
+
+    for (let index = 0; index < products.length; index += 1) {
+      const product = products[index]
+      const existingItem = findExistingListItem(currentItems, product)
+      if (existingItem) {
+        setPendingBasketDuplicate({ product, existingItem })
+        setBasketProductsQueue({
+          listId,
+          remaining: products.slice(index + 1),
+          existingItems: currentItems,
+          counts: { added: addedCount, merged: mergedCount, skipped: skippedCount, error: firstError },
+        })
+        return
+      }
+
+      try {
+        const createdItem = await postBasketProduct(listId, product)
+        currentItems.push(createdItem)
+        addedCount += 1
+        completedSharedListItems.current.add(`${listId}:${getBasketProductKey(product)}:${product.quantity}`)
+      } catch (error) {
+        firstError ||= error.message || 'No se pudieron agregar algunos productos.'
+      }
+    }
+
+    const selectedList = sharedLists.find((list) => list.id === listId)
+    if (!firstError) setAddedBasketSignature(`${listId}:${basketSignature}`)
+    setBasketProductsQueue(null)
+    setPendingBasketDuplicate(null)
+    setAddingToSharedList(false)
+    setSharedListNotice(
+      `${t('Proceso de agregar a la lista completado.')}`
+      + ` ${addedCount} ${t('productos agregados')}, ${mergedCount} ${t('productos sumados a existentes')} y ${skippedCount} ${t('productos omitidos')}.`
+      + (selectedList?.name ? ` ${t('Lista:')} “${selectedList.name}”.` : ''),
+    )
+    setSharedListError(firstError)
+  }
+
+  useEffect(() => {
+    if (authLoading || !accessToken || basket.length === 0) {
+      setSharedLists([])
+      setSelectedSharedListId('')
+      setSharedListsLoading(false)
+      return undefined
+    }
+
+    const controller = new AbortController()
+    let active = true
+    setSharedListsLoading(true)
+    setSharedListError('')
+    fetch(apiUrl('/shared-lists'), {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(payload?.error || 'No se pudieron cargar las listas compartidas.')
+        return payload
+      })
+      .then((lists) => {
+        if (!active) return
+        const nextLists = Array.isArray(lists) ? lists : []
+        setSharedLists(nextLists)
+        setSelectedSharedListId((current) => (
+          nextLists.some((list) => list.id === current)
+            ? current
+            : nextLists.length === 1 ? nextLists[0].id : ''
+        ))
+      })
+      .catch((error) => {
+        if (!active || error.name === 'AbortError') return
+        console.error('Could not load shared lists for basket', error)
+        setSharedListError(error.message || 'No se pudieron cargar las listas compartidas.')
+      })
+      .finally(() => {
+        if (active) setSharedListsLoading(false)
+      })
+
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [accessToken, authLoading, basket.length])
+
+  const addBasketToSharedList = async () => {
+    if (!selectedSharedListId || !accessToken || !selectedBasketProducts.length) return
+    setAddingToSharedList(true)
+    setSharedListError('')
+    setSharedListNotice('')
+    try {
+      const productsToAdd = selectedBasketProducts.filter((product) => {
+        const productKey = getBasketProductKey(product)
+        return !completedSharedListItems.current.has(`${selectedSharedListId}:${productKey}:${product.quantity}`)
+      })
+      if (!productsToAdd.length) {
+        const selectedList = sharedLists.find((list) => list.id === selectedSharedListId)
+        setAddedBasketSignature(`${selectedSharedListId}:${basketSignature}`)
+        setSharedListNotice(`${t('Se agregaron los productos a')} “${selectedList?.name || ''}”.`)
+        setAddingToSharedList(false)
+        return
+      }
+
+      const listResponse = await fetch(apiUrl(`/shared-lists/${encodeURIComponent(selectedSharedListId)}`), {
+        headers: { Authorization: 'Bearer ' + accessToken },
+      })
+      const listPayload = await listResponse.json().catch(() => ({}))
+      if (!listResponse.ok) throw new Error(listPayload?.error || 'No se pudo leer la lista compartida.')
+      await continueAddingBasketProducts(
+        selectedSharedListId,
+        productsToAdd,
+        Array.isArray(listPayload.items) ? listPayload.items : [],
+        { added: 0, merged: 0, skipped: 0, error: '' },
+      )
+    } catch (error) {
+      setSharedListError(error.message || 'No se pudieron agregar los productos a la lista.')
+      setAddingToSharedList(false)
+    }
+  }
+
+  const resolveBasketDuplicate = async (shouldMerge) => {
+    if (!pendingBasketDuplicate || !basketProductsQueue) return
+    const { product, existingItem } = pendingBasketDuplicate
+    const { listId, remaining, existingItems, counts } = basketProductsQueue
+    const nextCounts = { ...counts }
+
+    setSharedListError('')
+    if (shouldMerge) {
+      const combinedQuantity = Number(existingItem.quantity || 0) + Number(product.quantity || 0)
+      if (!Number.isFinite(combinedQuantity) || combinedQuantity > 999) {
+        setSharedListError(t('La cantidad total no puede superar 999.'))
+        return
+      }
+
+      setAddingToSharedList(true)
+      try {
+        const response = await fetch(apiUrl(`/shared-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(existingItem.id)}`), {
+          method: 'PATCH',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ quantity: combinedQuantity }),
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(payload?.error || 'No se pudo sumar la cantidad al producto existente.')
+        const updatedItems = existingItems.map((item) => (
+          item.id === existingItem.id ? { ...item, ...payload } : item
+        ))
+        nextCounts.merged += 1
+        completedSharedListItems.current.add(`${listId}:${getBasketProductKey(product)}:${product.quantity}`)
+        setPendingBasketDuplicate(null)
+        setBasketProductsQueue(null)
+        await continueAddingBasketProducts(listId, remaining, updatedItems, nextCounts)
+      } catch (error) {
+        setSharedListError(error.message || 'No se pudo sumar la cantidad al producto existente.')
+        setAddingToSharedList(false)
+      }
+      return
+    }
+
+    nextCounts.skipped += 1
+    completedSharedListItems.current.add(`${listId}:${getBasketProductKey(product)}:${product.quantity}`)
+    setPendingBasketDuplicate(null)
+    setBasketProductsQueue(null)
+    await continueAddingBasketProducts(listId, remaining, existingItems, nextCounts)
+  }
+
   if (basket.length === 0) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-sm animate-fade-in">
@@ -149,6 +399,64 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
             </div>
           </div>
 
+          <section className="space-y-3 border-t border-stone-200 pt-5 dark:border-stone-700" aria-labelledby="basket-shared-list-heading">
+            <h3 id="basket-shared-list-heading" className="flex items-center gap-2 text-sm font-bold text-stone-900 dark:text-white">
+              <ListPlus className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+              {t('Agregar productos a una lista compartida')}
+            </h3>
+            {authLoading ? (
+              <p className="text-sm text-stone-500 dark:text-stone-400" role="status">{t('Cargando cuenta…')}</p>
+            ) : !user ? (
+              <p className="text-sm text-stone-600 dark:text-stone-400">
+                {t('Inicia sesión para agregar productos a una lista compartida.')} {' '}
+                <Link to="/ingresar?next=%2Flistas-compartidas" className="font-bold text-sky-700 underline underline-offset-4 dark:text-sky-300">
+                  {t('Iniciar sesión')}
+                </Link>
+              </p>
+            ) : sharedListsLoading ? (
+              <p className="text-sm text-stone-500 dark:text-stone-400" role="status">{t('Cargando listas compartidas…')}</p>
+            ) : sharedLists.length ? (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <label className="sr-only" htmlFor="basket-shared-list-select">{t('Selecciona una lista compartida')}</label>
+                <select
+                  id="basket-shared-list-select"
+                  value={selectedSharedListId}
+                  onChange={(event) => {
+                    setSelectedSharedListId(event.target.value)
+                    setAddedBasketSignature('')
+                    setSharedListNotice('')
+                  }}
+                  className="min-w-0 flex-1 rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:focus:ring-sky-950"
+                  disabled={sharedLists.length === 1}
+                >
+                  {sharedLists.length > 1 && <option value="">{t('Selecciona una lista compartida')}</option>}
+                  {sharedLists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={addBasketToSharedList}
+                  disabled={!selectedSharedListId || addingToSharedList || addedBasketSignature === `${selectedSharedListId}:${basketSignature}`}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {addingToSharedList
+                    ? t('Agregando productos…')
+                    : addedBasketSignature === `${selectedSharedListId}:${basketSignature}`
+                      ? t('Productos agregados')
+                      : `${t('Agregar')} ${selectedBasketProducts.length} ${t(selectedBasketProducts.length === 1 ? 'producto a la lista' : 'productos a la lista')}`}
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-stone-600 dark:text-stone-400">
+                {t('Todavía no tienes listas compartidas.')} {' '}
+                <Link to="/listas-compartidas" className="font-bold text-sky-700 underline underline-offset-4 dark:text-sky-300">
+                  {t('Crear o unirme a una lista')}
+                </Link>
+              </p>
+            )}
+            {sharedListError && <p className="text-sm text-rose-700 dark:text-rose-300" role="alert">{sharedListError}</p>}
+            {sharedListNotice && <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300" role="status">{sharedListNotice}</p>}
+          </section>
+
           <div className="space-y-3 pt-2">
             <h3 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-2"><Store className="w-4 h-4 text-sky-600 dark:text-sky-400" /> <span>{t('Comparativa Total de la Canasta')}</span></h3>
             <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-900/70 border border-stone-200/80 dark:border-stone-800">
@@ -170,6 +478,43 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
           </div>
         </div>
       </div>
+      {pendingBasketDuplicate && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" role="presentation">
+          <section
+            className="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-2xl dark:border-stone-700 dark:bg-stone-900"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="basket-duplicate-title"
+            aria-describedby="basket-duplicate-description"
+          >
+            <h2 id="basket-duplicate-title" className="text-lg font-bold text-stone-900 dark:text-stone-100">
+              {t('Este producto ya está en la lista')}
+            </h2>
+            <p id="basket-duplicate-description" className="mt-2 text-sm text-stone-600 dark:text-stone-300">
+              {translateProductName(pendingBasketDuplicate.product.name)} · {t('Cantidad actual')}: {pendingBasketDuplicate.existingItem.quantity} + {pendingBasketDuplicate.product.quantity}
+            </p>
+            <p className="mt-2 text-sm text-stone-600 dark:text-stone-300">
+              {t('¿Querés sumar la cantidad al producto existente o continuar sin agregar este producto?')}
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => resolveBasketDuplicate(false)}
+                className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-200 dark:hover:bg-stone-800"
+              >
+                {t('No agregar')}
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveBasketDuplicate(true)}
+                className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800"
+              >
+                {t('Agregar igual')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
