@@ -230,6 +230,10 @@ Ejecutar `20261018_shared_shopping_lists.sql` en el SQL Editor de Supabase antes
 
 Para habilitar búsqueda de usuarios e invitaciones con notificaciones, ejecutar también `20261027_shared_list_invitations.sql`. La migración completa los perfiles faltantes de cuentas ya registradas usando su nombre existente o la parte anterior al `@` de su email, y resuelve nombres repetidos con un sufijo para que puedan aparecer en la búsqueda sin volver a registrarse. El selector lista las cuentas de cliente existentes; cada destinatario puede aceptar o rechazar la invitación desde Notificaciones. La función de aceptación se ejecuta en el backend con la clave service role.
 
+Ejecutar `20261028_shared_list_member_management.sql` para habilitar la salida de participantes. El creador puede quitar a otros participantes; cualquier participante puede abandonar la lista. Si el creador se va, la propiedad pasa al participante más antiguo. Si no queda ningún participante, la lista se elimina. La función de salida se ejecuta desde el backend con la clave service role.
+
+Ejecutar también `20261028_shared_list_activity_notifications.sql` para guardar notificaciones de actividad. Los demás participantes reciben avisos cuando alguien agrega, actualiza o quita un producto, se une, abandona la lista o es quitado por el creador. Las notificaciones aparecen en “Notificaciones” y se pueden marcar como leídas.
+
 ## Catálogo gestionado por comercios
 
 Ejecutar `20261020_business_catalog_management.sql` después de crear `customer_profiles` y `supermarkets`. Desde el panel administrativo, la pestaña “Comercios” permite habilitar una cuenta comercial y asignarle un supermercado. El panel comercial solo puede publicar, actualizar o quitar las ofertas de ese supermercado; no puede modificar los productos ni las ofertas de otros comercios. El backend requiere `SUPABASE_SERVICE_ROLE_KEY` como variable privada del servidor.
