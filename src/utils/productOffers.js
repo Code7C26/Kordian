@@ -33,6 +33,19 @@ export function filterProductOffers(product, offers = []) {
   })
 }
 
+export function getProductPrice(product = {}, offers = []) {
+  const offerPrices = offers
+    .map((offer) => Number(offer?.price ?? offer?.cash_price ?? offer?.cashPrice ?? 0))
+    .filter((price) => Number.isFinite(price) && price > 0)
+  if (offerPrices.length) return Math.min(...offerPrices)
+
+  for (const value of [product.currentPrice, product.price]) {
+    const fallbackPrice = Number(value)
+    if (Number.isFinite(fallbackPrice) && fallbackPrice > 0) return fallbackPrice
+  }
+  return 0
+}
+
 export function getProductOffers(product = {}) {
   const primaryStore = product.primaryStore
   const primaryPrice = Number(product.currentPrice ?? primaryStore?.price ?? primaryStore?.cash_price ?? 0)

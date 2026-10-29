@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, Flag, Heart, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, BarChart3, Flag, Heart, ShoppingBag } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
@@ -127,6 +127,12 @@ export function ProductCard({
         </div>
 
         <div className="bg-stone-50 dark:bg-stone-900/60 p-3 rounded-xl border border-stone-200/50 dark:border-stone-800/80 space-y-1">
+          {isInflated && sortedStores.length === 1 && (
+            <p className="flex items-start gap-1.5 text-[11px] font-semibold leading-4 text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Precio atípico sin otra oferta para comparar; verifica con el comercio.
+            </p>
+          )}
           {Number(product.primaryStore?.listPrice) > Number(product.currentPrice) && (
             <p className="text-xs text-stone-500 line-through">
               {t('Precio regular:')} {formatCurrency(product.primaryStore.listPrice)}

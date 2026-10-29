@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { filterProductOffers, getProductOffers } from './productOffers.js'
+import { filterProductOffers, getProductOffers, getProductPrice } from './productOffers.js'
 
 test('counts the primary store offer when there are no alternative stores', () => {
   const offers = getProductOffers({
@@ -39,6 +39,19 @@ test('ignores offers without a valid price or store', () => {
   })
 
   assert.deepEqual(offers, [])
+})
+
+test('uses the single filtered offer instead of a stale product-level price', () => {
+  const product = { currentPrice: 285000, price: 285000 }
+  const offers = [{ price: 2850, supermarket: 'Disco' }]
+
+  assert.equal(getProductPrice(product, offers), 2850)
+})
+
+test('falls back to the product price when no valid offer is available', () => {
+  assert.equal(getProductPrice({ currentPrice: 2850 }, []), 2850)
+  assert.equal(getProductPrice({ currentPrice: 0, price: 1990 }, []), 1990)
+  assert.equal(getProductPrice({}, []), 0)
 })
 
 test('excludes the phantom stores from the two-percent Serenisima milk comparison', () => {

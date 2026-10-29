@@ -90,6 +90,16 @@ test('automatically corrects a prior 100x scale inflation from the authoritative
   assert.equal(state.logs[0].percentage, -99)
 })
 
+test('corrects a Disco token-scale price when normal price changes move the ratio beyond five percent', async () => {
+  const state = optionsFor([productWithPrice(285000)], 2700)
+  const result = await state.promise
+
+  assert.equal(result.updated.length, 1)
+  assert.equal(result.updated[0].updatedCashPrice, 2700)
+  assert.equal(state.updates[0].values.cash_price, 2700)
+  assert.equal(state.history[0].cashPrice, 2700)
+})
+
 test('shares an active sync so concurrent callers cannot duplicate history writes', async () => {
   let releaseFetch
   const fetchPromise = new Promise((resolve) => {

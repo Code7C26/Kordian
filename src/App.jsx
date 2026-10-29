@@ -17,7 +17,7 @@ import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
 import { fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
-import { filterProductOffers, isTargetSerenisimaMilk } from './utils/productOffers.js';
+import { filterProductOffers, getProductPrice } from './utils/productOffers.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 import brandLogo from '../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
@@ -492,9 +492,7 @@ export default function App() {
             (lowest, offer) => (!lowest || offer.price < lowest.price ? offer : lowest),
             null,
           )
-          const currentPrice = Number(
-            (isTargetSerenisimaMilk(product) ? primary?.price : product.currentPrice || primary?.price || product.price) || 0,
-          )
+          const currentPrice = getProductPrice(product, offers)
           const avgMarketPrice = offers.length
             ? offers.reduce((sum, offer) => sum + offer.price, 0) / offers.length
             : Number(product.avgMarketPrice || 0)

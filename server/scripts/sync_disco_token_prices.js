@@ -1,5 +1,6 @@
 const database = require('../supabaseAdmin')
 const { fetchDiscoProductById } = require('../services/discoImporter')
+const { isDiscoScaleCorrection } = require('../priceNormalization')
 
 async function main() {
   const { data: products, error } = await database
@@ -33,9 +34,7 @@ async function main() {
         const normalizedPrice = Number(price.toFixed(2))
         if (Number(previousPrice.toFixed(2)) === normalizedPrice) continue
         const ratio = previousPrice > 0 ? Math.max(previousPrice, normalizedPrice) / Math.min(previousPrice, normalizedPrice) : 1
-        const isScaleCorrection = previousPrice > normalizedPrice
-          && previousPrice / normalizedPrice >= 95
-          && previousPrice / normalizedPrice <= 105
+        const isScaleCorrection = isDiscoScaleCorrection(previousPrice, normalizedPrice)
         if (ratio >= 10 && !isScaleCorrection) {
           console.warn(`Skipped suspicious price change for ${product.name}: ${previousPrice} -> ${normalizedPrice}`)
           continue
