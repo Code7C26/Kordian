@@ -46,7 +46,7 @@ export function Header({
   isAdminPage = false,
 }) {
   const location = useLocation()
-  const { user, signOut } = useCustomerAuth()
+  const { user, pendingNotificationCount, signOut } = useCustomerAuth()
   const { language, setLanguage, t } = useLanguage()
   const isAdminHeader = isAdminPage || location.pathname === '/admin'
   const [openMenu, setOpenMenu] = useState(null)
@@ -55,6 +55,9 @@ export function Header({
   const showAccountMenu = openMenu === 'account'
   const accountMenuRef = useRef(null)
   const showLocationMenu = openMenu === 'location'
+  const pendingNotificationLabel = pendingNotificationCount === 1
+    ? t('notificación pendiente')
+    : t('notificaciones pendientes')
   const [locationQuery, setLocationQuery] = useState('')
   const locationMenuRef = useRef(null)
   const [panelCategories, setPanelCategories] = useState([])
@@ -290,13 +293,18 @@ export function Header({
                   onClick={() => toggleExclusiveMenu('account')}
                   aria-haspopup="menu"
                   aria-expanded={showAccountMenu}
-                  aria-label={t('Abrir menú')}
-                  title={t('Menú')}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-white transition-colors hover:bg-white/25 dark:bg-stone-800/60 dark:text-stone-200"
+                  aria-label={pendingNotificationCount ? `${t('Abrir menú')}. ${pendingNotificationCount} ${pendingNotificationLabel}` : t('Abrir menú')}
+                  title={pendingNotificationCount ? `${pendingNotificationCount} ${pendingNotificationLabel}` : t('Menú')}
+                  className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-white transition-colors hover:bg-white/25 dark:bg-stone-800/60 dark:text-stone-200"
                 >
                   {showAccountMenu
                     ? <X className="h-6 w-6" aria-hidden="true" />
                     : <Menu className="h-6 w-6" aria-hidden="true" />}
+                  {pendingNotificationCount > 0 && (
+                    <span aria-hidden="true" className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-black text-white ring-2 ring-stone-900">
+                      {pendingNotificationCount > 9 ? '9+' : pendingNotificationCount}
+                    </span>
+                  )}
                 </button>
                 {showAccountMenu && (
                   <div
@@ -328,7 +336,14 @@ export function Header({
                     {user ? (
                       <>
                         <Link role="menuitem" to="/mis-alertas" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
-                          <Bell className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> {t('Notificaciones')}
+                          <Bell className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                          <span>{t('Notificaciones')}</span>
+                          {pendingNotificationCount > 0 && (
+                            <span className="ml-auto rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-200">
+                              {pendingNotificationCount}
+                              <span className="sr-only"> {pendingNotificationLabel}</span>
+                            </span>
+                          )}
                         </Link>
                         <button role="menuitem" type="button" onClick={() => { setOpenMenu(null); signOut() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <LogOut className="h-4 w-4 text-stone-500" aria-hidden="true" /> {t('Cerrar sesión')}

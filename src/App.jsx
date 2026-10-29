@@ -53,6 +53,36 @@ function getDiscoveryPage(total, pageSize) {
   return Math.floor(Math.random() * (totalPages - 1)) + 2
 }
 
+function getBasketStorageKey(customerUser = null) {
+  const accountId = customerUser?.id || customerUser?.user_id || customerUser?.uuid || customerUser?.uid
+  return accountId ? `arprice_basket_user_${String(accountId)}` : 'arprice_basket_guest'
+}
+
+function readBasketForUser(customerUser = null) {
+  const storageKey = getBasketStorageKey(customerUser)
+  const legacyBasketKey = 'arprice_basket'
+
+  try {
+    const saved = localStorage.getItem(storageKey)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      return Array.isArray(parsed) ? parsed : []
+    }
+
+    const legacySaved = localStorage.getItem(legacyBasketKey)
+    if (storageKey === 'arprice_basket_guest' && legacySaved) {
+      const parsed = JSON.parse(legacySaved)
+      localStorage.setItem(storageKey, JSON.stringify(parsed))
+      localStorage.removeItem(legacyBasketKey)
+      return Array.isArray(parsed) ? parsed : []
+    }
+
+    return []
+  } catch {
+    return []
+  }
+}
+
 const SORT_OPTIONS = [
   { value: 'discount-desc', label: 'Mayor ahorro', icon: Percent },
   { value: 'price-asc', label: 'Menor precio', icon: ArrowDownWideNarrow },
@@ -268,16 +298,16 @@ export default function App() {
 
   const favoriteIdsKey = favoritesOnlyView ? favorites.join(',') : ''
 
-  const [basket, setBasket] = useState(() => {
-    try {
-      const saved = localStorage.getItem('arprice_basket');
-      return saved
-        ? JSON.parse(saved)
-        : [];
-    } catch {
-      return [];
-    }
-  });
+  const basketStorageKey = getBasketStorageKey(customerUser);
+  const [basket, setBasket] = useState(() => readBasketForUser(customerUser));
+
+  useEffect(() => {
+    setBasket(readBasketForUser(customerUser));
+  }, [basketStorageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(basketStorageKey, JSON.stringify(basket));
+  }, [basket, basketStorageKey]);
 
   const handleSelectCategory = async (category) => {
     const selectedCategoryId = String(category)
@@ -373,10 +403,6 @@ export default function App() {
     document.body.classList.toggle('dark', darkMode);
     localStorage.setItem('arprice_theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
-
-  useEffect(() => {
-    localStorage.setItem('arprice_basket', JSON.stringify(basket));
-  }, [basket]);
 
   // Keep the result index keyed by query and fetch only the requested page.
   useEffect(() => {
