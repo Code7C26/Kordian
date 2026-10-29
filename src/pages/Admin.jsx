@@ -1707,7 +1707,7 @@ export default function Admin() {
     }
 
   const updateDiscoPrices =
-    async () => {
+    async (onlyLowPrices = false, onlyHighPrices = false) => {
       setDiscoLoading(true)
 
       try {
@@ -1716,6 +1716,10 @@ export default function Admin() {
             '/admin/import/disco/update-prices',
             {
               method: 'POST',
+              headers: onlyLowPrices || onlyHighPrices ? { 'Content-Type': 'application/json' } : undefined,
+              body: onlyLowPrices || onlyHighPrices
+                ? JSON.stringify({ onlyLowPrices, onlyHighPrices })
+                : undefined,
             },
           )
 
@@ -1744,14 +1748,27 @@ export default function Admin() {
         await loadDiscoSyncStatus()
         await loadPriceUpdates()
 
+        const suspiciousSummary =
+          result.suspicious?.length
+            ? `; revisar: ${result.suspicious.slice(0, 3).map((item) => item.name).join(', ')}${
+                result.suspicious.length > 3
+                  ? ` y ${result.suspicious.length - 3} más`
+                  : ''
+              }`
+            : ''
+
         showToast(
-          `${result.updated} precio(s) actualizado(s), ${result.unchanged} sin cambios${
+          `${onlyLowPrices ? 'Disco (<$1.000)' : onlyHighPrices ? 'Disco (≥$50.000)' : 'Disco'}: ${result.updated} precio(s) actualizado(s), ${result.unchanged} sin cambios${
+            result.suspicious?.length
+              ? `; ${result.suspicious.length} variación(es) sospechosa(s) omitida(s)`
+              : ''
+          }${
             result.unavailable?.length
               ? ` y ${result.unavailable.length} no disponible(s)`
               : ''
-          }`,
+          }${suspiciousSummary}`,
           result.updated ||
-            !result.unavailable?.length
+            (!result.unavailable?.length && !result.suspicious?.length)
             ? 'success'
             : 'error',
         )
@@ -1783,6 +1800,35 @@ export default function Admin() {
         console.error(error)
       }
     }
+
+  const updateMamiLowPrices = async () => {
+    setMamiLoading(true)
+    try {
+      const response = await adminFetch('/admin/import/mami/update-prices', {
+        method: 'POST',
+      })
+      const result = await readApiResponse(
+        response,
+        'No se pudieron verificar los precios bajos de Mami',
+      )
+      await loadProducts()
+      await loadPriceUpdates()
+      const skippedCount = result.skipped?.length || 0
+      showToast(
+        `Mami: ${result.updated?.length || 0} precio(s) corregido(s), ${result.unchanged || 0} sin cambios${
+          skippedCount ? `, ${skippedCount} pendiente(s) de verificación` : ''
+        }`,
+        skippedCount && !result.updated?.length ? 'error' : 'success',
+      )
+    } catch (error) {
+      showToast(
+        error.message || 'No se pudieron verificar los precios bajos de Mami',
+        'error',
+      )
+    } finally {
+      setMamiLoading(false)
+    }
+  }
 
   const loadDiscoImportStatus =
     async () => {
@@ -2288,8 +2334,23 @@ export default function Admin() {
                   ?.source ===
                 'carrefour_import'
 
+              const isDiscoImport =
+                update.filters
+                  ?.source ===
+                'disco_public_search'
+
+              const isMamiPriceRepair =
+                update.filters
+                  ?.source ===
+                'mami_price_repair'
+
               const isManualImport =
-                isMamiImport || isCarrefourImport
+                isMamiImport || isCarrefourImport || isDiscoImport || isMamiPriceRepair
+
+              const suspiciousCount =
+                Array.isArray(update.filters?.suspicious)
+                  ? update.filters.suspicious.length
+                  : 0
 
               const changeLabel =
                 changeType ===
@@ -2305,6 +2366,15 @@ export default function Admin() {
                         'editado'
                       }`
                     : null
+
+              const formatPercentage = (value) => {
+                const numericValue = Number(value)
+                if (numericValue === 0) return 'Sin cambios'
+                if (numericValue !== 0 && Math.abs(numericValue) < 0.05) {
+                  return `${numericValue > 0 ? '+' : '-'}<0.1%`
+                }
+                return `${numericValue > 0 ? '+' : ''}${numericValue.toFixed(1)}%`
+              }
 
               const linkedPricePercentage =
                 isProductEdit &&
@@ -2326,28 +2396,27 @@ export default function Admin() {
                   linkedPricePercentage,
                 )
                   ? `Edición (${
-                      linkedPricePercentage >
-                      0
-                        ? '+'
-                        : ''
-                    }${linkedPricePercentage.toFixed(
-                      1,
-                    )}%)`
+                      formatPercentage(linkedPricePercentage)
+                    })`
                   : 'Edición'
 
               const updateLabel =
                 isProductEdit
                   ? changeLabel
                   : isManualImport
-                  ? `Importación ${isCarrefourImport ? 'Carrefour' : 'Mami'}${
-                      isCarrefourImport && update.filters?.postal_code
-                        ? ` (CP ${update.filters.postal_code})`
-                        : !isCarrefourImport && update.filters?.query
-                          ? `: ${update.filters.query}`
-                          : ''
+                  ? `${isMamiPriceRepair ? 'Corrección de precios Mami' : `Importación ${isDiscoImport ? 'Disco' : isCarrefourImport ? 'Carrefour' : 'Mami'}`}${
+                      isDiscoImport && update.filters?.query
+                        ? `: ${update.filters.query}`
+                        : isCarrefourImport && update.filters?.postal_code
+                          ? ` (CP ${update.filters.postal_code})`
+                          : !isCarrefourImport && !isDiscoImport && update.filters?.query
+                            ? `: ${update.filters.query}`
+                            : ''
                     }`
                     : automatic
-                      ? 'Sincronización de precios Disco'
+                      ? `Sincronización de precios Disco${suspiciousCount ? ` · ${suspiciousCount} para revisar` : ''}`
+                      : suspiciousCount
+                        ? `${suspiciousCount} precio(s) para revisar`
                       : appliedFilters.length
                         ? appliedFilters.join(
                             ' · ',
@@ -2358,14 +2427,18 @@ export default function Admin() {
                 isProductEdit
                   ? linkedPriceLabel
                   : isManualImport
-                    ? 'Importación'
-                    : `${
-                        percentage > 0
-                          ? '+'
-                          : ''
-                      }${percentage.toFixed(
-                        1,
-                      )}%`
+                    ? isMamiPriceRepair
+                      ? changes.length
+                        ? formatPercentage(percentage)
+                        : 'Sin cambios'
+                      : 'Importación'
+                    : automatic && !changes.length
+                          ? suspiciousCount
+                            ? 'Revisión manual'
+                            : 'Sin cambios'
+                    : changes.length && Number(changes[0].previousCashPrice) <= 0
+                      ? 'Nuevo precio'
+                    : formatPercentage(percentage)
 
               return (
                 <tr
@@ -2388,8 +2461,12 @@ export default function Admin() {
                     className={`py-3 pr-4 font-bold ${
                       isProductEdit
                         ? 'text-sky-600'
-                        : isManualImport
+                        : isManualImport && !isMamiPriceRepair
                           ? 'text-emerald-600'
+                          : isMamiPriceRepair
+                            ? 'text-sky-600'
+                          : automatic && !changes.length
+                            ? 'text-amber-600'
                           : percentage >= 0
                             ? 'text-rose-600'
                             : 'text-emerald-600'
@@ -3550,6 +3627,16 @@ export default function Admin() {
                       </p>
                     )}
 
+                    {discoSyncStatus?.suspicious?.length > 0 && (
+                      <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                        Precios omitidos para revisar:{' '}
+                        {discoSyncStatus.suspicious.slice(0, 3).map((item) => item.name).join(', ')}
+                        {discoSyncStatus.suspicious.length > 3
+                          ? ` y ${discoSyncStatus.suspicious.length - 3} más`
+                          : ''}
+                      </p>
+                    )}
+
                     {discoImportStatus && (
                       <p className="mt-2 text-xs text-stone-500">
                         Búsquedas públicas:{' '}
@@ -3609,6 +3696,25 @@ export default function Admin() {
                         : 'Consultar'}
                     </button>
                   </form>
+                </div>
+
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateDiscoPrices(true)}
+                    disabled={discoLoading}
+                    className="rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-700 disabled:opacity-50 dark:text-amber-300"
+                  >
+                    {discoLoading ? 'Verificando precios...' : 'Verificar ofertas menores a $1.000'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateDiscoPrices(false, true)}
+                    disabled={discoLoading}
+                    className="rounded-lg border border-rose-600 px-4 py-2 font-semibold text-rose-700 disabled:opacity-50 dark:text-rose-300"
+                  >
+                    {discoLoading ? 'Verificando precios...' : 'Verificar ofertas mayores o iguales a $50.000'}
+                  </button>
                 </div>
 
                 {discoError && (
@@ -3787,6 +3893,17 @@ export default function Admin() {
                         : 'Consultar'}
                     </button>
                   </form>
+                </div>
+
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={updateMamiLowPrices}
+                    disabled={mamiLoading}
+                    className="rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-700 disabled:opacity-50 dark:text-amber-300"
+                  >
+                    {mamiLoading ? 'Verificando precios...' : 'Verificar y corregir precios bajos'}
+                  </button>
                 </div>
 
                 {mamiError && (

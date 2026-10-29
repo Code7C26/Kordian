@@ -1,28 +1,10 @@
 const database = require('../supabaseAdmin')
-
-function decodePriceToken(token) {
-  if (typeof token !== 'string') return null
-  try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString())
-    const price = Number(payload?.data?.price)
-    return Number.isFinite(price) && price > 0 ? price : null
-  } catch {
-    return null
-  }
-}
-
-async function getSourcePrice(sourceProductId) {
-  const response = await fetch(`https://www.disco.com.ar/api/catalog_system/pub/products/search?fq=productId:${sourceProductId}&_from=0&_to=0`)
-  if (!response.ok) return null
-  const data = await response.json()
-  const sellers = (data[0]?.items || []).flatMap((item) => item.sellers || [])
-  return decodePriceToken(sellers[0]?.commertialOffer?.PriceToken)
-}
+const { fetchDiscoProductById } = require('../services/discoImporter')
 
 async function main() {
   const { data: products, error } = await database
     .from('products')
-    .select('id, name, source_product_id, offers(id, cash_price)')
+    .select('id, name, source_product_id, offers(id, supermarket, cash_price)')
     .eq('source', 'disco')
   if (error) throw error
 
@@ -32,25 +14,42 @@ async function main() {
     const batch = products.slice(start, start + 10)
     const results = await Promise.all(batch.map(async (product) => ({
       product,
-      price: await getSourcePrice(product.source_product_id).catch(() => null),
+      sourceProduct: await fetchDiscoProductById(product.source_product_id),
     })))
 
-    for (const { product, price } of results) {
+    for (const { product, sourceProduct } of results) {
       checked++
-      if (!price) continue
-      for (const offer of product.offers || []) {
+      if (!sourceProduct) {
+        console.warn(`No source product returned for ${product.name}`)
+        continue
+      }
+      const price = Number(sourceProduct.price)
+      if (!sourceProduct.available || !Number.isFinite(price) || price <= 0) {
+        console.warn(`Skipped unavailable or invalid source price for ${product.name}`)
+        continue
+      }
+      for (const offer of (product.offers || []).filter((candidate) => candidate.supermarket === 'Disco')) {
         const previousPrice = Number(offer.cash_price)
-        if (previousPrice === price) continue
-        const { error: updateError } = await database.from('offers').update({ cash_price: price }).eq('id', offer.id)
+        const normalizedPrice = Number(price.toFixed(2))
+        if (Number(previousPrice.toFixed(2)) === normalizedPrice) continue
+        const ratio = previousPrice > 0 ? Math.max(previousPrice, normalizedPrice) / Math.min(previousPrice, normalizedPrice) : 1
+        const isScaleCorrection = previousPrice > normalizedPrice
+          && previousPrice / normalizedPrice >= 95
+          && previousPrice / normalizedPrice <= 105
+        if (ratio >= 10 && !isScaleCorrection) {
+          console.warn(`Skipped suspicious price change for ${product.name}: ${previousPrice} -> ${normalizedPrice}`)
+          continue
+        }
+        const { error: updateError } = await database.from('offers').update({ cash_price: normalizedPrice }).eq('id', offer.id)
         if (updateError) throw updateError
         const { error: historyError } = await database.from('price_history').insert({
           product_id: product.id,
           offer_id: offer.id,
-          cash_price: price,
+          cash_price: normalizedPrice,
           source: 'price_token_normalization',
         })
         if (historyError) throw historyError
-        console.log(`${product.name}: ${previousPrice} -> ${price}`)
+        console.log(`${product.name}: ${previousPrice} -> ${normalizedPrice}`)
         fixed++
       }
     }

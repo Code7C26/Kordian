@@ -1,5 +1,6 @@
 const { createCommonProduct, createImporterContract, getCommonInvalidReason, isValidCommonProduct } = require('./importerContract')
 const { parseHtmlProductDetails } = require('./htmlProductParser')
+const { normalizeNumericValue } = require('../priceNormalization')
 const fs = require('fs')
 const path = require('path')
 
@@ -32,9 +33,21 @@ function normalizeMamiSourceUrl(url = '') {
 function normalizeMamiProduct(item = {}) {
   const source = 'mami'
   const raw = { ...item, source }
+  const price = Number(raw.price)
+  if (Number.isFinite(price) && price > 0 && price < 100) {
+    raw.price = Number((price * 1000).toFixed(2))
+  }
   if (raw.sourceUrl) raw.sourceUrl = normalizeMamiSourceUrl(raw.sourceUrl)
   if (raw.url) raw.sourceUrl = normalizeMamiSourceUrl(raw.url)
   return createCommonProduct(raw, source)
+}
+
+function extractVisibleMamiPrice(html = '') {
+  const priceBlock = String(html).match(/<div\b[^>]*class=["'][^"']*\bprecio-unidad\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]
+  if (!priceBlock) return null
+  const rawPrice = priceBlock.replace(/<[^>]*>/g, ' ').match(/\$\s*([0-9][0-9.,]*)/)?.[1]
+  if (!rawPrice) return null
+  return normalizeNumericValue(rawPrice)
 }
 
 function getMamiInvalidReason(product = {}) {
@@ -352,8 +365,10 @@ function extractMamiProductProfile(html = '') {
   const itemBrand = text.match(/"item_brand":"([^"]+)"/)?.[1] || text.match(/"brand":"([^"]+)"/)?.[1] || ''
   if (itemBrand) profile.brand = itemBrand
 
-  const eventPrice = text.match(/"price":\s*([0-9.,]+)/)?.[1]
-  if (eventPrice) profile.price = Number(String(eventPrice).replace(/[^0-9.]/g, ''))
+  const visiblePrice = extractVisibleMamiPrice(text)
+  const eventPrice = text.match(/"price":\s*["']?([0-9.,]+)/)?.[1]
+  if (visiblePrice > 0) profile.price = visiblePrice
+  else if (eventPrice) profile.price = Number(String(eventPrice).replace(/[^0-9.,]/g, '').replace(',', '.'))
 
   const productId = text.match(/productId\s*:\s*"prod([0-9]+)"|productId\s*=\s*"prod([0-9]+)"|idProductoSelected[^\n]*value="prod([0-9]+)"/i)?.slice(1).find(Boolean)
   if (productId) profile.sourceProductId = `prod${productId}`
@@ -539,8 +554,15 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
   }
 }
 
-async function fetchMamiProductById() {
-  return null
+async function fetchMamiProductById(sourceProductId, sourceUrl) {
+  const url = normalizeMamiSourceUrl(sourceUrl)
+  if (!url || !url.startsWith('https://www.supermami.com.ar/super/producto/')) return null
+  const html = await fetchMamiHtml(url)
+  if (!html.trim()) return null
+  const report = extractMamiDetailProductsFromHtml(html, url)
+  const expectedId = stableSourceProductId(sourceProductId)
+  const product = report.find((candidate) => stableSourceProductId(candidate.sourceProductId) === expectedId)
+  return product ? { ...product, priceEvidence: extractVisibleMamiPrice(html) > 0 ? 'visible_page' : 'structured_data' } : null
 }
 
 function classifyMamiTaxonomy(product = {}) {
@@ -603,6 +625,9 @@ module.exports = {
     findMatches: findMamiPreviewMatches,
   }),
   extractMamiDetailProductsFromHtml,
+  extractMamiProductProfile,
+  extractVisibleMamiPrice,
+  fetchMamiProductById,
   extractMamiCategoryRoutes,
   extractMamiProductRoutes,
   fetchMamiCategoryReport,
