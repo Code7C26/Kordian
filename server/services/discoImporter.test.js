@@ -40,6 +40,16 @@ test('uses VTEX Price instead of a token 100 times higher for a durable product'
   assert.equal(product.price, 8613)
 })
 
+test('uses the raw Disco price when PriceToken stores the value at 100x scale', () => {
+  const product = productWithPrice({
+    name: 'Bolsas Para Horno Mostaza Y Miel 30 Grs Alicante',
+    price: 2700,
+    tokenPrice: 270000,
+  })
+
+  assert.equal(product.price, 2700)
+})
+
 test('uses the token to corroborate a 100x scale correction only for a low raw price', () => {
   const product = productWithPrice({
     name: 'Gaseosa Cola 1.25 L',

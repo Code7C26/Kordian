@@ -1,4 +1,5 @@
 const { fetchDiscoProductById } = require('./discoImporter')
+const { isDiscoScaleCorrection } = require('../priceNormalization')
 
 let activeSync = null
 
@@ -81,9 +82,7 @@ async function runDiscoPriceSync({
     if (previousPrice === currentPrice) {
       return { status: 'unchanged', productId: product.id, name: product.name }
     }
-    const isScaleCorrection = previousPrice > currentPrice
-      && previousPrice / currentPrice >= 95
-      && previousPrice / currentPrice <= 105
+    const isScaleCorrection = isDiscoScaleCorrection(previousPrice, currentPrice)
     const changeRatio = previousPrice > 0
       ? Math.max(previousPrice, currentPrice) / Math.min(previousPrice, currentPrice)
       : 1

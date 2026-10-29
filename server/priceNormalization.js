@@ -69,4 +69,12 @@ function normalizeDiscoStoredPrice(value, source) {
   return source === 'disco' ? Number((price * 100).toFixed(2)) : price
 }
 
-module.exports = { parsePrice, normalizeNumericValue, normalizeDiscoStoredPrice }
+function isDiscoScaleCorrection(previousPrice, currentPrice) {
+  const previous = Number(previousPrice)
+  const current = Number(currentPrice)
+  if (!Number.isFinite(previous) || !Number.isFinite(current) || previous <= current || current <= 0) return false
+  const ratio = previous / current
+  return ratio >= 90 && ratio <= 110
+}
+
+module.exports = { parsePrice, normalizeNumericValue, normalizeDiscoStoredPrice, isDiscoScaleCorrection }

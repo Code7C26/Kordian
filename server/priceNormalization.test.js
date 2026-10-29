@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { parsePrice, normalizeNumericValue, normalizeDiscoStoredPrice } = require('./priceNormalization')
+const { parsePrice, normalizeNumericValue, normalizeDiscoStoredPrice, isDiscoScaleCorrection } = require('./priceNormalization')
 
 test('parsePrice handles decimal comma and thousand separators', () => {
   assert.equal(parsePrice('1.234,56'), 1234.56)
@@ -21,6 +21,14 @@ test('normalizeDiscoStoredPrice repairs low-scale historical offers', () => {
   assert.equal(normalizeDiscoStoredPrice(5.37, 'disco'), 537)
   assert.equal(normalizeDiscoStoredPrice(150, 'disco'), 150)
   assert.equal(normalizeDiscoStoredPrice(1.29, 'manual'), 1.29)
+})
+
+test('recognizes Disco scale corrections despite moderate price drift', () => {
+  assert.equal(isDiscoScaleCorrection(861300, 8613), true)
+  assert.equal(isDiscoScaleCorrection(285000, 2700), true)
+  assert.equal(isDiscoScaleCorrection(2700, 285000), false)
+  assert.equal(isDiscoScaleCorrection(222000, 2000), false)
+  assert.equal(isDiscoScaleCorrection(1000, 0), false)
 })
 
 test('normalizes Mami prices below one hundred from thousands of pesos', () => {
