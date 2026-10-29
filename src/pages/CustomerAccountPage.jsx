@@ -125,17 +125,19 @@ export default function CustomerAccountPage({ section = 'profile' }) {
     }
   }
 
-  const deleteActivityNotification = async (notification) => {
+  const dismissActivityNotification = async (notification) => {
     setProcessingNotificationId(notification.id)
     setNotificationsError('')
+    setNotificationsNotice('')
     try {
       await requestCustomerAccount(
-        `/customer/notifications/${encodeURIComponent(notification.id)}`,
+        `/customer/notifications/${encodeURIComponent(notification.id)}/read`,
         accessToken,
-        { method: 'DELETE' },
+        { method: 'POST' },
       )
       setNotifications((current) => current.filter((item) => item.id !== notification.id))
       refreshNotifications().catch((error) => console.error('Customer notifications could not be refreshed', error))
+      setNotificationsNotice(t('Notificación eliminada.'))
     } catch (error) {
       setNotificationsError(error.message || 'No se pudo eliminar la notificación.')
     } finally {
@@ -282,14 +284,13 @@ export default function CustomerAccountPage({ section = 'profile' }) {
                           </Link>
                           <button
                             type="button"
-                            onClick={() => deleteActivityNotification(notification)}
+                            onClick={() => dismissActivityNotification(notification)}
                             disabled={Boolean(processingNotificationId)}
                             aria-label={`${t('Eliminar notificación')} ${notification.listName}`}
                             title={t('Eliminar notificación')}
-                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-rose-300 p-0 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/40"
                           >
                             {processingNotificationId === notification.id ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
-                            {t('Eliminar')}
                           </button>
                         </div>
                       ) : (

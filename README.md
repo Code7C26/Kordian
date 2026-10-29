@@ -35,6 +35,19 @@ Incluye:
 - Sistema de alertas y favoritos
 - Base para actualización automática de precios
 
+## Crear la APK para Android
+
+Se necesita Node.js, Java 21 y Android SDK con Android SDK Platform 36.
+
+1. Instalar las dependencias del proyecto con `npm ci`.
+2. Ejecutar `npm run android:build` desde la carpeta raíz.
+3. La APK de depuración se genera en
+   `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+Para abrir el proyecto nativo en Android Studio, ejecutar `npm run android:sync`
+y luego `npm run android:open`. Para cambios posteriores en la aplicación web,
+volver a ejecutar `npm run android:build` antes de instalar la APK.
+
 ## Despliegue del backend en Render
 
 El archivo `render.yaml` configura la API como Render Blueprint. Al crear el
