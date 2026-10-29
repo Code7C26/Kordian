@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const app = express()
 const { normalizeOptionalReference } = require('./productFields')
+const { normalizeDiscoStoredPrice } = require('./priceNormalization')
 
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
@@ -3101,36 +3102,89 @@ app.get('/customer/users', requireCustomerAuth, async (req, res) => {
 
 app.get('/customer/notifications', requireCustomerAuth, async (req, res) => {
   try {
-    const { data: invitations, error: invitationsError } = await analysisWriter
-      .from('shared_shopping_list_invitations')
-      .select('id, list_id, inviter_user_id, created_at')
-      .eq('invitee_user_id', req.customerUser.id)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
+    const [{ data: invitations, error: invitationsError }, { data: activities, error: activitiesError }] = await Promise.all([
+      analysisWriter
+        .from('shared_shopping_list_invitations')
+        .select('id, list_id, inviter_user_id, created_at')
+        .eq('invitee_user_id', req.customerUser.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false }),
+      analysisWriter
+        .from('shared_shopping_list_activity_notifications')
+        .select('id, list_id, list_name, actor_user_id, action, item_name, created_at')
+        .eq('recipient_user_id', req.customerUser.id)
+        .is('read_at', null)
+        .order('created_at', { ascending: false }),
+    ])
     if (invitationsError) throw invitationsError
-    if (!invitations?.length) return res.json([])
+    if (activitiesError) throw activitiesError
 
-    const listIds = [...new Set(invitations.map((invitation) => invitation.list_id))]
-    const inviterIds = [...new Set(invitations.map((invitation) => invitation.inviter_user_id))]
+    const pendingInvitations = invitations || []
+    const pendingActivities = activities || []
+    if (!pendingInvitations.length && !pendingActivities.length) return res.json([])
+
+    const inviterIds = [...new Set(pendingInvitations.map((invitation) => invitation.inviter_user_id))]
+    const actorIds = [...new Set(pendingActivities.map((activity) => activity.actor_user_id))]
+    const listIds = [...new Set(pendingInvitations.map((invitation) => invitation.list_id))]
     const [{ data: lists, error: listsError }, { data: profiles, error: profilesError }] = await Promise.all([
-      analysisWriter.from('shared_shopping_lists').select('id, name').in('id', listIds),
-      analysisWriter.from('customer_profiles').select('user_id, username').in('user_id', inviterIds),
+      listIds.length
+        ? analysisWriter.from('shared_shopping_lists').select('id, name').in('id', listIds)
+        : Promise.resolve({ data: [], error: null }),
+      [...new Set([...inviterIds, ...actorIds])].length
+        ? analysisWriter.from('customer_profiles').select('user_id, username').in('user_id', [...new Set([...inviterIds, ...actorIds])])
+        : Promise.resolve({ data: [], error: null }),
     ])
     if (listsError) throw listsError
     if (profilesError) throw profilesError
 
     const listNames = new Map((lists || []).map((list) => [list.id, list.name]))
     const usernames = new Map((profiles || []).map((profile) => [profile.user_id, profile.username]))
-    return res.json(invitations.map((invitation) => ({
-      id: invitation.id,
-      listId: invitation.list_id,
-      listName: listNames.get(invitation.list_id) || 'Lista compartida',
-      inviterUsername: usernames.get(invitation.inviter_user_id) || 'Usuario',
-      createdAt: invitation.created_at,
-    })))
+    return res.json([
+      ...pendingInvitations.map((invitation) => ({
+        id: invitation.id,
+        type: 'invitation',
+        listId: invitation.list_id,
+        listName: listNames.get(invitation.list_id) || 'Lista compartida',
+        inviterUsername: usernames.get(invitation.inviter_user_id) || 'Usuario',
+        createdAt: invitation.created_at,
+      })),
+      ...pendingActivities.map((activity) => ({
+        id: activity.id,
+        type: 'activity',
+        listId: activity.list_id,
+        listName: activity.list_name,
+        actorUsername: usernames.get(activity.actor_user_id) || 'Usuario',
+        action: activity.action,
+        itemName: activity.item_name,
+        createdAt: activity.created_at,
+      })),
+    ].sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt)))
   } catch (error) {
     console.error('Customer notifications fetch failed', error)
     return res.status(503).json({ error: 'No se pudieron cargar las notificaciones.' })
+  }
+})
+
+app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, async (req, res) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
+    return res.status(400).json({ error: 'La notificación no es válida.' })
+  }
+
+  try {
+    const { data, error } = await analysisWriter
+      .from('shared_shopping_list_activity_notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('id', req.params.notificationId)
+      .eq('recipient_user_id', req.customerUser.id)
+      .is('read_at', null)
+      .select('id')
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'La notificación ya no está disponible.' })
+    return res.json({ success: true })
+  } catch (error) {
+    console.error('Shared-list notification read failed', error)
+    return res.status(503).json({ error: 'No se pudo marcar la notificación como leída.' })
   }
 })
 
@@ -3175,6 +3229,7 @@ app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, 
       }
     }
 
+    const existingMembership = await isSharedListMember(invitation.list_id, req.customerUser.id)
     const { error: membershipError } = await analysisWriter
       .from('shared_shopping_list_members')
       .upsert(
@@ -3191,6 +3246,9 @@ app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, 
     if (listError) throw listError
     if (!list) {
       return res.status(404).json({ error: 'La lista compartida ya no está disponible.' })
+    }
+    if (!existingMembership) {
+      await notifySharedListActivitySafely(invitation.list_id, req.customerUser.id, 'member_joined')
     }
     return res.json(list)
   } catch (error) {
@@ -3865,6 +3923,42 @@ async function isSharedListMember(listId, userId) {
   return data
 }
 
+async function notifySharedListActivity(listId, actorUserId, action, itemName = null, additionalRecipientIds = []) {
+  const [{ data: list, error: listError }, { data: members, error: membersError }] = await Promise.all([
+    analysisWriter.from('shared_shopping_lists').select('name').eq('id', listId).maybeSingle(),
+    analysisWriter.from('shared_shopping_list_members').select('user_id').eq('list_id', listId),
+  ])
+  if (listError) throw listError
+  if (membersError) throw membersError
+  if (!list) return
+
+  const recipientIds = [...new Set([
+    ...(members || []).map((member) => member.user_id),
+    ...additionalRecipientIds,
+  ])].filter(Boolean)
+  if (!recipientIds.length) return
+
+  const { error } = await analysisWriter
+    .from('shared_shopping_list_activity_notifications')
+    .insert(recipientIds.map((recipientUserId) => ({
+      list_id: listId,
+      list_name: list.name,
+      recipient_user_id: recipientUserId,
+      actor_user_id: actorUserId,
+      action,
+      item_name: itemName,
+    })))
+  if (error) throw error
+}
+
+async function notifySharedListActivitySafely(listId, actorUserId, action, itemName = null, additionalRecipientIds = []) {
+  try {
+    await notifySharedListActivity(listId, actorUserId, action, itemName, additionalRecipientIds)
+  } catch (error) {
+    console.error('Shared-list activity notification creation failed', { listId, action, error })
+  }
+}
+
 app.post('/shared-lists/:listId/invitations', requireCustomerAuth, async (req, res) => {
   const recipientUserId = String(req.body?.userId || '')
   const username = String(req.body?.username || '').trim().toLowerCase()
@@ -3999,6 +4093,7 @@ app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
     if (listError) throw listError
     if (!list) return res.status(404).json({ error: 'No se encontró una lista con esa invitación.' })
 
+    const existingMembership = await isSharedListMember(list.id, req.customerUser.id)
     const { error: membershipError } = await analysisWriter
       .from('shared_shopping_list_members')
       .upsert(
@@ -4006,6 +4101,9 @@ app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
         { onConflict: 'list_id,user_id', ignoreDuplicates: true },
       )
     if (membershipError) throw membershipError
+    if (!existingMembership) {
+      await notifySharedListActivitySafely(list.id, req.customerUser.id, 'member_joined')
+    }
     return res.json(list)
   } catch (error) {
     console.error('Joining shared list failed', error)
@@ -4032,6 +4130,74 @@ app.delete('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
   } catch (error) {
     console.error('Shared-list deletion failed', error)
     return res.status(503).json({ error: 'No se pudo eliminar la lista.' })
+  }
+})
+
+app.delete('/shared-lists/:listId/members/:userId', requireCustomerAuth, async (req, res) => {
+  const targetUserId = String(req.params.userId || '')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetUserId)) {
+    return res.status(400).json({ error: 'El usuario seleccionado no es válido.' })
+  }
+  if (targetUserId === req.customerUser.id) {
+    return res.status(400).json({ error: 'Usa la opción de abandonar la lista para salir.' })
+  }
+
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+    if (membership.role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el creador puede quitar participantes.' })
+    }
+
+    const { data: targetMembership, error: targetError } = await analysisWriter
+      .from('shared_shopping_list_members')
+      .select('role')
+      .eq('list_id', req.params.listId)
+      .eq('user_id', targetUserId)
+      .maybeSingle()
+    if (targetError) throw targetError
+    if (!targetMembership) return res.status(404).json({ error: 'Ese usuario ya no participa en la lista.' })
+    if (targetMembership.role === 'owner') {
+      return res.status(400).json({ error: 'El creador debe abandonar la lista para transferir la propiedad.' })
+    }
+
+    const { error } = await analysisWriter
+      .from('shared_shopping_list_members')
+      .delete()
+      .eq('list_id', req.params.listId)
+      .eq('user_id', targetUserId)
+      .eq('role', 'member')
+    if (error) throw error
+    await notifySharedListActivitySafely(req.params.listId, req.customerUser.id, 'member_removed', null, [targetUserId])
+    return res.status(204).end()
+  } catch (error) {
+    console.error('Shared-list member removal failed', error)
+    return res.status(503).json({ error: 'No se pudo quitar al participante de la lista.' })
+  }
+})
+
+app.post('/shared-lists/:listId/leave', requireCustomerAuth, async (req, res) => {
+  try {
+    const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
+    if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+
+    const { data, error } = await analysisWriter.rpc('leave_shared_shopping_list', {
+      list_id_input: req.params.listId,
+      leaving_user_id_input: req.customerUser.id,
+    })
+    if (error) throw error
+    const result = Array.isArray(data) ? data[0] : data
+    if (!result) throw new Error('Shared-list leave operation returned no result')
+    if (!result.list_deleted) {
+      await notifySharedListActivitySafely(req.params.listId, req.customerUser.id, 'member_left', null, [req.customerUser.id])
+    }
+    return res.json({
+      listDeleted: result.list_deleted,
+      transferredToUserId: result.transferred_to_user_id,
+    })
+  } catch (error) {
+    console.error('Leaving shared list failed', error)
+    return res.status(503).json({ error: 'No se pudo abandonar la lista. Verifica que la migración de administración de participantes esté aplicada.' })
   }
 })
 
@@ -4062,15 +4228,105 @@ app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
     if (membersError) throw membersError
     if (!list) return res.status(404).json({ error: 'No se encontró la lista.' })
 
-    const memberUserIds = (members || []).map((member) => member.user_id)
-    const { data: profiles, error: profilesError } = memberUserIds.length
-      ? await analysisWriter
-        .from('customer_profiles')
-        .select('user_id, username')
-        .in('user_id', memberUserIds)
-      : { data: [], error: null }
+    const profileUserIds = [...new Set([
+      ...(members || []).map((member) => member.user_id),
+      ...(items || []).map((item) => item.added_by).filter(Boolean),
+    ])]
+    const productIds = [...new Set((items || [])
+      .map((item) => item.product_id)
+      .filter((productId) => productId !== null && productId !== undefined)
+      .map(String))]
+    const productNames = [...new Map((items || [])
+      .filter((item) => item.product_id === null || item.product_id === undefined)
+      .map((item) => item.item_name.trim())
+      .filter(Boolean)
+      .map((name) => [normalizeProductName(name), name])).values()]
+    const productSelect = 'id, name, image, source, offers(supermarket, cash_price)'
+    const [profilesResult, productsByIdResult, productsByNameResults] = await Promise.all([
+      profileUserIds.length
+        ? analysisWriter
+          .from('customer_profiles')
+          .select('user_id, username')
+          .in('user_id', profileUserIds)
+        : Promise.resolve({ data: [], error: null }),
+      productIds.length
+        ? analysisWriter.from('products').select(productSelect).in('id', productIds)
+        : Promise.resolve({ data: [], error: null }),
+      Promise.all(productNames.map((name) => {
+        const searchName = name.replace(/[%_*]/g, '').trim()
+        return searchName
+          ? analysisWriter
+            .from('products')
+            .select(productSelect)
+            .ilike('name', `%${searchName}%`)
+            .limit(20)
+          : Promise.resolve({ data: [], error: null })
+      })),
+    ])
+    const { data: profiles, error: profilesError } = profilesResult
     if (profilesError) throw profilesError
     const usernameByUserId = new Map((profiles || []).map((profile) => [profile.user_id, profile.username]))
+    if (productsByIdResult.error) throw productsByIdResult.error
+    const productsByName = new Map()
+    productsByNameResults.forEach((result, index) => {
+      if (result.error) throw result.error
+      productsByName.set(normalizeProductName(productNames[index]), result.data || [])
+    })
+    const products = [...new Map(
+      [...(productsByIdResult.data || []), ...productsByNameResults.flatMap((result) => result.data || [])]
+        .map((product) => [String(product.id), product]),
+    ).values()]
+
+    const supermarketNames = [...new Set((products || [])
+      .flatMap((product) => (product.offers || []).map((offer) => offer.supermarket))
+      .filter(Boolean))]
+    const { data: supermarkets, error: supermarketsError } = supermarketNames.length
+      ? await analysisWriter.from('supermarkets').select('name, image').in('name', supermarketNames)
+      : { data: [], error: null }
+    if (supermarketsError) throw supermarketsError
+
+    const supermarketImages = new Map((supermarkets || []).map((supermarket) => [supermarket.name, supermarket.image]))
+    const productDetails = (products || []).map((product) => {
+      const offers = (product.offers || [])
+        .map((offer) => ({
+          supermarket: offer.supermarket,
+          price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
+        }))
+        .filter((offer) => Number.isFinite(offer.price) && offer.price > 0)
+        .sort((left, right) => left.price - right.price)
+      const lowestOffer = offers[0]
+      return {
+        id: product.id,
+        name: product.name,
+        image: product.image,
+        currentPrice: lowestOffer?.price ?? null,
+        supermarket: lowestOffer?.supermarket || null,
+        supermarketImage: lowestOffer ? supermarketImages.get(lowestOffer.supermarket) || null : null,
+      }
+    })
+    const productById = new Map(productDetails.map((product) => [String(product.id), product]))
+    const productsByNormalizedName = new Map()
+    for (const product of productDetails) {
+      const key = normalizeProductName(product.name)
+      const matches = productsByNormalizedName.get(key) || []
+      matches.push(product)
+      productsByNormalizedName.set(key, matches)
+    }
+    const findProductByName = (name) => {
+      const normalizedName = normalizeProductName(name)
+      const exactMatches = productsByNormalizedName.get(normalizedName) || []
+      if (exactMatches.length === 1) return exactMatches[0]
+      if (exactMatches.length > 1) return null
+
+      const candidates = (productsByName.get(normalizedName) || [])
+        .map((product) => productById.get(String(product.id)))
+        .filter((product) => product && (
+          normalizeProductName(product.name).includes(normalizedName)
+          || normalizedName.includes(normalizeProductName(product.name))
+        ))
+      const uniqueCandidates = [...new Map(candidates.map((product) => [String(product.id), product])).values()]
+      return uniqueCandidates.length === 1 ? uniqueCandidates[0] : null
+    }
 
     return res.json({
       ...list,
@@ -4082,7 +4338,14 @@ app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
         role: member.role,
         joined_at: member.joined_at,
       })),
-      items: items || [],
+      items: (items || []).map((item) => ({
+        ...item,
+        added_by_username: usernameByUserId.get(item.added_by) || null,
+        product: item.product_id
+          ? productById.get(String(item.product_id))
+            || findProductByName(item.item_name)
+          : findProductByName(item.item_name),
+      })),
     })
   } catch (error) {
     console.error('Shared-list detail fetch failed', error)
@@ -4093,6 +4356,14 @@ app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
 app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) => {
   const itemName = String(req.body?.itemName || '').trim()
   const quantity = Number(req.body?.quantity ?? 1)
+  const productId = req.body?.productId === undefined || req.body?.productId === null
+    ? null
+    : String(req.body.productId).trim()
+  const isValidProductId = productId === null
+    || (/^[1-9]\d{0,18}$/.test(productId) && BigInt(productId) <= 9223372036854775807n)
+  if (!isValidProductId) {
+    return res.status(400).json({ error: 'El producto seleccionado no es válido.' })
+  }
   if (!itemName || itemName.length > 160 || !Number.isFinite(quantity) || quantity <= 0 || quantity > 999) {
     return res.status(400).json({ error: 'Ingresa un artículo y una cantidad válida (máximo 999).' })
   }
@@ -4104,6 +4375,7 @@ app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) =>
       .from('shared_shopping_list_items')
       .insert({
         list_id: req.params.listId,
+        product_id: productId,
         item_name: itemName,
         quantity,
         added_by: req.customerUser.id,
@@ -4111,6 +4383,7 @@ app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) =>
       .select('id, product_id, item_name, quantity, is_checked, added_by, created_at')
       .single()
     if (error) throw error
+    await notifySharedListActivitySafely(req.params.listId, req.customerUser.id, 'item_added', data.item_name)
     return res.status(201).json(data)
   } catch (error) {
     console.error('Shared-list item creation failed', error)
@@ -4149,6 +4422,7 @@ app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req
       .maybeSingle()
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'No se encontró el artículo.' })
+    await notifySharedListActivitySafely(req.params.listId, req.customerUser.id, 'item_updated', data.item_name)
     return res.json(data)
   } catch (error) {
     console.error('Shared-list item update failed', error)
@@ -4160,6 +4434,14 @@ app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (re
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+    const { data: item, error: itemError } = await analysisWriter
+      .from('shared_shopping_list_items')
+      .select('item_name')
+      .eq('id', req.params.itemId)
+      .eq('list_id', req.params.listId)
+      .maybeSingle()
+    if (itemError) throw itemError
+    if (!item) return res.status(404).json({ error: 'No se encontró el artículo.' })
     const { error, count } = await analysisWriter
       .from('shared_shopping_list_items')
       .delete({ count: 'exact' })
@@ -4167,6 +4449,7 @@ app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (re
       .eq('list_id', req.params.listId)
     if (error) throw error
     if (!count) return res.status(404).json({ error: 'No se encontró el artículo.' })
+    await notifySharedListActivitySafely(req.params.listId, req.customerUser.id, 'item_removed', item.item_name)
     return res.status(204).end()
   } catch (error) {
     console.error('Shared-list item deletion failed', error)
