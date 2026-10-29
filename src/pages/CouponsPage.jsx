@@ -3,11 +3,11 @@ import { ArrowLeft, ArrowRight, BadgePercent, Check, Clock3, Tag } from 'lucide-
 import { useLanguage } from '../contexts/LanguageContext.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
 import carrefourLogo from '../assets/supermarkets/carrefour.svg'
-import discoLogo from '../assets/supermarkets/disco-logo.svg'
+import discoLogo from '../assets/supermarkets/disco-logo.png'
 
 const promotions = [
   { store: 'Carrefour', type: 'Descuento en seleccionados', value: 'Hasta 30%', color: 'from-sky-600 to-blue-700', logo: carrefourLogo, logoBackground: 'bg-white', tag: 'Destacado' },
-  { store: 'Disco', type: 'Beneficio en tu compra', value: '20% OFF', color: 'from-rose-500 to-red-600', logo: discoLogo, logoBackground: 'bg-slate-950', tag: 'Por tiempo limitado' },
+  { store: 'Disco', type: 'Beneficio en tu compra', value: '20% OFF', color: 'from-rose-500 to-red-600', logo: discoLogo, logoBackground: 'bg-white', tag: 'Por tiempo limitado' },
 ]
 
 export default function CouponsPage() {

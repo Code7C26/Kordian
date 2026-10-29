@@ -3221,7 +3221,6 @@ app.get('/customer/notifications', requireCustomerAuth, async (req, res) => {
 })
 
 app.delete('/customer/notifications/:notificationId', requireCustomerAuth, async (req, res) => {
-app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La notificación no es válida.' })
   }
@@ -3232,10 +3231,6 @@ app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, as
       .delete()
       .eq('id', req.params.notificationId)
       .eq('recipient_user_id', req.customerUser.id)
-      .update({ read_at: new Date().toISOString() })
-      .eq('id', req.params.notificationId)
-      .eq('recipient_user_id', req.customerUser.id)
-      .is('read_at', null)
       .select('id')
       .maybeSingle()
     if (error) throw error
@@ -3244,6 +3239,24 @@ app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, as
   } catch (error) {
     console.error('Shared-list notification deletion failed', error)
     return res.status(503).json({ error: 'No se pudo eliminar la notificación.' })
+  }
+})
+
+app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, async (req, res) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
+    return res.status(400).json({ error: 'La notificación no es válida.' })
+  }
+
+  try {
+    const { data, error } = await analysisWriter
+      .from('shared_shopping_list_activity_notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('id', req.params.notificationId)
+      .eq('recipient_user_id', req.customerUser.id)
+      .select('id')
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'La notificación ya no está disponible.' })
     return res.json({ success: true })
   } catch (error) {
     console.error('Shared-list notification read failed', error)
@@ -4001,7 +4014,6 @@ async function notifySharedListActivity(listId, actorUserId, action, itemName = 
   ])].filter((recipientUserId) => (
     recipientUserId && String(recipientUserId) !== String(actorUserId)
   ))
-  ])].filter(Boolean)
   if (!recipientIds.length) return
 
   const { error } = await analysisWriter
