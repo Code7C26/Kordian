@@ -234,6 +234,12 @@ Ejecutar `20261028_shared_list_member_management.sql` para habilitar la salida d
 
 Ejecutar también `20261028_shared_list_activity_notifications.sql` para guardar notificaciones de actividad. Los demás participantes reciben avisos cuando alguien agrega, actualiza o quita un producto, se une, abandona la lista o es quitado por el creador. Las notificaciones aparecen en “Notificaciones” y se pueden marcar como leídas.
 
+Para enviar una notificación push al celular Android cuando otro participante agrega un producto, ejecutar `20261102_shared_list_push_tokens.sql`. Configurar Firebase Cloud Messaging:
+
+1. Crear una app Android en Firebase con el identificador `com.Arprice.app` y colocar su `google-services.json` en `android/app/` antes de compilar la APK.
+2. En Firebase, crear una cuenta de servicio con permiso para enviar mensajes de Firebase Cloud Messaging. Configurar su JSON como variable privada `FIREBASE_SERVICE_ACCOUNT_JSON` en Render; no subir la clave de servicio al repositorio ni al frontend. Alternativamente, usar Application Default Credentials mediante `GOOGLE_APPLICATION_CREDENTIALS`.
+3. Desplegar el backend y compilar/instalar nuevamente la app. El usuario debe iniciar sesión y aceptar el permiso de notificaciones. El backend envía push únicamente a tokens Android registrados y solo para productos agregados; las notificaciones web existentes no cambian.
+
 ## Catálogo gestionado por comercios
 
 Ejecutar `20261020_business_catalog_management.sql` después de crear `customer_profiles` y `supermarkets`. Desde el panel administrativo, la pestaña “Comercios” permite habilitar una cuenta comercial y asignarle un supermercado. El panel comercial solo puede publicar, actualizar o quitar las ofertas de ese supermercado; no puede modificar los productos ni las ofertas de otros comercios. El backend requiere `SUPABASE_SERVICE_ROLE_KEY` como variable privada del servidor.

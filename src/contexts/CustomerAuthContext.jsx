@@ -1,4 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { LocalNotifications } from '@capacitor/local-notifications'
+import { PushNotifications } from '@capacitor/push-notifications'
 import { apiUrl } from '../config/api.js'
 import { useLanguage } from './LanguageContext.jsx'
 
@@ -49,7 +52,7 @@ async function requestCustomerJson(path, accessToken, options = {}) {
   const response = await fetch(apiUrl(path), { ...options, headers })
   const payload = await response.json().catch(() => ({}))
   if (response.status === 404) {
-    throw new Error('El servidor todavía no tiene activada la función de favoritos. Actualiza el backend.')
+    throw new Error('El servidor todavía no tiene activada esta función. Actualiza el backend.')
   }
   if (!response.ok) throw new Error(payload.error || 'No se pudo completar la solicitud.')
   return payload
@@ -66,6 +69,7 @@ export function CustomerAuthProvider({ children }) {
   const [favoritesLoading, setFavoritesLoading] = useState(false)
   const [favoritesError, setFavoritesError] = useState('')
   const [pendingNotificationCount, setPendingNotificationCount] = useState(0)
+  const pushTokenRef = useRef('')
 
   useEffect(() => {
     if (!logoutNotice) return undefined
@@ -202,6 +206,83 @@ export function CustomerAuthProvider({ children }) {
     }
   }, [session?.access_token])
 
+  useEffect(() => {
+    if (!session?.access_token || Capacitor.getPlatform() !== 'android') return undefined
+
+    let active = true
+    const listeners = []
+    const addListener = async (plugin, eventName, callback) => {
+      const listener = await plugin.addListener(eventName, callback)
+      if (active) listeners.push(listener)
+      else await listener.remove()
+    }
+
+    const initializePushNotifications = async () => {
+      await addListener(PushNotifications, 'registration', async ({ value }) => {
+        if (!active) return
+        pushTokenRef.current = value
+        try {
+          await requestCustomerJson('/customer/push-token', session.access_token, {
+            method: 'POST',
+            body: JSON.stringify({ token: value }),
+          })
+        } catch (error) {
+          console.error('Android push token could not be registered', error)
+        }
+      })
+      await addListener(PushNotifications, 'registrationError', (error) => {
+        console.error('Android push registration failed', error)
+      })
+      await addListener(PushNotifications, 'pushNotificationReceived', async (notification) => {
+        if (!active || notification.data?.type !== 'shared_list_item_added') return
+        try {
+          const permission = await LocalNotifications.checkPermissions()
+          if (permission.display !== 'granted') return
+          await LocalNotifications.schedule({
+            notifications: [{
+              id: Math.floor(Math.random() * 2_147_483_647),
+              title: notification.title || 'Lista compartida',
+              body: notification.body || '',
+              channelId: 'shared-list-activity',
+              extra: notification.data,
+            }],
+          })
+        } catch (error) {
+          console.error('Android foreground push could not be displayed', error)
+        }
+      })
+
+      const pushPermission = await PushNotifications.checkPermissions()
+      const grantedPushPermission = pushPermission.receive === 'granted'
+        ? pushPermission
+        : await PushNotifications.requestPermissions()
+      if (!active || grantedPushPermission.receive !== 'granted') return
+
+      const localPermission = await LocalNotifications.checkPermissions()
+      const grantedLocalPermission = localPermission.display === 'granted'
+        ? localPermission
+        : await LocalNotifications.requestPermissions()
+      if (!active || grantedLocalPermission.display !== 'granted') return
+
+      await LocalNotifications.createChannel({
+        id: 'shared-list-activity',
+        name: 'Listas compartidas',
+        description: 'Productos agregados a tus listas compartidas',
+        importance: 5,
+      })
+      if (active) await PushNotifications.register()
+    }
+
+    initializePushNotifications().catch((error) => {
+      console.error('Android push notifications could not be initialized', error)
+    })
+
+    return () => {
+      active = false
+      listeners.forEach((listener) => listener.remove())
+    }
+  }, [session?.access_token, session?.user?.id])
+
   const toggleFavorite = async (productId) => {
     const normalizedId = String(productId)
     if (!session?.access_token) throw new Error('Inicia sesión para guardar favoritos en tu cuenta.')
@@ -284,6 +365,18 @@ export function CustomerAuthProvider({ children }) {
 
   const signOut = async ({ showNotice = true } = {}) => {
     const hadSession = Boolean(session)
+    const pushToken = pushTokenRef.current
+    if (session?.access_token && pushToken) {
+      try {
+        await requestCustomerJson('/customer/push-token', session.access_token, {
+          method: 'DELETE',
+          body: JSON.stringify({ token: pushToken }),
+        })
+      } catch (error) {
+        console.error('Android push token could not be removed at sign-out', error)
+      }
+    }
+    pushTokenRef.current = ''
     sessionStorage.removeItem(CUSTOMER_SESSION_KEY)
     setSession(null)
     setProfile(null)

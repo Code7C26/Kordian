@@ -48,6 +48,7 @@ const {
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
 const { getCustomerConfirmationRedirectUrl, getFrontendUrl } = require('./passwordRecoveryRedirect')
+const { sendSharedListItemAddedPushNotifications } = require('./services/sharedListPushNotifications')
 const { createProductTranslationService } = require('./services/productTranslation')
 const {
   PRICE_STATUS_RULES_VERSION,
@@ -3220,6 +3221,49 @@ app.get('/customer/notifications', requireCustomerAuth, async (req, res) => {
   }
 })
 
+app.post('/customer/push-token', requireCustomerAuth, async (req, res) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : ''
+  if (!token || token.length > 4096) {
+    return res.status(400).json({ error: 'El token de notificaciones no es válido.' })
+  }
+
+  try {
+    const { error } = await analysisWriter
+      .from('customer_push_tokens')
+      .upsert({
+        token,
+        user_id: req.customerUser.id,
+        platform: 'android',
+        updated_at: new Date().toISOString(),
+      })
+    if (error) throw error
+    return res.status(204).end()
+  } catch (error) {
+    console.error('Android push token registration failed', error)
+    return res.status(503).json({ error: 'No se pudo registrar el dispositivo para notificaciones.' })
+  }
+})
+
+app.delete('/customer/push-token', requireCustomerAuth, async (req, res) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : ''
+  if (!token || token.length > 4096) {
+    return res.status(400).json({ error: 'El token de notificaciones no es válido.' })
+  }
+
+  try {
+    const { error } = await analysisWriter
+      .from('customer_push_tokens')
+      .delete()
+      .eq('token', token)
+      .eq('user_id', req.customerUser.id)
+    if (error) throw error
+    return res.status(204).end()
+  } catch (error) {
+    console.error('Android push token removal failed', error)
+    return res.status(503).json({ error: 'No se pudo quitar el dispositivo de las notificaciones.' })
+  }
+})
+
 app.delete('/customer/notifications/:notificationId', requireCustomerAuth, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La notificación no es válida.' })
@@ -4027,6 +4071,21 @@ async function notifySharedListActivity(listId, actorUserId, action, itemName = 
       item_name: itemName,
     })))
   if (error) throw error
+
+  if (action === 'item_added') {
+    try {
+      await sendSharedListItemAddedPushNotifications({
+        adminClient: analysisWriter,
+        actorUserId,
+        itemName,
+        listId,
+        listName: list.name,
+        recipientUserIds: recipientIds,
+      })
+    } catch (pushError) {
+      console.error('Shared-list item-added push notification failed', { listId, pushError })
+    }
+  }
 }
 
 async function notifySharedListActivitySafely(listId, actorUserId, action, itemName = null, additionalRecipientIds = []) {
