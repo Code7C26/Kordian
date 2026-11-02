@@ -6,8 +6,13 @@ import { apiUrl } from '../config/api.js'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
 import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from '../services/catalogResponseCache.js'
-import { isValidCatalogProduct } from '../utils/validCatalogProducts.js'
-import { getSearchRelevance, matchesSearchTerms, normalizeSearchText } from '../utils/searchTerms.js'
+import { getSearchRelevance, normalizeSearchText } from '../utils/searchTerms.js'
+import {
+  attachSharedListSearchSupermarkets,
+  findSharedListCatalogProduct,
+  getSharedListFallbackSearchTerms,
+  normalizeSharedListSearchResults,
+} from '../utils/sharedListProductSearch.js'
 import { filterProductOffers } from '../utils/productOffers.js'
 import { ProductImage } from '../components/ProductImage.jsx'
 import { SupermarketLogo } from '../components/SupermarketLogo.jsx'
@@ -15,7 +20,7 @@ import { formatCurrency } from '../utils/formatters.js'
 
 const ITEM_SEARCH_LIMIT = 20
 const ITEM_SEARCH_MIN_LENGTH = 2
-const ITEM_SEARCH_DEBOUNCE_MS = 300
+const ITEM_SEARCH_DEBOUNCE_MS = 150
 
 function getProductOffers(product = {}) {
   const offers = Array.isArray(product.offers) ? product.offers : []
@@ -72,15 +77,13 @@ function getProductImage(product = {}) {
 
 function normalizeCatalogProducts(products) {
   return products
-    .map((product) => {
-      const currentPrice = getProductPrice(product)
-      return { ...product, currentPrice }
-    })
     .filter((product) => (
-      isValidCatalogProduct(product)
-      && Number.isFinite(product.currentPrice)
-      && product.currentPrice > 0
+      product
+      && typeof product === 'object'
+      && typeof product.name === 'string'
+      && product.name.trim()
     ))
+    .map((product) => ({ ...product, currentPrice: getProductPrice(product) }))
 }
 
 function normalizeCatalogLookupText(value) {
@@ -128,6 +131,7 @@ export default function SharedListsPage() {
   const [itemMenuOpen, setItemMenuOpen] = useState(false)
   const [highlightedItemIndex, setHighlightedItemIndex] = useState(0)
   const [quantity, setQuantity] = useState(1)
+  const [quantityDrafts, setQuantityDrafts] = useState({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -135,14 +139,17 @@ export default function SharedListsPage() {
   const itemSearchRef = useRef(null)
   const itemOptionRefs = useRef([])
   const [catalogProductsByItemId, setCatalogProductsByItemId] = useState({})
-  const [catalogLookupFailures, setCatalogLookupFailures] = useState({})
+  const [catalogLookupStatuses, setCatalogLookupStatuses] = useState({})
   const [catalogLookupRetryKey, setCatalogLookupRetryKey] = useState(0)
   const requestedItemLookups = useRef(new Set())
   const itemLookupKey = JSON.stringify((selectedList?.items || []).map((item) => ({
     id: item.id,
     productId: item.product_id,
-    productName: item.product?.name || '',
     itemName: item.item_name,
+    hasCatalogMatch: Boolean(item.product && (
+      (item.product_id && String(item.product.id) === String(item.product_id))
+      || normalizeCatalogLookupText(item.product.name) === normalizeCatalogLookupText(item.item_name)
+    )),
     hasImage: Boolean(getProductImage(item.product || {})),
     hasCurrentPrice: getProductPrice(item.product || {}) > 0,
     hasSupermarket: Boolean(getProductSupermarket(item.product || {})),
@@ -161,7 +168,8 @@ export default function SharedListsPage() {
   useEffect(() => {
     const itemsNeedingCatalogData = JSON.parse(itemLookupKey)
       .filter((item) => (
-        !item.hasImage
+        !item.hasCatalogMatch
+        || !item.hasImage
         || !item.hasCurrentPrice
         || !item.hasSupermarket
         || !item.hasSupermarketImage
@@ -185,16 +193,15 @@ export default function SharedListsPage() {
         if (requestedItemLookups.current.has(lookupKey)) return null
         requestedItemLookups.current.add(lookupKey)
 
-        const query = item.productName || item.itemName
+        const query = item.itemName
         const params = new URLSearchParams({
-          page: '1',
           limit: String(ITEM_SEARCH_LIMIT),
           search: query,
-          catalogOnly: 'false',
         })
         try {
           let matchedProduct = null
           let lookupError = null
+          let notFound = false
           for (let attempt = 0; attempt < 3; attempt += 1) {
             if (attempt > 0) {
               await new Promise((resolve) => window.setTimeout(resolve, attempt * 400))
@@ -203,24 +210,17 @@ export default function SharedListsPage() {
 
             try {
               const payload = await fetchCachedCatalogResponse(
-                apiUrl(`/products?${params.toString()}`),
+                apiUrl(`/products/search?${params.toString()}`),
                 { signal: controller.signal, timeoutMs: CATALOG_REQUEST_TIMEOUT_MS },
               )
               const results = Array.isArray(payload) ? payload : payload?.data || []
               const candidates = normalizeCatalogProducts(results)
-              matchedProduct = (item.productId
-                ? candidates.find((product) => String(product.id) === String(item.productId))
-                : null) || candidates
-                .filter((product) => matchesSearchTerms(
-                  normalizeCatalogLookupText(product.name),
-                  normalizeCatalogLookupText(query),
-                ))
-                .sort((left, right) => (
-                  getSearchRelevance(left.name, query) - getSearchRelevance(right.name, query)
-                  || normalizeSearchText(left.name).localeCompare(normalizeSearchText(right.name))
-                ))[0]
+              matchedProduct = findSharedListCatalogProduct(candidates, {
+                productId: item.productId,
+                itemName: query,
+              })
               if (!matchedProduct) {
-                lookupError = new Error('No se encontró el producto en el catálogo.')
+                notFound = true
                 break
               }
               lookupError = null
@@ -231,6 +231,7 @@ export default function SharedListsPage() {
             }
           }
           if (!matchedProduct) {
+            if (notFound) return { itemId: item.id, notFound: true }
             requestedItemLookups.current.delete(lookupKey)
             if (lookupError) {
               console.error(`Could not resolve shared-list item "${item.itemName}" from the catalog`, lookupError)
@@ -248,10 +249,10 @@ export default function SharedListsPage() {
       })
       const applyCatalogResult = async (detail) => {
         if (!active || !detail) return
-        setCatalogLookupFailures((current) => {
+        setCatalogLookupStatuses((current) => {
           const next = { ...current }
           if (detail.product) delete next[detail.itemId]
-          else next[detail.itemId] = true
+          else next[detail.itemId] = detail.notFound ? 'notFound' : 'error'
           return next
         })
         if (!detail.product) return
@@ -320,21 +321,55 @@ export default function SharedListsPage() {
     setItemSearchLoading(true)
     const debounceId = window.setTimeout(async () => {
       try {
-        const params = new URLSearchParams({
-          page: '1',
-          limit: String(ITEM_SEARCH_LIMIT),
-          search: query,
-          catalogOnly: 'true',
-        })
-        const payload = await fetchCachedCatalogResponse(
-          apiUrl(`/products?${params.toString()}`),
-          { signal: controller.signal, timeoutMs: CATALOG_REQUEST_TIMEOUT_MS },
-        )
+        const fetchSearchResults = async (search) => {
+          const params = new URLSearchParams({
+            page: '1',
+            limit: String(ITEM_SEARCH_LIMIT),
+            search,
+            catalogOnly: 'false',
+          })
+          const payload = await fetchCachedCatalogResponse(
+            apiUrl(`/products/search?${params.toString()}`),
+            { signal: controller.signal, timeoutMs: CATALOG_REQUEST_TIMEOUT_MS },
+          )
+          return Array.isArray(payload) ? payload : payload?.data || []
+        }
+        const [results, supermarkets] = await Promise.all([
+          fetchSearchResults(query),
+          fetchCachedCatalogResponse(apiUrl('/supermarkets'), {
+            signal: controller.signal,
+            ttlMs: 300_000,
+          }).catch((error) => {
+            if (error.name === 'AbortError') throw error
+            console.error('Could not load supermarkets for product search results', error)
+            return []
+          }),
+        ])
         if (!active) return
 
-        const results = Array.isArray(payload) ? payload : payload?.data || []
-        const matches = normalizeCatalogProducts(results).sort((left, right) => (
+        let matches = normalizeSharedListSearchResults(results, query)
+        if (!matches.length) {
+          const fallbackTerms = getSharedListFallbackSearchTerms(query)
+          if (fallbackTerms.length > 1) {
+            const fallbackResults = await Promise.allSettled(
+              fallbackTerms.map(fetchSearchResults),
+            )
+            if (!active) return
+            const successfulResults = fallbackResults
+              .filter((result) => result.status === 'fulfilled')
+              .flatMap((result) => result.value)
+            if (!successfulResults.length) {
+              const failedResult = fallbackResults.find((result) => result.status === 'rejected')
+              if (failedResult) throw failedResult.reason
+            }
+            matches = normalizeSharedListSearchResults(successfulResults, query)
+          }
+        }
+        matches = attachSharedListSearchSupermarkets(matches, supermarkets)
+        matches.sort((left, right) => (
           getSearchRelevance(left.name, query) - getSearchRelevance(right.name, query)
+          || Number(right.currentPrice > 0) - Number(left.currentPrice > 0)
+          || normalizeSearchText(left.name).localeCompare(normalizeSearchText(right.name))
         ))
         setItemSuggestions(matches)
         setItemMenuOpen(matches.length > 0)
@@ -343,6 +378,8 @@ export default function SharedListsPage() {
         console.error('Error searching products for shared shopping list', searchError)
         setItemSearchError(searchError.name === 'TimeoutError'
           ? 'La búsqueda tardó demasiado. Intenta nuevamente.'
+          : searchError.status === 404
+            ? 'El servidor todavía no tiene activa la búsqueda de productos para listas. Actualiza el backend.'
           : searchError instanceof TypeError
             ? 'No se pudo conectar con el catálogo. Verifica que el servidor esté activo.'
             : 'No se pudieron buscar productos. Intenta nuevamente.')
@@ -375,9 +412,14 @@ export default function SharedListsPage() {
     setLists([])
     setSelectedListId('')
     setSelectedList(null)
+    setQuantityDrafts({})
     setError('')
     setNotice('')
   }, [user?.id])
+
+  useEffect(() => {
+    setQuantityDrafts({})
+  }, [selectedListId])
 
   const request = useCallback(async (path, options = {}) => {
     const response = await fetch(apiUrl(path), {
@@ -406,13 +448,22 @@ export default function SharedListsPage() {
       return undefined
     }
 
+    const search = inviteSearch.trim()
+    if (search.length < 2) {
+      setInviteUsers([])
+      setInviteUsersError('')
+      setSearchingUsers(false)
+      return undefined
+    }
+
     let active = true
     setInviteUsers([])
     setInviteUsersError('')
     setSearchingUsers(true)
     setError('')
     const timer = window.setTimeout(() => {
-      request('/customer/users')
+      const params = new URLSearchParams({ search })
+      request(`/customer/users?${params.toString()}`)
         .then((users) => {
           if (active) setInviteUsers(users)
         })
@@ -431,7 +482,7 @@ export default function SharedListsPage() {
       active = false
       window.clearTimeout(timer)
     }
-  }, [inviteOpen, request])
+  }, [inviteOpen, inviteSearch, request])
 
   const loadLists = useCallback(async () => {
     const data = await request('/shared-lists')
@@ -661,6 +712,13 @@ export default function SharedListsPage() {
       })
       await loadList(selectedListId)
       await loadLists()
+      if (Object.hasOwn(changes, 'quantity')) {
+        setQuantityDrafts((current) => {
+          const next = { ...current }
+          delete next[item.id]
+          return next
+        })
+      }
     } catch (updateError) {
       setError(updateError.message)
     }
@@ -802,14 +860,11 @@ export default function SharedListsPage() {
     inviteUserProfile.username.toLowerCase().includes(inviteSearch.trim().toLowerCase())
   ))
   const pricedItemsTotal = (selectedList?.items || []).reduce((total, item) => {
+    if (catalogLookupStatuses[item.id] === 'notFound') return total
     const unitPrice = getProductPrice(catalogProductsByItemId[item.id] || item.product || {})
     if (unitPrice <= 0) return total
-    return total + unitPrice * Number(item.quantity || 0)
+    return total + unitPrice * Number(quantityDrafts[item.id] ?? item.quantity ?? 0)
   }, 0)
-  const itemsWithoutPrice = (selectedList?.items || []).filter((item) => (
-    getProductPrice(catalogProductsByItemId[item.id] || item.product || {}) <= 0
-  )).length
-
   return (
     <main className={pageClass}>
       <div className="mx-auto max-w-5xl">
@@ -925,12 +980,7 @@ export default function SharedListsPage() {
                 {inviteOpen && (
                   <section className="mt-4 rounded-xl border border-stone-200 p-3 dark:border-stone-700" aria-label={t('Invitar usuarios')}>
                     <div className="flex items-center justify-between gap-3">
-                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-                        <h3 className="text-sm font-bold">{t('Invitar a usuarios')}</h3>
-                        <p className="text-xs text-stone-500 dark:text-stone-400">
-                          {t('Escribí el nombre de usuario con el que se registró la otra persona.')}
-                        </p>
-                      </div>
+                      <h3 className="text-sm font-bold">{t('Invitar a usuarios')}</h3>
                       <button type="button" onClick={() => setInviteOpen(false)} aria-label={t('Cerrar')} className="rounded-lg p-1.5 text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800">
                         <X className="h-4 w-4" aria-hidden="true" />
                       </button>
@@ -968,11 +1018,11 @@ export default function SharedListsPage() {
                           </li>
                         ))}
                       </ul>
-                    ) : (
+                    ) : inviteSearch.trim().length >= 2 ? (
                       <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">
-                        {inviteSearch.trim() ? t('No se encontraron usuarios.') : t('No hay otros usuarios registrados.')}
+                        {t('No se encontraron usuarios.')}
                       </p>
-                    )}
+                    ) : null}
                     <button type="button" onClick={shareList} className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-sky-700 underline underline-offset-4 dark:text-sky-300">
                       <Share2 className="h-3.5 w-3.5" aria-hidden="true" /> {t('Compartir enlace privado')}
                     </button>
@@ -1046,8 +1096,17 @@ export default function SharedListsPage() {
                               }}
                               className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-sky-50 dark:hover:bg-stone-800 ${highlightedItemIndex === index ? 'bg-sky-50 dark:bg-stone-800' : ''}`}
                             >
-                              <span className="min-w-0 truncate">{translateProductName(product.name)}</span>
-                              <span className="shrink-0 font-bold text-sky-700 dark:text-sky-300">{itemCurrency.format(product.currentPrice)}</span>
+                              <span className="flex min-w-0 items-center gap-2">
+                                <SupermarketLogo
+                                  name={product.supermarket || t('Supermercado no disponible')}
+                                  image={product.supermarketImage}
+                                  className="h-6 max-w-12"
+                                />
+                                <span className="min-w-0 truncate">{translateProductName(product.name)}</span>
+                              </span>
+                              <span className="shrink-0 font-bold text-sky-700 dark:text-sky-300">
+                                {product.currentPrice > 0 ? itemCurrency.format(product.currentPrice) : t('Precio no disponible')}
+                              </span>
                             </button>
                           </li>
                         ))}
@@ -1122,6 +1181,7 @@ export default function SharedListsPage() {
                 )}
                 <ul className="mt-5 divide-y divide-stone-200 dark:divide-stone-800">
                   {selectedList.items.map((item) => {
+                    const itemQuantity = quantityDrafts[item.id] ?? item.quantity
                     const product = catalogProductsByItemId[item.id] || item.product
                     const productOffers = getProductOffers(product || {})
                       .filter((offer) => filterProductOffers(product || {}, [offer]).length > 0 && offer.supermarket)
@@ -1129,8 +1189,9 @@ export default function SharedListsPage() {
                     const currentPrice = getProductPrice(product || {})
                     const priceOffer = productOffers.find((offer) => offer.price === currentPrice) || productOffers[0]
                     const supermarketName = getProductSupermarket(product || {}, currentPrice) || priceOffer?.supermarket
-                    const productImage = getProductImage(product || {})
                     const catalogLookupKey = `${selectedList.id}:${item.id}:${item.product_id || ''}:${item.item_name}`
+                    const productNotFound = catalogLookupStatuses[item.id] === 'notFound'
+                    const productImage = productNotFound ? '' : getProductImage(product || {})
                     const addedByUsername = item.added_by_username
                       || selectedList.members?.find((member) => String(member.user_id) === String(item.added_by))?.username
                     return (
@@ -1139,29 +1200,37 @@ export default function SharedListsPage() {
                       <ProductImage
                         src={productImage}
                         alt={item.item_name}
-                        productName={product?.name || item.item_name}
+                        productName={productNotFound ? item.item_name : product?.name || item.item_name}
                         className="h-14 w-14 shrink-0 rounded-xl border border-stone-200 bg-white p-1 dark:border-stone-700 dark:bg-stone-900"
                       />
                       <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:flex-col">
-                        <p className={`min-w-0 break-words text-sm font-bold sm:truncate ${item.is_checked ? 'text-stone-400 line-through' : ''}`}>{translateProductName(product?.name || item.item_name)}</p>
+                        <p className={`min-w-0 break-words text-sm font-bold sm:truncate ${item.is_checked ? 'text-stone-400 line-through' : ''}`}>{translateProductName(productNotFound ? item.item_name : product?.name || item.item_name)}</p>
                         <div className="col-span-full grid grid-cols-2 gap-x-3 gap-y-2 text-xs sm:flex sm:flex-wrap sm:gap-x-6 sm:gap-y-2">
-                          <div className="min-w-0">
-                            <span className="block font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t('Precio unitario')}</span>
-                            <span className="mt-0.5 block font-bold text-stone-800 dark:text-stone-100">
-                              {currentPrice > 0 ? formatCurrency(currentPrice) : t('Precio no disponible')}
-                            </span>
-                          </div>
-                          <div className="min-w-0">
-                            <span className="block font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t('Supermercado')}</span>
-                            {supermarketName ? (
-                              <span className="mt-0.5 inline-flex min-w-0 flex-wrap items-center gap-1.5 font-medium text-stone-700 dark:text-stone-200">
-                                <SupermarketLogo name={supermarketName} image={product?.supermarketImage || priceOffer?.image} className="h-5 max-w-12" />
-                                {supermarketName}
-                              </span>
-                            ) : (
-                              <span className="mt-0.5 block text-stone-500 dark:text-stone-400">{t('Supermercado no disponible')}</span>
-                            )}
-                          </div>
+                          {productNotFound ? (
+                            <p className="col-span-full w-full font-medium text-stone-600 dark:text-stone-400">
+                              {t('Este producto no se encuentra en nuestra base de datos')}
+                            </p>
+                          ) : (
+                            <>
+                              <div className="min-w-0">
+                                <span className="block font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t('Precio unitario')}</span>
+                                <span className="mt-0.5 block font-bold text-stone-800 dark:text-stone-100">
+                                  {currentPrice > 0 ? formatCurrency(currentPrice) : t('Precio no disponible')}
+                                </span>
+                              </div>
+                              <div className="min-w-0">
+                                <span className="block font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t('Supermercado')}</span>
+                                {supermarketName ? (
+                                  <span className="mt-0.5 inline-flex min-w-0 flex-wrap items-center gap-1.5 font-medium text-stone-700 dark:text-stone-200">
+                                    <SupermarketLogo name={supermarketName} image={product?.supermarketImage || priceOffer?.image} className="h-5 max-w-12" />
+                                    {supermarketName}
+                                  </span>
+                                ) : (
+                                  <span className="mt-0.5 block text-stone-500 dark:text-stone-400">{t('Supermercado no disponible')}</span>
+                                )}
+                              </div>
+                            </>
+                          )}
                           <div className="min-w-0">
                             <span className="block font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t('Agregado por')}</span>
                             <span className="mt-0.5 block font-medium text-stone-700 dark:text-stone-200">
@@ -1169,12 +1238,12 @@ export default function SharedListsPage() {
                             </span>
                           </div>
                         </div>
-                        {catalogLookupFailures[item.id] && (
+                        {catalogLookupStatuses[item.id] === 'error' && (
                           <button
                             type="button"
                             onClick={() => {
                               requestedItemLookups.current.delete(catalogLookupKey)
-                              setCatalogLookupFailures((current) => {
+                              setCatalogLookupStatuses((current) => {
                                 const next = { ...current }
                                 delete next[item.id]
                                 return next
@@ -1189,15 +1258,32 @@ export default function SharedListsPage() {
                       </div>
                       <div className="col-span-full flex w-full items-center justify-end gap-3 border-t border-stone-100 pt-2 dark:border-stone-800 sm:col-span-1 sm:w-auto sm:shrink-0 sm:justify-normal sm:border-0 sm:pt-0">
                         <label className="sr-only" htmlFor={`quantity-${item.id}`}>{t('Cantidad de')} {item.item_name}</label>
-                        <div className="text-right">
+                        {!productNotFound && <div className="text-right">
                           <span className="block text-[10px] font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t('Total')}</span>
                           <span className="text-sm font-bold">
                             {currentPrice > 0
-                              ? formatCurrency(currentPrice * Number(item.quantity || 0))
+                              ? formatCurrency(currentPrice * Number(itemQuantity || 0))
                               : '—'}
                           </span>
-                        </div>
-                        <input id={`quantity-${item.id}`} type="number" min="0.01" max="999" step="any" defaultValue={item.quantity} onBlur={(event) => { if (Number(event.target.value) !== Number(item.quantity)) updateItem(item, { quantity: event.target.value }) }} className="w-20 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-right text-sm dark:border-stone-700 dark:bg-stone-950" />
+                        </div>}
+                        <input
+                          id={`quantity-${item.id}`}
+                          type="number"
+                          min="0.01"
+                          max="999"
+                          step="any"
+                          value={itemQuantity}
+                          onChange={(event) => setQuantityDrafts((current) => ({
+                            ...current,
+                            [item.id]: event.target.value,
+                          }))}
+                          onBlur={(event) => {
+                            if (Number(event.target.value) !== Number(item.quantity)) {
+                              updateItem(item, { quantity: event.target.value })
+                            }
+                          }}
+                          className="w-20 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-right text-sm dark:border-stone-700 dark:bg-stone-950"
+                        />
                         <button type="button" onClick={() => removeItem(item.id)} aria-label={`${t('Quitar')} ${item.item_name}`} className="rounded-lg p-2 text-stone-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"><Trash2 className="h-4 w-4" /></button>
                       </div>
                     </li>
@@ -1205,16 +1291,9 @@ export default function SharedListsPage() {
                 </ul>
                 {!selectedList.items.length && <p className="py-8 text-center text-sm text-stone-500 dark:text-stone-400">{t('La lista está vacía. Agrega el primer artículo.')}</p>}
                 {selectedList.items.length > 0 && (
-                  <section className="mt-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-900 dark:bg-sky-950/30" aria-label={t('Total de la lista')}>
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wide text-stone-500 dark:text-stone-400">{t(itemsWithoutPrice > 0 ? 'Total del precio de los productos con precio' : 'Total del precio de los productos')}</p>
-                      {itemsWithoutPrice > 0 && (
-                        <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">
-                          {t('Hay artículos sin precio del catálogo.')}
-                        </p>
-                      )}
-                    </div>
-                    <p className="text-xl font-black text-stone-900 dark:text-stone-100">{formatCurrency(pricedItemsTotal)}</p>
+                  <section className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/30" aria-label={t('Total de la lista')}>
+                    <p className="text-sm font-bold uppercase tracking-wide text-green-800 dark:text-green-300">{t('Total')}:</p>
+                    <p className="text-xl font-black text-green-800 dark:text-green-200">{formatCurrency(pricedItemsTotal)}</p>
                   </section>
                 )}
                 <div className="mt-5 border-t border-stone-200 pt-3 text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">

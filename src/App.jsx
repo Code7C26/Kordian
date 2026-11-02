@@ -5,7 +5,6 @@ import { useCustomerAuth } from './contexts/CustomerAuthContext.jsx';
 import { useLanguage } from './contexts/LanguageContext.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header.jsx';
-import { CategorySelectionPage } from './components/CategorySelectionPage.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
 import ClearableSearchInput from './components/ClearableSearchInput.jsx'
 import { ProductCard } from './components/ProductCard.jsx';
@@ -27,7 +26,7 @@ const ComparisonModal = lazy(() => import('./components/ComparisonModal.jsx').th
 const SmartBasketModal = lazy(() => import('./components/SmartBasketModal.jsx').then((module) => ({ default: module.SmartBasketModal })));
 const PriceExplanationModal = lazy(() => import('./components/PriceExplanationModal.jsx'));
 
-const CATEGORY_ONBOARDING_KEY = 'arprice_category_onboarding_complete';
+const SEARCH_DEBOUNCE_MS = 180;
 
 function getBasketItemDetails(product, selectedOffer = null) {
   const offer = selectedOffer
@@ -173,9 +172,6 @@ export default function App() {
   const [catalogLoadError, setCatalogLoadError] = useState(null)
   const [analysisLoadState, setAnalysisLoadState] = useState('idle')
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
-  const [selectedCategory, setSelectedCategory] = useState(
-    () => localStorage.getItem('arprice_selected_category'),
-  )
   const catalogReferenceCache = useRef(null)
   const catalogTotalRequest = useRef(null)
   const lastCatalogRefreshKey = useRef(catalogRefreshKey)
@@ -270,10 +266,7 @@ export default function App() {
         subcategory: 'todos',
         priceStatus: params.get('deals') === '1' ? 'OFERTA' : 'todos',
       }
-    } else if (
-      location.pathname === '/'
-      && localStorage.getItem(CATEGORY_ONBOARDING_KEY) === 'true'
-    ) {
+    } else if (location.pathname === '/') {
       routeFilters = {
         searchQuery: '',
         category: localStorage.getItem('arprice_selected_category') || 'todos',
@@ -322,7 +315,6 @@ export default function App() {
     const discoveryPage = isAllProducts
       ? getDiscoveryPage(total, productsPageSize)
       : 1
-    setSelectedCategory(selectedCategoryId)
     localStorage.setItem('arprice_selected_category', selectedCategoryId)
     updateFilters((previous) => ({
       ...previous,
@@ -337,11 +329,6 @@ export default function App() {
       ? `/buscar?page=${discoveryPage}`
       : `/buscar?category=${encodeURIComponent(category)}`)
   };
-
-  const handleOnboardingCategorySelect = (category) => {
-    localStorage.setItem(CATEGORY_ONBOARDING_KEY, 'true')
-    handleSelectCategory(category)
-  }
 
   const navigateToSearch = () => {
     const query = filters.searchQuery.trim()
@@ -551,7 +538,7 @@ export default function App() {
       }
     }
 
-    searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? 400 : 0)
+    searchTimer = setTimeout(loadData, filters.searchQuery.trim() ? SEARCH_DEBOUNCE_MS : 0)
     return () => {
       mounted = false
       controller.abort()
@@ -718,11 +705,6 @@ export default function App() {
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
   const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
   const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
-  const isCategoryOnboarding = location.pathname === '/seleccionar-categorias'
-    || (
-      location.pathname === '/'
-      && localStorage.getItem(CATEGORY_ONBOARDING_KEY) !== 'true'
-    );
   const explanationProduct = resolveSelectedAnalysisProduct(
     selectedProductForExplanation,
     products,
@@ -731,16 +713,6 @@ export default function App() {
     selectedProductForComparison,
     products,
   );
-
-  if (isCategoryOnboarding) {
-    return (
-      <CategorySelectionPage
-        categories={categories}
-        selectedCategory={selectedCategory}
-        onSelectCategory={handleOnboardingCategorySelect}
-      />
-    );
-  }
 
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
@@ -1048,7 +1020,7 @@ export default function App() {
             </div>
           </div>
 
-          {isLoadingProducts ? (
+          {isLoadingProducts && products.length === 0 ? (
             <div className="bg-white dark:bg-stone-800 rounded-3xl p-12 text-center border border-sky-200 dark:border-sky-800 space-y-4" role="status" aria-live="polite">
               <div className="w-16 h-16 bg-sky-100 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 rounded-2xl flex items-center justify-center mx-auto">
                 <Loader2 className="w-8 h-8 animate-spin" aria-hidden="true" />
@@ -1096,7 +1068,16 @@ export default function App() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+              {isLoadingProducts && (
+                <p className="flex items-center gap-2 text-sm font-semibold text-sky-700 dark:text-sky-300" role="status" aria-live="polite">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  {t('Actualizando resultados…')}
+                </p>
+              )}
+              <div
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6"
+                aria-busy={isLoadingProducts}
+              >
                 {paginatedProducts.map((product) => (
                   <ProductCard
                     key={product.id}

@@ -60,6 +60,7 @@ export function Header({
     : t('notificaciones pendientes')
   const [locationQuery, setLocationQuery] = useState('')
   const locationMenuRef = useRef(null)
+  const panelDataLoaded = useRef(false)
   const [panelCategories, setPanelCategories] = useState([])
   const [panelBrands, setPanelBrands] = useState([])
   const [panelSupermarkets, setPanelSupermarkets] = useState([])
@@ -74,31 +75,43 @@ export function Header({
   }
 
   useEffect(() => {
-    // load categories and brands for the floating panel
-    ;(async () => {
-      try {
-        const cRes = await apiFetch('/categories')
-        const cats = await cRes.json()
-        setPanelCategories(cats.value || cats)
-      } catch {
-        // ignore
+    if (!isAdminHeader || !showAdminPanel || panelDataLoaded.current) return undefined
+
+    let active = true
+    const loadPanelOptions = async () => {
+      const results = await Promise.allSettled([
+        apiFetch('/categories').then((response) => response.json()),
+        apiFetch('/brands').then((response) => response.json()),
+        apiFetch('/supermarkets').then((response) => response.json()),
+      ])
+      if (!active) return
+
+      const [categoriesResult, brandsResult, supermarketsResult] = results
+      if (categoriesResult.status === 'fulfilled') {
+        const categories = categoriesResult.value
+        setPanelCategories(categories.value || categories)
+      } else {
+        console.error('Admin quick panel categories could not be loaded', categoriesResult.reason)
       }
-      try {
-        const bRes = await apiFetch('/brands')
-        const bs = await bRes.json()
-        setPanelBrands(bs.value || bs)
-      } catch {
-        // ignore
+      if (brandsResult.status === 'fulfilled') {
+        const brands = brandsResult.value
+        setPanelBrands(brands.value || brands)
+      } else {
+        console.error('Admin quick panel brands could not be loaded', brandsResult.reason)
       }
-      try {
-        const sRes = await apiFetch('/supermarkets')
-        const supermarkets = await sRes.json()
-        setPanelSupermarkets(supermarkets)
-      } catch {
-        // ignore
+      if (supermarketsResult.status === 'fulfilled') {
+        setPanelSupermarkets(supermarketsResult.value)
+      } else {
+        console.error('Admin quick panel supermarkets could not be loaded', supermarketsResult.reason)
       }
-    })()
-  }, [])
+      panelDataLoaded.current = results.every((result) => result.status === 'fulfilled')
+    }
+
+    loadPanelOptions()
+    return () => {
+      active = false
+    }
+  }, [isAdminHeader, showAdminPanel])
 
   useEffect(() => {
     if (!showAccountMenu) return undefined
