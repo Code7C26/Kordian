@@ -17,6 +17,7 @@
     "@capacitor/core": "^8.0.0",
     "@capacitor/splash-screen": "^8.0.0",
     "@supabase/supabase-js": "^2.106.1",
+    "express-rate-limit": "^8.7.2",
     "lucide-react": "^0.546.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

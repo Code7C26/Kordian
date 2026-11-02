@@ -44,6 +44,7 @@ const {
 const {
   customerPasswordResetIpRateLimit,
   customerPriceReportIpRateLimit,
+  customerNotificationDeleteIpRateLimit,
   productTranslationIpRateLimit,
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
@@ -3220,7 +3221,7 @@ app.get('/customer/notifications', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/customer/notifications/:notificationId', requireCustomerAuth, async (req, res) => {
+app.delete('/customer/notifications/:notificationId', customerNotificationDeleteIpRateLimit, requireCustomerAuth, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La notificación no es válida.' })
   }
