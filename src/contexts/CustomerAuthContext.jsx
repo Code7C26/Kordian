@@ -257,6 +257,7 @@ export function CustomerAuthProvider({ children }) {
         ? pushPermission
         : await PushNotifications.requestPermissions()
       if (!active || grantedPushPermission.receive !== 'granted') return
+      await PushNotifications.register()
 
       const localPermission = await LocalNotifications.checkPermissions()
       const grantedLocalPermission = localPermission.display === 'granted'
@@ -270,7 +271,6 @@ export function CustomerAuthProvider({ children }) {
         description: 'Productos agregados a tus listas compartidas',
         importance: 5,
       })
-      if (active) await PushNotifications.register()
     }
 
     initializePushNotifications().catch((error) => {
