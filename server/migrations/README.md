@@ -106,6 +106,24 @@ Si Carrefour bloquea esa resolución o no devuelve región, la operación se
 detiene sin usar precios no regionalizados. No importar en producción hasta
 validar primero el flujo en un entorno de staging con base de datos aislada.
 
+## Sincronización de ofertas Carrefour existentes
+
+Para actualizar únicamente ofertas Carrefour ya presentes, aplicar
+`20261029_carrefour_offer_identity.sql` y desplegar el servicio de backend.
+La migración agrega metadatos de origen a `offers` y un cursor para recorrer
+las ofertas en lotes; no importa productos nuevos.
+
+La ruta manual `POST /admin/import/carrefour/sync` requiere autenticación de
+administrador y `SUPABASE_SERVICE_ROLE_KEY` en el backend. Usa el código postal
+regional `5186` por defecto. El tamaño se configura con
+`CARREFOUR_SYNC_MAX_OFFERS_PER_RUN` (1-100, predeterminado 25).
+
+La rutina programada permanece apagada salvo que
+`CARREFOUR_SYNC_ENABLED=true`. Antes de habilitarla, validar la ruta manual y
+revisar su registro de ejecución. La frecuencia predeterminada es diaria
+(`CARREFOUR_SYNC_INTERVAL_MS=86400000`); mantener la variable de activación en
+`false` o ausente durante el despliegue inicial.
+
 ## Estado de precio persistido
 
 Ejecutar en el SQL Editor de Supabase, en este orden:

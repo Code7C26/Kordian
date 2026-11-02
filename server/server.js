@@ -28,6 +28,11 @@ const {
   isValidCarrefourProduct,
   normalizePostalCode,
 } = require('./services/carrefourImporter')
+const {
+  DEFAULT_MAX_OFFERS_PER_RUN,
+  MAX_OFFERS_PER_RUN,
+  syncCarrefourPrices,
+} = require('./services/carrefourPriceSync')
 const CARREFOUR_IMPORT_BATCH_LIMIT = 5
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
@@ -1167,6 +1172,47 @@ app.post('/admin/import/disco/update-prices', requireAdmin, async (req, res) => 
   } catch (error) {
     console.error('Error updating Disco prices', error)
     res.status(502).json({ error: 'No se pudieron actualizar los precios de Disco', detail: error.message })
+  }
+})
+
+app.post('/admin/import/carrefour/sync', requireAdmin, async (req, res) => {
+  try {
+    const postalCode = normalizePostalCode(
+      req.body?.postalCode || process.env.CARREFOUR_SYNC_POSTAL_CODE || '5186',
+    )
+    if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
+    const result = await syncCarrefourPrices({
+      database: analysisWriter,
+      historyRecorder: recordPriceHistory,
+      postalCode,
+      onCatalogChange: invalidateCatalogPageCache,
+      maxOffersPerRun: carrefourSyncMaxOffersPerRun,
+      adminUsername: req.admin,
+    })
+    for (const entry of result.updated) {
+      if (entry.previousCashPrice !== entry.updatedCashPrice) {
+        scheduleRelatedPriceStatusRefresh(entry.productId)
+      }
+    }
+    res.json({
+      source: 'carrefour',
+      postalCode,
+      checked: result.checked,
+      updated: result.updated,
+      unchanged: result.unchanged.length,
+      unavailable: result.unavailable,
+      suspicious: result.suspicious,
+      identityMismatch: result.identityMismatch,
+      needsReview: result.needsReview,
+      errors: result.errors,
+      batchLimit: result.batchLimit,
+      nextOfferId: result.nextOfferId,
+      wrapped: result.wrapped,
+      writesPerformed: result.updated.length > 0,
+    })
+  } catch (error) {
+    console.error('Error synchronizing Carrefour prices', error)
+    res.status(502).json({ error: error.message || 'No se pudieron sincronizar los precios de Carrefour' })
   }
 })
 
@@ -4645,6 +4691,19 @@ const desiredPort = process.env.PORT ? Number(process.env.PORT) : 3000
 const candidatePorts = [desiredPort, 3100, 3140, 3200, 3210, 3300, 3500, 4000].filter((port, index, array) => Number.isInteger(port) && port > 0 && array.indexOf(port) === index)
 let discoSyncRunning = false
 const discoSyncIntervalMs = Number(process.env.DISCO_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
+let carrefourSyncRunning = false
+const carrefourSyncIntervalMs = Number(process.env.CARREFOUR_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
+const carrefourSyncMaxOffersPerRun = Number(
+  process.env.CARREFOUR_SYNC_MAX_OFFERS_PER_RUN || DEFAULT_MAX_OFFERS_PER_RUN,
+)
+if (!Number.isInteger(carrefourSyncIntervalMs) || carrefourSyncIntervalMs < 60 * 1000) {
+  throw new TypeError('CARREFOUR_SYNC_INTERVAL_MS debe ser un entero de al menos 60000 ms')
+}
+if (!Number.isInteger(carrefourSyncMaxOffersPerRun)
+  || carrefourSyncMaxOffersPerRun < 1
+  || carrefourSyncMaxOffersPerRun > MAX_OFFERS_PER_RUN) {
+  throw new TypeError(`CARREFOUR_SYNC_MAX_OFFERS_PER_RUN debe ser un entero entre 1 y ${MAX_OFFERS_PER_RUN}`)
+}
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 app.post('/translate/products', productTranslationIpRateLimit, async (req, res) => {
   const names = req.body?.names
@@ -4694,6 +4753,41 @@ if (process.env.DISCO_SYNC_ENABLED === 'true') {
     }
   }, discoSyncIntervalMs)
   console.log(`Disco scheduled sync enabled every ${discoSyncIntervalMs}ms`)
+}
+
+if (process.env.CARREFOUR_SYNC_ENABLED === 'true') {
+  setInterval(async () => {
+    if (carrefourSyncRunning) return
+    carrefourSyncRunning = true
+    try {
+      const postalCode = normalizePostalCode(process.env.CARREFOUR_SYNC_POSTAL_CODE || '5186')
+      if (!postalCode) throw new Error('CARREFOUR_SYNC_POSTAL_CODE debe ser un código postal válido')
+      const result = await syncCarrefourPrices({
+        database: analysisWriter,
+        historyRecorder: recordPriceHistory,
+        postalCode,
+        onCatalogChange: invalidateCatalogPageCache,
+        maxOffersPerRun: carrefourSyncMaxOffersPerRun,
+      })
+      for (const entry of result.updated) {
+        if (entry.previousCashPrice !== entry.updatedCashPrice) {
+          scheduleRelatedPriceStatusRefresh(entry.productId)
+        }
+      }
+      console.log(
+        `Carrefour scheduled sync (${postalCode}): ${result.updated.length} updated, `
+        + `${result.unchanged.length} unchanged, ${result.unavailable.length} unavailable, `
+        + `${result.suspicious.length} suspicious, ${result.identityMismatch.length} identity mismatches, `
+        + `${result.needsReview.length} needing review, ${result.errors.length} errors, `
+        + `batch ${result.checked}/${result.batchLimit}, cursor ${result.nextOfferId ?? 'start'}`,
+      )
+    } catch (error) {
+      console.error('Carrefour scheduled sync failed:', error.message)
+    } finally {
+      carrefourSyncRunning = false
+    }
+  }, carrefourSyncIntervalMs)
+  console.log(`Carrefour scheduled sync enabled every ${carrefourSyncIntervalMs}ms`)
 }
 
 let server = null
