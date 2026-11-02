@@ -3276,7 +3276,7 @@ app.get('/customer/notifications', customerIpReadRateLimit, requireCustomerAuth,
   }
 })
 
-app.post('/customer/push-token', requireCustomerAuth, async (req, res) => {
+app.post('/customer/push-token', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const token = typeof req.body?.token === 'string' ? req.body.token.trim() : ''
   if (!token || token.length > 4096) {
     return res.status(400).json({ error: 'El token de notificaciones no es válido.' })
@@ -3299,7 +3299,7 @@ app.post('/customer/push-token', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/customer/push-token', requireCustomerAuth, async (req, res) => {
+app.delete('/customer/push-token', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const token = typeof req.body?.token === 'string' ? req.body.token.trim() : ''
   if (!token || token.length > 4096) {
     return res.status(400).json({ error: 'El token de notificaciones no es válido.' })
