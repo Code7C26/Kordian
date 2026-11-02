@@ -40,6 +40,11 @@ const sharedListJoinIpRateLimit = createIpRateLimiter({
   limit: 30,
 })
 
+const sharedListInvitationIpRateLimit = createIpRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+})
+
 const customerRegisterIpRateLimit = createIpRateLimiter({
   windowMs: 60 * 60 * 1000,
   limit: 10,
@@ -98,12 +103,18 @@ const sharedListJoinRateLimit = createCustomerRateLimiter({
   limit: 10,
 })
 
+const sharedListInvitationRateLimit = createCustomerRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+})
+
 module.exports = {
   createIpRateLimiter,
   createCustomerRateLimiter,
   customerIpReadRateLimit,
   customerIpWriteRateLimit,
   sharedListJoinIpRateLimit,
+  sharedListInvitationIpRateLimit,
   customerRegisterIpRateLimit,
   customerPasswordResetIpRateLimit,
   customerPriceReportIpRateLimit,
@@ -115,4 +126,5 @@ module.exports = {
   customerReadRateLimit,
   customerWriteRateLimit,
   sharedListJoinRateLimit,
+  sharedListInvitationRateLimit,
 }

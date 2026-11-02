@@ -47,9 +47,17 @@ const {
   upsertReviewDecision,
 } = require('./services/reviewDecisionStore')
 const {
+  customerIpReadRateLimit,
+  customerIpWriteRateLimit,
   customerPasswordResetIpRateLimit,
   customerPriceReportIpRateLimit,
   customerNotificationDeleteIpRateLimit,
+  customerReadRateLimit,
+  customerWriteRateLimit,
+  sharedListInvitationIpRateLimit,
+  sharedListInvitationRateLimit,
+  sharedListJoinIpRateLimit,
+  sharedListJoinRateLimit,
   productTranslationIpRateLimit,
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
@@ -3162,7 +3170,7 @@ async function requireCustomerAuth(req, res, next) {
   }
 }
 
-app.post('/auth/admin-session', requireCustomerAuth, async (req, res) => {
+app.post('/auth/admin-session', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const profile = await getCustomerProfile(req.customerUser)
     if (profile.role !== 'administrator') {
@@ -3183,7 +3191,7 @@ app.post('/auth/admin-session', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.get('/customer/users', requireCustomerAuth, async (req, res) => {
+app.get('/customer/users', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data: profiles, error: profilesError } = await analysisWriter
       .from('customer_profiles')
@@ -3201,7 +3209,7 @@ app.get('/customer/users', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.get('/customer/notifications', requireCustomerAuth, async (req, res) => {
+app.get('/customer/notifications', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const [{ data: invitations, error: invitationsError }, { data: activities, error: activitiesError }] = await Promise.all([
       analysisWriter
@@ -3267,7 +3275,7 @@ app.get('/customer/notifications', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/customer/notifications/:notificationId', customerNotificationDeleteIpRateLimit, requireCustomerAuth, async (req, res) => {
+app.delete('/customer/notifications/:notificationId', customerNotificationDeleteIpRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La notificación no es válida.' })
   }
@@ -3289,7 +3297,7 @@ app.delete('/customer/notifications/:notificationId', customerNotificationDelete
   }
 })
 
-app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, async (req, res) => {
+app.post('/customer/notifications/:notificationId/read', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La notificación no es válida.' })
   }
@@ -3311,7 +3319,7 @@ app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, as
   }
 })
 
-app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, async (req, res) => {
+app.post('/customer/notifications/:notificationId/accept', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La invitación no es válida.' })
   }
@@ -3380,7 +3388,7 @@ app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, 
   }
 })
 
-app.post('/customer/notifications/:notificationId/decline', requireCustomerAuth, async (req, res) => {
+app.post('/customer/notifications/:notificationId/decline', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La invitación no es válida.' })
   }
@@ -3403,7 +3411,7 @@ app.post('/customer/notifications/:notificationId/decline', requireCustomerAuth,
   }
 })
 
-app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
+app.get('/customer/favorites', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data, error } = await analysisWriter
       .from('customer_favorites')
@@ -3418,7 +3426,7 @@ app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/customer/price-reports', customerPriceReportIpRateLimit, requireCustomerAuth, async (req, res) => {
+app.post('/customer/price-reports', customerPriceReportIpRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const reportType = String(req.body?.reportType || '')
   const productName = String(req.body?.productName || '').trim()
   const storeName = String(req.body?.storeName || '').trim()
@@ -3489,7 +3497,7 @@ app.get('/admin/price-reports', requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/customer/favorites', requireCustomerAuth, async (req, res) => {
+app.post('/customer/favorites', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const productId = String(req.body?.productId || '')
   if (!/^[1-9]\d*$/.test(productId)) {
     return res.status(400).json({ error: 'El identificador del producto no es válido.' })
@@ -3510,7 +3518,7 @@ app.post('/customer/favorites', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/customer/favorites/:productId', requireCustomerAuth, async (req, res) => {
+app.delete('/customer/favorites/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const productId = String(req.params.productId || '')
   if (!/^[1-9]\d*$/.test(productId)) {
     return res.status(400).json({ error: 'El identificador del producto no es válido.' })
@@ -3568,7 +3576,7 @@ async function requireBusinessStore(req, res, next) {
   }
 }
 
-app.get('/business/stores', requireCustomerAuth, async (req, res) => {
+app.get('/business/stores', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const profile = await getCustomerProfile(req.customerUser)
     if (profile.role !== 'administrator') {
@@ -3763,7 +3771,7 @@ app.put('/admin/business-accounts/:userId', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+app.get('/business/catalog', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
   const search = String(req.query.search || '').trim()
   const requestedPage = Number(req.query.page || 1)
   if (search.length > 120) return res.status(400).json({ error: 'La búsqueda no puede superar 120 caracteres.' })
@@ -3853,7 +3861,7 @@ app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (r
   }
 })
 
-app.get('/business/price-history', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+app.get('/business/price-history', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
   try {
     const { data: historyRows, error } = await analysisWriter
       .from('price_history')
@@ -3894,7 +3902,7 @@ app.get('/business/price-history', requireCustomerAuth, requireBusinessStore, as
   }
 })
 
-app.get('/business/disco-price-history', requireCustomerAuth, async (req, res) => {
+app.get('/business/disco-price-history', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const profile = await getCustomerProfile(req.customerUser)
     if (!['business', 'administrator'].includes(profile.role)) {
@@ -3940,7 +3948,7 @@ app.get('/business/disco-price-history', requireCustomerAuth, async (req, res) =
   }
 })
 
-app.put('/business/catalog/:productId', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+app.put('/business/catalog/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, async (req, res) => {
   const productId = Number(req.params.productId)
   const available = req.body?.available
   if (!Number.isSafeInteger(productId) || productId <= 0) {
@@ -4084,7 +4092,7 @@ async function notifySharedListActivitySafely(listId, actorUserId, action, itemN
   }
 }
 
-app.post('/shared-lists/:listId/invitations', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/:listId/invitations', sharedListInvitationIpRateLimit, requireCustomerAuth, sharedListInvitationRateLimit, async (req, res) => {
   const recipientUserId = String(req.body?.userId || '')
   const username = String(req.body?.username || '').trim().toLowerCase()
   const isValidRecipientUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipientUserId)
@@ -4137,7 +4145,7 @@ app.post('/shared-lists/:listId/invitations', requireCustomerAuth, async (req, r
   }
 })
 
-app.get('/shared-lists', requireCustomerAuth, async (req, res) => {
+app.get('/shared-lists', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data: memberships, error: membershipError } = await analysisWriter
       .from('shared_shopping_list_members')
@@ -4167,7 +4175,7 @@ app.get('/shared-lists', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name || name.length > 80) {
     return res.status(400).json({ error: 'El nombre debe tener entre 1 y 80 caracteres.' })
@@ -4203,7 +4211,7 @@ app.post('/shared-lists', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/join', sharedListJoinIpRateLimit, requireCustomerAuth, sharedListJoinRateLimit, async (req, res) => {
   const inviteCode = String(req.body?.inviteCode || '').trim()
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(inviteCode)) {
     return res.status(400).json({ error: 'El enlace o código de invitación no es válido.' })
@@ -4236,7 +4244,7 @@ app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
+app.delete('/shared-lists/:listId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -4258,7 +4266,7 @@ app.delete('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/shared-lists/:listId/members/:userId', requireCustomerAuth, async (req, res) => {
+app.delete('/shared-lists/:listId/members/:userId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const targetUserId = String(req.params.userId || '')
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetUserId)) {
     return res.status(400).json({ error: 'El usuario seleccionado no es válido.' })
@@ -4301,7 +4309,7 @@ app.delete('/shared-lists/:listId/members/:userId', requireCustomerAuth, async (
   }
 })
 
-app.post('/shared-lists/:listId/leave', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/:listId/leave', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -4326,7 +4334,7 @@ app.post('/shared-lists/:listId/leave', requireCustomerAuth, async (req, res) =>
   }
 })
 
-app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
+app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -4478,7 +4486,7 @@ app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/:listId/items', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const itemName = String(req.body?.itemName || '').trim()
   const quantity = Number(req.body?.quantity ?? 1)
   const productId = req.body?.productId === undefined || req.body?.productId === null
@@ -4516,7 +4524,7 @@ app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) =>
   }
 })
 
-app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req, res) => {
+app.patch('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const changes = {}
   if (typeof req.body?.isChecked === 'boolean') changes.is_checked = req.body.isChecked
   if (req.body?.quantity !== undefined) {
@@ -4555,7 +4563,7 @@ app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req
   }
 })
 
-app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req, res) => {
+app.delete('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
