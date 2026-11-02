@@ -234,7 +234,7 @@ export function CustomerAuthProvider({ children }) {
         console.error('Android push registration failed', error)
       })
       await addListener(PushNotifications, 'pushNotificationReceived', async (notification) => {
-        if (!active || notification.data?.type !== 'shared_list_item_added') return
+        if (!active || !['shared_list_item_added', 'shared_list_invitation'].includes(notification.data?.type)) return
         try {
           const permission = await LocalNotifications.checkPermissions()
           if (permission.display !== 'granted') return
@@ -268,7 +268,7 @@ export function CustomerAuthProvider({ children }) {
       await LocalNotifications.createChannel({
         id: 'shared-list-activity',
         name: 'Listas compartidas',
-        description: 'Productos agregados a tus listas compartidas',
+        description: 'Invitaciones y actividad de tus listas compartidas',
         importance: 5,
       })
     }

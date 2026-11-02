@@ -81,7 +81,11 @@ export function fetchCachedCatalogResponse(url, {
     const requestEntry = {}
     requestEntry.promise = fetchImpl(url, { signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error(`Catalog request failed with status ${response.status}`)
+        if (!response.ok) {
+          const error = new Error(`Catalog request failed with status ${response.status}`)
+          error.status = response.status
+          throw error
+        }
         const payload = await response.json()
         if (!isProductRequest || productResponseGeneration === generation) {
           rememberResponse(url, payload, ttlMs)

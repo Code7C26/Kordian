@@ -33,7 +33,9 @@ if (normalizedStoredApiBase === LEGACY_RENDER_API_BASE) {
 }
 
 export const API_BASE_URL =
-  (normalizedStoredApiBase === LEGACY_RENDER_API_BASE
+  (import.meta.env.DEV && import.meta.env.VITE_API_URL
+    ? import.meta.env.VITE_API_URL.replace(/\/$/, '')
+    : normalizedStoredApiBase === LEGACY_RENDER_API_BASE
     ? CURRENT_RENDER_API_BASE
     : storedApiBase) ||
   DEFAULT_API_BASES[0] ||
@@ -91,7 +93,9 @@ async function findReviewGroupingBackend() {
 
 export function apiUrl(path) {
   const base =
-    localStorage.getItem(API_BASE_STORAGE_KEY) ||
+    (import.meta.env.DEV && import.meta.env.VITE_API_URL
+      ? import.meta.env.VITE_API_URL
+      : localStorage.getItem(API_BASE_STORAGE_KEY)) ||
     API_BASE_URL ||
     DEFAULT_API_BASES[0] ||
     'http://localhost:3000'

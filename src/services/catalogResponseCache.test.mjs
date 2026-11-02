@@ -33,7 +33,10 @@ test('does not cache failed catalog responses', async () => {
   const url = `https://catalog.test/products?failure=${Date.now()}`
   const fetchImpl = async () => ({ ok: false, status: 503 })
 
-  await assert.rejects(fetchCachedCatalogResponse(url, { fetchImpl }), /503/)
+  await assert.rejects(
+    fetchCachedCatalogResponse(url, { fetchImpl }),
+    (error) => error.status === 503 && /503/.test(error.message),
+  )
   assert.equal(readCachedCatalogResponse(url), null)
 })
 

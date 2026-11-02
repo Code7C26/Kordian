@@ -62,7 +62,11 @@ const {
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
 const { getCustomerConfirmationRedirectUrl, getFrontendUrl } = require('./passwordRecoveryRedirect')
-const { sendSharedListItemAddedPushNotifications } = require('./services/sharedListPushNotifications')
+const { searchCatalogProducts } = require('./services/catalogProductSearch')
+const {
+  sendSharedListInvitationPushNotification,
+  sendSharedListItemAddedPushNotifications,
+} = require('./services/sharedListPushNotifications')
 const { createProductTranslationService } = require('./services/productTranslation')
 const {
   PRICE_STATUS_RULES_VERSION,
@@ -1472,6 +1476,25 @@ function scheduleDiscoSearchResults(search) {
       .finally(() => publicDiscoSearchInFlight.delete(normalizedSearch))
   })
 }
+
+app.get('/products/search', async (req, res) => {
+  const search = String(req.query.search || '').trim()
+  const requestedLimit = Number(req.query.limit || 20)
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.min(Math.floor(requestedLimit), 50)
+    : 20
+  if (search.length < 2 || search.length > 120) {
+    return res.status(400).json({ error: 'Ingresa una búsqueda de entre 2 y 120 caracteres.' })
+  }
+
+  try {
+    const products = await searchCatalogProducts(analysisWriter, search, limit)
+    return res.json({ data: products, total: products.length, page: 1, limit })
+  } catch (error) {
+    console.error('Catalog product search failed', error)
+    return res.status(503).json({ error: 'No se pudo buscar en el catálogo.' })
+  }
+})
 
 // GET /products - fetch from Supabase with simple filters + pagination
 app.get('/products', async (req, res) => {
@@ -3193,14 +3216,20 @@ app.post('/auth/admin-session', customerIpWriteRateLimit, requireCustomerAuth, c
 })
 
 app.get('/customer/users', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
+  const search = String(req.query.search || '').trim()
+  if (search.length < 2) return res.json([])
+
   try {
     const { data: profiles, error: profilesError } = await analysisWriter
       .from('customer_profiles')
       .select('user_id, username, role')
+      .in('role', ['customer', 'administrator'])
+      .neq('user_id', req.customerUser.id)
+      .ilike('username', `%${search.replace(/[\\%_]/g, '\\$&')}%`)
+      .limit(50)
     if (profilesError) throw profilesError
 
     const customers = (profiles || [])
-      .filter((profile) => profile.role === 'customer' && profile.user_id !== req.customerUser.id)
       .map((profile) => ({ userId: profile.user_id, username: profile.username }))
       .sort((first, second) => first.username.localeCompare(second.username))
     return res.json(customers)
@@ -4184,6 +4213,14 @@ app.post('/shared-lists/:listId/invitations', sharedListInvitationIpRateLimit, r
     const recipientMembership = await isSharedListMember(req.params.listId, recipient.user_id)
     if (recipientMembership) return res.status(409).json({ error: 'Ese usuario ya participa en la lista.' })
 
+    const { data: list, error: listError } = await analysisWriter
+      .from('shared_shopping_lists')
+      .select('name')
+      .eq('id', req.params.listId)
+      .maybeSingle()
+    if (listError) throw listError
+    if (!list) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
+
     const { data: invitation, error: invitationError } = await analysisWriter
       .from('shared_shopping_list_invitations')
       .insert({
@@ -4197,6 +4234,22 @@ app.post('/shared-lists/:listId/invitations', sharedListInvitationIpRateLimit, r
       return res.status(409).json({ error: 'Ya le enviaste una invitación a esa persona.' })
     }
     if (invitationError) throw invitationError
+    try {
+      await sendSharedListInvitationPushNotification({
+        adminClient: analysisWriter,
+        actorUserId: req.customerUser.id,
+        invitationId: invitation.id,
+        inviteeUserId: recipient.user_id,
+        listId: req.params.listId,
+        listName: list.name,
+      })
+    } catch (pushError) {
+      console.error('Shared-list invitation push notification failed', {
+        invitationId: invitation.id,
+        listId: req.params.listId,
+        pushError,
+      })
+    }
     return res.status(201).json({ id: invitation.id, username: recipient.username })
   } catch (error) {
     console.error('Shared-list invitation creation failed', error)
@@ -4459,10 +4512,8 @@ app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, c
     if (profilesError) throw profilesError
     const usernameByUserId = new Map((profiles || []).map((profile) => [profile.user_id, profile.username]))
     if (productsByIdResult.error) throw productsByIdResult.error
-    const productsByName = new Map()
-    productsByNameResults.forEach((result, index) => {
+    productsByNameResults.forEach((result) => {
       if (result.error) throw result.error
-      productsByName.set(normalizeProductName(productNames[index]), result.data || [])
     })
     const products = [...new Map(
       [...(productsByIdResult.data || []), ...productsByNameResults.flatMap((result) => result.data || [])]
@@ -4508,16 +4559,7 @@ app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, c
       const normalizedName = normalizeProductName(name)
       const exactMatches = productsByNormalizedName.get(normalizedName) || []
       if (exactMatches.length === 1) return exactMatches[0]
-      if (exactMatches.length > 1) return null
-
-      const candidates = (productsByName.get(normalizedName) || [])
-        .map((product) => productById.get(String(product.id)))
-        .filter((product) => product && (
-          normalizeProductName(product.name).includes(normalizedName)
-          || normalizedName.includes(normalizeProductName(product.name))
-        ))
-      const uniqueCandidates = [...new Map(candidates.map((product) => [String(product.id), product])).values()]
-      return uniqueCandidates.length === 1 ? uniqueCandidates[0] : null
+      return null
     }
 
     return res.json({
