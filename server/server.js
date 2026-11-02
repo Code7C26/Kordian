@@ -28,6 +28,11 @@ const {
   isValidCarrefourProduct,
   normalizePostalCode,
 } = require('./services/carrefourImporter')
+const {
+  DEFAULT_MAX_OFFERS_PER_RUN,
+  MAX_OFFERS_PER_RUN,
+  syncCarrefourPrices,
+} = require('./services/carrefourPriceSync')
 const CARREFOUR_IMPORT_BATCH_LIMIT = 5
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
@@ -42,8 +47,17 @@ const {
   upsertReviewDecision,
 } = require('./services/reviewDecisionStore')
 const {
+  customerIpReadRateLimit,
+  customerIpWriteRateLimit,
   customerPasswordResetIpRateLimit,
   customerPriceReportIpRateLimit,
+  customerNotificationDeleteIpRateLimit,
+  customerReadRateLimit,
+  customerWriteRateLimit,
+  sharedListInvitationIpRateLimit,
+  sharedListInvitationRateLimit,
+  sharedListJoinIpRateLimit,
+  sharedListJoinRateLimit,
   productTranslationIpRateLimit,
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
@@ -1167,6 +1181,47 @@ app.post('/admin/import/disco/update-prices', requireAdmin, async (req, res) => 
   } catch (error) {
     console.error('Error updating Disco prices', error)
     res.status(502).json({ error: 'No se pudieron actualizar los precios de Disco', detail: error.message })
+  }
+})
+
+app.post('/admin/import/carrefour/sync', requireAdmin, async (req, res) => {
+  try {
+    const postalCode = normalizePostalCode(
+      req.body?.postalCode || process.env.CARREFOUR_SYNC_POSTAL_CODE || '5186',
+    )
+    if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
+    const result = await syncCarrefourPrices({
+      database: analysisWriter,
+      historyRecorder: recordPriceHistory,
+      postalCode,
+      onCatalogChange: invalidateCatalogPageCache,
+      maxOffersPerRun: carrefourSyncMaxOffersPerRun,
+      adminUsername: req.admin,
+    })
+    for (const entry of result.updated) {
+      if (entry.previousCashPrice !== entry.updatedCashPrice) {
+        scheduleRelatedPriceStatusRefresh(entry.productId)
+      }
+    }
+    res.json({
+      source: 'carrefour',
+      postalCode,
+      checked: result.checked,
+      updated: result.updated,
+      unchanged: result.unchanged.length,
+      unavailable: result.unavailable,
+      suspicious: result.suspicious,
+      identityMismatch: result.identityMismatch,
+      needsReview: result.needsReview,
+      errors: result.errors,
+      batchLimit: result.batchLimit,
+      nextOfferId: result.nextOfferId,
+      wrapped: result.wrapped,
+      writesPerformed: result.updated.length > 0,
+    })
+  } catch (error) {
+    console.error('Error synchronizing Carrefour prices', error)
+    res.status(502).json({ error: error.message || 'No se pudieron sincronizar los precios de Carrefour' })
   }
 })
 
@@ -3116,7 +3171,7 @@ async function requireCustomerAuth(req, res, next) {
   }
 }
 
-app.post('/auth/admin-session', requireCustomerAuth, async (req, res) => {
+app.post('/auth/admin-session', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const profile = await getCustomerProfile(req.customerUser)
     if (profile.role !== 'administrator') {
@@ -3137,7 +3192,7 @@ app.post('/auth/admin-session', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.get('/customer/users', requireCustomerAuth, async (req, res) => {
+app.get('/customer/users', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data: profiles, error: profilesError } = await analysisWriter
       .from('customer_profiles')
@@ -3155,7 +3210,7 @@ app.get('/customer/users', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.get('/customer/notifications', requireCustomerAuth, async (req, res) => {
+app.get('/customer/notifications', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const [{ data: invitations, error: invitationsError }, { data: activities, error: activitiesError }] = await Promise.all([
       analysisWriter
@@ -3264,7 +3319,7 @@ app.delete('/customer/push-token', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/customer/notifications/:notificationId', requireCustomerAuth, async (req, res) => {
+app.delete('/customer/notifications/:notificationId', customerNotificationDeleteIpRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La notificación no es válida.' })
   }
@@ -3286,7 +3341,7 @@ app.delete('/customer/notifications/:notificationId', requireCustomerAuth, async
   }
 })
 
-app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, async (req, res) => {
+app.post('/customer/notifications/:notificationId/read', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La notificación no es válida.' })
   }
@@ -3308,7 +3363,7 @@ app.post('/customer/notifications/:notificationId/read', requireCustomerAuth, as
   }
 })
 
-app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, async (req, res) => {
+app.post('/customer/notifications/:notificationId/accept', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La invitación no es válida.' })
   }
@@ -3377,7 +3432,7 @@ app.post('/customer/notifications/:notificationId/accept', requireCustomerAuth, 
   }
 })
 
-app.post('/customer/notifications/:notificationId/decline', requireCustomerAuth, async (req, res) => {
+app.post('/customer/notifications/:notificationId/decline', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La invitación no es válida.' })
   }
@@ -3400,7 +3455,7 @@ app.post('/customer/notifications/:notificationId/decline', requireCustomerAuth,
   }
 })
 
-app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
+app.get('/customer/favorites', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data, error } = await analysisWriter
       .from('customer_favorites')
@@ -3415,7 +3470,7 @@ app.get('/customer/favorites', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/customer/price-reports', customerPriceReportIpRateLimit, requireCustomerAuth, async (req, res) => {
+app.post('/customer/price-reports', customerPriceReportIpRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const reportType = String(req.body?.reportType || '')
   const productName = String(req.body?.productName || '').trim()
   const storeName = String(req.body?.storeName || '').trim()
@@ -3486,7 +3541,7 @@ app.get('/admin/price-reports', requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/customer/favorites', requireCustomerAuth, async (req, res) => {
+app.post('/customer/favorites', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const productId = String(req.body?.productId || '')
   if (!/^[1-9]\d*$/.test(productId)) {
     return res.status(400).json({ error: 'El identificador del producto no es válido.' })
@@ -3507,7 +3562,7 @@ app.post('/customer/favorites', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/customer/favorites/:productId', requireCustomerAuth, async (req, res) => {
+app.delete('/customer/favorites/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const productId = String(req.params.productId || '')
   if (!/^[1-9]\d*$/.test(productId)) {
     return res.status(400).json({ error: 'El identificador del producto no es válido.' })
@@ -3565,7 +3620,7 @@ async function requireBusinessStore(req, res, next) {
   }
 }
 
-app.get('/business/stores', requireCustomerAuth, async (req, res) => {
+app.get('/business/stores', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const profile = await getCustomerProfile(req.customerUser)
     if (profile.role !== 'administrator') {
@@ -3760,7 +3815,7 @@ app.put('/admin/business-accounts/:userId', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+app.get('/business/catalog', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
   const search = String(req.query.search || '').trim()
   const requestedPage = Number(req.query.page || 1)
   if (search.length > 120) return res.status(400).json({ error: 'La búsqueda no puede superar 120 caracteres.' })
@@ -3850,7 +3905,7 @@ app.get('/business/catalog', requireCustomerAuth, requireBusinessStore, async (r
   }
 })
 
-app.get('/business/price-history', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+app.get('/business/price-history', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, requireBusinessStore, async (req, res) => {
   try {
     const { data: historyRows, error } = await analysisWriter
       .from('price_history')
@@ -3891,7 +3946,7 @@ app.get('/business/price-history', requireCustomerAuth, requireBusinessStore, as
   }
 })
 
-app.get('/business/disco-price-history', requireCustomerAuth, async (req, res) => {
+app.get('/business/disco-price-history', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const profile = await getCustomerProfile(req.customerUser)
     if (!['business', 'administrator'].includes(profile.role)) {
@@ -3937,7 +3992,7 @@ app.get('/business/disco-price-history', requireCustomerAuth, async (req, res) =
   }
 })
 
-app.put('/business/catalog/:productId', requireCustomerAuth, requireBusinessStore, async (req, res) => {
+app.put('/business/catalog/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, async (req, res) => {
   const productId = Number(req.params.productId)
   const available = req.body?.available
   if (!Number.isSafeInteger(productId) || productId <= 0) {
@@ -4096,7 +4151,7 @@ async function notifySharedListActivitySafely(listId, actorUserId, action, itemN
   }
 }
 
-app.post('/shared-lists/:listId/invitations', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/:listId/invitations', sharedListInvitationIpRateLimit, requireCustomerAuth, sharedListInvitationRateLimit, async (req, res) => {
   const recipientUserId = String(req.body?.userId || '')
   const username = String(req.body?.username || '').trim().toLowerCase()
   const isValidRecipientUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipientUserId)
@@ -4149,7 +4204,7 @@ app.post('/shared-lists/:listId/invitations', requireCustomerAuth, async (req, r
   }
 })
 
-app.get('/shared-lists', requireCustomerAuth, async (req, res) => {
+app.get('/shared-lists', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const { data: memberships, error: membershipError } = await analysisWriter
       .from('shared_shopping_list_members')
@@ -4179,7 +4234,7 @@ app.get('/shared-lists', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name || name.length > 80) {
     return res.status(400).json({ error: 'El nombre debe tener entre 1 y 80 caracteres.' })
@@ -4215,7 +4270,7 @@ app.post('/shared-lists', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/join', sharedListJoinIpRateLimit, requireCustomerAuth, sharedListJoinRateLimit, async (req, res) => {
   const inviteCode = String(req.body?.inviteCode || '').trim()
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(inviteCode)) {
     return res.status(400).json({ error: 'El enlace o código de invitación no es válido.' })
@@ -4248,7 +4303,7 @@ app.post('/shared-lists/join', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
+app.delete('/shared-lists/:listId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -4270,7 +4325,7 @@ app.delete('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.delete('/shared-lists/:listId/members/:userId', requireCustomerAuth, async (req, res) => {
+app.delete('/shared-lists/:listId/members/:userId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const targetUserId = String(req.params.userId || '')
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetUserId)) {
     return res.status(400).json({ error: 'El usuario seleccionado no es válido.' })
@@ -4313,7 +4368,7 @@ app.delete('/shared-lists/:listId/members/:userId', requireCustomerAuth, async (
   }
 })
 
-app.post('/shared-lists/:listId/leave', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/:listId/leave', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -4338,7 +4393,7 @@ app.post('/shared-lists/:listId/leave', requireCustomerAuth, async (req, res) =>
   }
 })
 
-app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
+app.get('/shared-lists/:listId', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -4490,7 +4545,7 @@ app.get('/shared-lists/:listId', requireCustomerAuth, async (req, res) => {
   }
 })
 
-app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) => {
+app.post('/shared-lists/:listId/items', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const itemName = String(req.body?.itemName || '').trim()
   const quantity = Number(req.body?.quantity ?? 1)
   const productId = req.body?.productId === undefined || req.body?.productId === null
@@ -4528,7 +4583,7 @@ app.post('/shared-lists/:listId/items', requireCustomerAuth, async (req, res) =>
   }
 })
 
-app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req, res) => {
+app.patch('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   const changes = {}
   if (typeof req.body?.isChecked === 'boolean') changes.is_checked = req.body.isChecked
   if (req.body?.quantity !== undefined) {
@@ -4567,7 +4622,7 @@ app.patch('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req
   }
 })
 
-app.delete('/shared-lists/:listId/items/:itemId', requireCustomerAuth, async (req, res) => {
+app.delete('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
@@ -4703,6 +4758,19 @@ const desiredPort = process.env.PORT ? Number(process.env.PORT) : 3000
 const candidatePorts = [desiredPort, 3100, 3140, 3200, 3210, 3300, 3500, 4000].filter((port, index, array) => Number.isInteger(port) && port > 0 && array.indexOf(port) === index)
 let discoSyncRunning = false
 const discoSyncIntervalMs = Number(process.env.DISCO_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
+let carrefourSyncRunning = false
+const carrefourSyncIntervalMs = Number(process.env.CARREFOUR_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
+const carrefourSyncMaxOffersPerRun = Number(
+  process.env.CARREFOUR_SYNC_MAX_OFFERS_PER_RUN || DEFAULT_MAX_OFFERS_PER_RUN,
+)
+if (!Number.isInteger(carrefourSyncIntervalMs) || carrefourSyncIntervalMs < 60 * 1000) {
+  throw new TypeError('CARREFOUR_SYNC_INTERVAL_MS debe ser un entero de al menos 60000 ms')
+}
+if (!Number.isInteger(carrefourSyncMaxOffersPerRun)
+  || carrefourSyncMaxOffersPerRun < 1
+  || carrefourSyncMaxOffersPerRun > MAX_OFFERS_PER_RUN) {
+  throw new TypeError(`CARREFOUR_SYNC_MAX_OFFERS_PER_RUN debe ser un entero entre 1 y ${MAX_OFFERS_PER_RUN}`)
+}
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 app.post('/translate/products', productTranslationIpRateLimit, async (req, res) => {
   const names = req.body?.names
@@ -4752,6 +4820,41 @@ if (process.env.DISCO_SYNC_ENABLED === 'true') {
     }
   }, discoSyncIntervalMs)
   console.log(`Disco scheduled sync enabled every ${discoSyncIntervalMs}ms`)
+}
+
+if (process.env.CARREFOUR_SYNC_ENABLED === 'true') {
+  setInterval(async () => {
+    if (carrefourSyncRunning) return
+    carrefourSyncRunning = true
+    try {
+      const postalCode = normalizePostalCode(process.env.CARREFOUR_SYNC_POSTAL_CODE || '5186')
+      if (!postalCode) throw new Error('CARREFOUR_SYNC_POSTAL_CODE debe ser un código postal válido')
+      const result = await syncCarrefourPrices({
+        database: analysisWriter,
+        historyRecorder: recordPriceHistory,
+        postalCode,
+        onCatalogChange: invalidateCatalogPageCache,
+        maxOffersPerRun: carrefourSyncMaxOffersPerRun,
+      })
+      for (const entry of result.updated) {
+        if (entry.previousCashPrice !== entry.updatedCashPrice) {
+          scheduleRelatedPriceStatusRefresh(entry.productId)
+        }
+      }
+      console.log(
+        `Carrefour scheduled sync (${postalCode}): ${result.updated.length} updated, `
+        + `${result.unchanged.length} unchanged, ${result.unavailable.length} unavailable, `
+        + `${result.suspicious.length} suspicious, ${result.identityMismatch.length} identity mismatches, `
+        + `${result.needsReview.length} needing review, ${result.errors.length} errors, `
+        + `batch ${result.checked}/${result.batchLimit}, cursor ${result.nextOfferId ?? 'start'}`,
+      )
+    } catch (error) {
+      console.error('Carrefour scheduled sync failed:', error.message)
+    } finally {
+      carrefourSyncRunning = false
+    }
+  }, carrefourSyncIntervalMs)
+  console.log(`Carrefour scheduled sync enabled every ${carrefourSyncIntervalMs}ms`)
 }
 
 let server = null
