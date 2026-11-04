@@ -427,6 +427,118 @@ app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
   }
 })
 
+app.post('/admin/import/carrefour/status', requireAdmin, async (req, res) => {
+  try {
+    const requestedProducts = Array.isArray(req.body?.products) ? req.body.products : []
+    if (!requestedProducts.length || requestedProducts.length > CARREFOUR_IMPORT_BATCH_LIMIT) {
+      return res.status(400).json({ error: `La consulta de estado permite entre 1 y ${CARREFOUR_IMPORT_BATCH_LIMIT} productos` })
+    }
+    const products = requestedProducts.map((item) => ({
+      sourceProductId: String(item?.sourceProductId || '').trim(),
+      ean: String(item?.ean || '').trim(),
+      expectedPrice: Number(item?.expectedPrice),
+    }))
+    if (products.some((item) => (
+      !/^\d{1,20}$/.test(item.sourceProductId)
+      || !/^\d{8,14}$/.test(item.ean)
+      || !Number.isFinite(item.expectedPrice)
+      || item.expectedPrice <= 0
+    ))) {
+      return res.status(400).json({ error: 'La consulta de estado contiene identificadores o precios inválidos' })
+    }
+
+    const [sourceResult, eanResult] = await Promise.all([
+      analysisWriter.from('products')
+        .select('id, name, source, source_product_id, ean, offers(id, supermarket, cash_price, list_price)')
+        .eq('source', 'carrefour')
+        .in('source_product_id', products.map((item) => item.sourceProductId)),
+      analysisWriter.from('products')
+        .select('id, name, source, source_product_id, ean, offers(id, supermarket, cash_price, list_price)')
+        .in('ean', [...new Set(products.map((item) => item.ean))]),
+    ])
+    const catalogError = sourceResult.error || eanResult.error
+    if (catalogError) {
+      console.error('Error reconciling Carrefour import status', catalogError)
+      return res.status(500).json({ error: 'No se pudo verificar el estado del lote Carrefour' })
+    }
+    const catalogProducts = new Map()
+    for (const product of [...(sourceResult.data || []), ...(eanResult.data || [])]) {
+      catalogProducts.set(String(product.id), product)
+    }
+    const productRows = [...catalogProducts.values()]
+    const offerIds = productRows.flatMap((product) => (product.offers || [])
+      .filter((offer) => offer.supermarket === 'Carrefour')
+      .map((offer) => offer.id))
+    let historyByOfferId = new Set()
+    let summaryByOfferId = new Map()
+    if (offerIds.length) {
+      const historyResults = await Promise.all(offerIds.map((offerId) => analysisWriter.from('price_history')
+        .select('offer_id')
+        .eq('offer_id', offerId)
+        .eq('source', 'carrefour_import')
+        .limit(1)))
+      const historyError = historyResults.find((result) => result.error)?.error
+      if (historyError) {
+        console.error('Error checking Carrefour import history', historyError)
+        return res.status(500).json({ error: 'No se pudo verificar el historial del lote Carrefour' })
+      }
+      historyByOfferId = new Set(historyResults
+        .flatMap((result) => result.data || [])
+        .map((row) => String(row.offer_id)))
+      const { data: summaryRows, error: summaryError } = await analysisWriter.from('catalog_offer_price_summary')
+        .select('offer_id, normalized_price')
+        .in('offer_id', offerIds)
+      if (summaryError) {
+        console.error('Error checking Carrefour price summaries', summaryError)
+        return res.status(500).json({ error: 'No se pudo verificar el resumen de precios del lote Carrefour' })
+      }
+      summaryByOfferId = new Map((summaryRows || []).map((row) => [String(row.offer_id), Number(row.normalized_price)]))
+    }
+
+    const results = products.map((item) => {
+      const match = findCarrefourLocalMatch(item, productRows)
+      if (match.ambiguous) return { ...item, status: 'ambiguous', reason: match.reason }
+      if (!match.product) return { ...item, status: 'not_found' }
+      const offer = (match.product.offers || []).find((candidate) => candidate.supermarket === 'Carrefour')
+      if (!offer) {
+        return { ...item, status: 'product_without_offer', productId: match.product.id, matchedBy: match.matchedBy }
+      }
+      if (!sameMoneyValue(offer.cash_price, item.expectedPrice)) {
+        return {
+          ...item,
+          status: 'price_mismatch',
+          productId: match.product.id,
+          offerId: offer.id,
+          actualPrice: Number(offer.cash_price),
+        }
+      }
+      if (!historyByOfferId.has(String(offer.id))) {
+        return { ...item, status: 'offer_without_history', productId: match.product.id, offerId: offer.id }
+      }
+      if (!sameMoneyValue(summaryByOfferId.get(String(offer.id)), item.expectedPrice)) {
+        return {
+          ...item,
+          status: 'offer_without_summary',
+          productId: match.product.id,
+          offerId: offer.id,
+          summaryPrice: summaryByOfferId.get(String(offer.id)) ?? null,
+        }
+      }
+      return {
+        ...item,
+        status: 'complete',
+        productId: match.product.id,
+        offerId: offer.id,
+        matchedBy: match.matchedBy,
+      }
+    })
+    res.json({ source: 'carrefour', products: results })
+  } catch (error) {
+    console.error('Error checking Carrefour import status', error)
+    res.status(500).json({ error: 'No se pudo verificar el estado del lote Carrefour' })
+  }
+})
+
 app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
   const createdProductIds = []
   const createdOfferIds = []
@@ -435,6 +547,10 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
   const updatedOfferPrices = []
   try {
     const postalCode = normalizePostalCode(req.body?.postalCode)
+    const batchId = String(req.body?.batchId || '').trim()
+    if (batchId && !/^[a-zA-Z0-9._:-]{1,100}$/.test(batchId)) {
+      return res.status(400).json({ error: 'El identificador del lote no es válido' })
+    }
     const requestedIds = Array.isArray(req.body?.productIds) ? req.body.productIds : []
     const productIds = [...new Set(requestedIds.map((id) => String(id || '').trim()))]
     if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
@@ -486,7 +602,7 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       analysisWriter.from('categories').select('id, name'),
       analysisWriter.from('subcategories').select('id, name, category_id'),
       readAllRowsForImport('brands', 'id, name'),
-      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price)'),
+      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price, source_product_id, source_sku, source_url)'),
     ])
     const { data: existingProducts, error: productsError } = existingProductsResult
     const catalogError = categoriesError || subcategoriesError || brandsError || productsError
@@ -506,6 +622,28 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
     const skipped = []
     const brandCache = new Map()
     const productCache = [...(existingProducts || [])]
+    if (req.body?.bulkRun === true) {
+      const priceWarnings = currentProducts.flatMap((item) => {
+        const match = findCarrefourLocalMatch(item, productCache)
+        if (match.ambiguous) return [{ sourceProductId: item.sourceProductId, reason: match.reason }]
+        const referencePrices = (match.product?.offers || [])
+          .map((offer) => Number(offer.cash_price))
+          .filter((price) => Number.isFinite(price) && price > 0)
+        const prices = [Number(item.price), ...referencePrices]
+          .filter((price) => Number.isFinite(price) && price > 0)
+        const ratio = prices.length > 1 ? Math.max(...prices) / Math.min(...prices) : 1
+        return ratio >= 3
+          ? [{ sourceProductId: item.sourceProductId, reason: `La diferencia de precio es ${ratio.toFixed(2)}x` }]
+          : []
+      })
+      if (priceWarnings.length) {
+        return res.status(409).json({
+          error: 'El lote contiene precios que requieren revisión manual; no se realizaron escrituras',
+          priceWarnings,
+          noWrites: true,
+        })
+      }
+    }
     const failImport = (message, detail) => {
       const error = new Error(detail || message)
       error.importFailure = true
@@ -578,6 +716,9 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
               supermarket: 'Carrefour',
               cash_price: item.price,
               list_price: Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null,
+              source_product_id: sourceProductId,
+              source_sku: item.sourceSku,
+              source_url: item.sourceUrl,
             })
             .select('id, supermarket, cash_price, list_price')
             .single()
@@ -659,6 +800,9 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
           supermarket: 'Carrefour',
           cash_price: item.price,
           list_price: Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null,
+          source_product_id: sourceProductId,
+          source_sku: item.sourceSku,
+          source_url: item.sourceUrl,
         })
         .select('id, supermarket, cash_price, list_price')
         .single()
@@ -685,7 +829,7 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
 
     const { error: logError } = await analysisWriter.from('price_update_log').insert({
       admin_username: req.admin,
-      filters: { source: 'carrefour_import', postal_code: postalCode },
+      filters: { source: 'carrefour_import', postal_code: postalCode, batch_id: batchId || null },
       percentage: 0,
       products_updated: imported.length + updated.length,
       changes: [
@@ -705,6 +849,7 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
     res.json({
       source: 'carrefour',
       postalCode,
+      batchId: batchId || null,
       imported,
       updated,
       unchanged,
