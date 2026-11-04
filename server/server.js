@@ -195,6 +195,30 @@ async function readAllProductsForImport(select) {
   return readAllRowsForImport('products', select)
 }
 
+async function readCarrefourMatchCandidates(items) {
+  const sourceIds = [...new Set(items.map((item) => String(item.sourceProductId || '').trim()).filter(Boolean))]
+  const eans = [...new Set(items.map((item) => String(item.ean || '').trim()).filter(Boolean))]
+  const select = 'id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price, source_product_id, source_sku, source_url)'
+  const requests = []
+  if (sourceIds.length) {
+    requests.push(analysisWriter.from('products')
+      .select(select)
+      .eq('source', 'carrefour')
+      .in('source_product_id', sourceIds))
+  }
+  if (eans.length) {
+    requests.push(analysisWriter.from('products').select(select).in('ean', eans))
+  }
+  const results = await Promise.all(requests)
+  const error = results.find((result) => result.error)?.error
+  if (error) return { data: null, error }
+  const candidates = new Map()
+  for (const result of results) {
+    for (const product of result.data || []) candidates.set(String(product.id), product)
+  }
+  return { data: [...candidates.values()], error: null }
+}
+
 async function readAllRowsForImport(table, select) {
   const rows = []
   const pageSize = 1000
@@ -602,7 +626,7 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       analysisWriter.from('categories').select('id, name'),
       analysisWriter.from('subcategories').select('id, name, category_id'),
       readAllRowsForImport('brands', 'id, name'),
-      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price, source_product_id, source_sku, source_url)'),
+      readCarrefourMatchCandidates(currentProducts),
     ])
     const { data: existingProducts, error: productsError } = existingProductsResult
     const catalogError = categoriesError || subcategoriesError || brandsError || productsError
