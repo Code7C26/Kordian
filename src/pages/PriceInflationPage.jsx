@@ -376,7 +376,7 @@ export default function PriceInflationPage() {
 
         <section className="py-8 sm:py-10">
           <div className="flex items-start gap-4">
-            <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-blue-600 to-indigo-700 text-white shadow-lg shadow-blue-900/20 ring-1 ring-white/30 dark:ring-white/10">
+            <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-sky-700 text-white shadow-sm">
               <span className="absolute inset-1 rounded-[0.8rem] border border-white/15" aria-hidden="true" />
               <CategoryIconImage src={calculatorIcon} className="relative h-7 w-7 drop-shadow-sm" />
             </span>
@@ -608,7 +608,7 @@ export default function PriceInflationPage() {
           </section>
 
           <aside className="space-y-4">
-            <section className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-700 via-blue-700 to-indigo-800 p-5 text-white shadow-lg dark:border-sky-900">
+            <section className="rounded-2xl border border-sky-800 bg-sky-700 p-5 text-white shadow-sm dark:border-sky-900">
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-sky-100" aria-hidden="true" />
                 <div>

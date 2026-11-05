@@ -136,12 +136,27 @@ export default function SharedListsPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [copyShareNotice, setCopyShareNotice] = useState('')
+  const copyShareNoticeTimeout = useRef(null)
   const itemSearchRef = useRef(null)
   const itemOptionRefs = useRef([])
   const [catalogProductsByItemId, setCatalogProductsByItemId] = useState({})
   const [catalogLookupStatuses, setCatalogLookupStatuses] = useState({})
   const [catalogLookupRetryKey, setCatalogLookupRetryKey] = useState(0)
   const requestedItemLookups = useRef(new Set())
+  const showCopyShareNotice = (message) => {
+    if (copyShareNoticeTimeout.current) window.clearTimeout(copyShareNoticeTimeout.current)
+    setCopyShareNotice(message)
+    copyShareNoticeTimeout.current = window.setTimeout(() => {
+      setCopyShareNotice('')
+      copyShareNoticeTimeout.current = null
+    }, 3000)
+  }
+
+  useEffect(() => () => {
+    if (copyShareNoticeTimeout.current) window.clearTimeout(copyShareNoticeTimeout.current)
+  }, [])
+
   const itemLookupKey = JSON.stringify((selectedList?.items || []).map((item) => ({
     id: item.id,
     productId: item.product_id,
@@ -824,7 +839,8 @@ export default function SharedListsPage() {
       } else {
         await navigator.clipboard.writeText(inviteUrl)
       }
-      setNotice(t('Enlace privado copiado o compartido. Solo pueden unirse usuarios con cuenta.'))
+      setNotice('')
+      showCopyShareNotice(t('Enlace privado copiado o compartido.'))
       setError('')
     } catch (shareError) {
       if (shareError.name !== 'AbortError') setError(t('No se pudo compartir el enlace. Copia el código de invitación manualmente.'))
@@ -886,6 +902,16 @@ export default function SharedListsPage() {
 
         {error && <div role="alert" className="mb-4 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{t(error)}</div>}
         {notice && <div role="status" className="mb-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">{notice}</div>}
+        {copyShareNotice && (
+          <div className="pointer-events-none fixed inset-0 z-[100] grid place-items-center p-4">
+            <div className="shared-list-toast flex max-w-sm items-center gap-3 rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-sm font-semibold text-stone-800 shadow-xl dark:border-emerald-900 dark:bg-stone-900 dark:text-stone-100" role="status" aria-live="polite">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                <Check className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <span>{copyShareNotice}</span>
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.5fr)]">
           <aside className="space-y-4">
@@ -937,7 +963,7 @@ export default function SharedListsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-200 pb-4 dark:border-stone-800">
                   <div>
                     <h2 className="text-xl font-black">{selectedList.name}</h2>
-                    <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">{selectedList.memberCount} {t(selectedList.memberCount === 1 ? 'participante' : 'participantes')} · {t('Sincroniza automáticamente')}</p>
+                    <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">{selectedList.memberCount} {t(selectedList.memberCount === 1 ? 'participante' : 'participantes')}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => {
@@ -1301,7 +1327,8 @@ export default function SharedListsPage() {
                   <button type="button" onClick={async () => {
                     try {
                       await navigator.clipboard.writeText(selectedList.invite_code)
-                      setNotice(t('Código copiado.'))
+                      setNotice('')
+                      showCopyShareNotice(t('Código copiado.'))
                       setError('')
                     } catch {
                       setError(t('No se pudo copiar el código. Selecciónalo y cópialo manualmente.'))

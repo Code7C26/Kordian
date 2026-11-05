@@ -7,7 +7,6 @@ import {
   Dog, 
   Grid,
   ArrowRight,
-  Sparkles
 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext.jsx';
 
@@ -28,8 +27,7 @@ export function CategoryMenuScreen({ categories, onSelectCategory }) {
   return (
     <div className="min-h-[calc(100vh-4rem)] flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
       <div className="text-center space-y-3 mb-10">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-100 dark:bg-sky-950/80 border border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-300 text-xs font-semibold">
-          <Sparkles className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 text-xs font-semibold">
           <span>{t('Selección Rápida de Categorías')}</span>
         </div>
 
@@ -47,10 +45,10 @@ export function CategoryMenuScreen({ categories, onSelectCategory }) {
           <button
             key={cat.id}
             onClick={() => onSelectCategory(cat.id)}
-            className="group relative text-left p-6 rounded-3xl bg-white dark:bg-stone-800/90 hover:bg-sky-50/50 dark:hover:bg-stone-800 border-2 border-stone-200/90 dark:border-stone-700/80 hover:border-sky-500 dark:hover:border-sky-500 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between min-h-[170px] cursor-pointer"
+            className="group relative text-left p-6 rounded-2xl bg-white dark:bg-stone-800/90 hover:bg-sky-50/50 dark:hover:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-sky-500 dark:hover:border-sky-500 shadow-sm hover:shadow-md transition-colors flex flex-col justify-between min-h-[170px] cursor-pointer"
           >
             <div className="flex items-start justify-between w-full">
-              <div className="p-3.5 rounded-2xl bg-sky-100/80 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 group-hover:scale-110 group-hover:bg-sky-600 group-hover:text-white transition-all duration-300">
+              <div className="p-3.5 rounded-xl bg-sky-100/80 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 group-hover:bg-sky-600 group-hover:text-white transition-colors duration-200">
                 {getIcon(cat.icon)}
               </div>
             </div>
@@ -71,10 +69,10 @@ export function CategoryMenuScreen({ categories, onSelectCategory }) {
 
         <button
           onClick={() => onSelectCategory('todos')}
-          className="group relative text-left p-6 rounded-3xl bg-gradient-to-br from-sky-600 to-blue-700 text-white shadow-md hover:shadow-xl transition-all duration-300 flex flex-col justify-between min-h-[170px] cursor-pointer"
+          className="group relative text-left p-6 rounded-2xl bg-sky-700 text-white border border-sky-800 shadow-sm hover:shadow-md transition-colors duration-200 flex flex-col justify-between min-h-[170px] cursor-pointer"
         >
           <div className="flex items-start justify-between w-full">
-            <div className="p-3.5 rounded-2xl bg-white/20 text-white group-hover:scale-110 transition-all duration-300">
+            <div className="p-3.5 rounded-xl bg-white/15 text-white transition-colors duration-200">
               <Grid className="w-8 h-8" />
             </div>
           </div>

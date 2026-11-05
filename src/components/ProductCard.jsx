@@ -58,7 +58,7 @@ export function ProductCard({
   };
 
   return (
-    <div className="group relative bg-white dark:bg-stone-800/90 rounded-2xl border border-stone-200/90 dark:border-stone-700/80 hover:border-sky-400 dark:hover:border-sky-500 transition-all duration-200 hover:shadow-md flex flex-col justify-between h-full overflow-hidden">
+    <div className="group relative bg-white dark:bg-stone-800/90 rounded-xl border border-stone-200 dark:border-stone-700 hover:border-sky-400 dark:hover:border-sky-500 transition-colors duration-200 hover:shadow-sm flex flex-col justify-between h-full overflow-hidden">
       <div className="relative aspect-square w-full bg-stone-50 dark:bg-stone-900/60 p-4 flex items-center justify-center overflow-hidden border-b border-stone-100 dark:border-stone-800 shrink-0">
         <ProductImage
           src={product.image}
@@ -67,7 +67,7 @@ export function ProductCard({
           productCategory={product.categories?.name || product.category?.name || product.category || product.subcategory || 'Producto'}
           showDetails
           iconSize="small"
-          className="h-full w-full max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+          className="h-full w-full max-h-full max-w-full object-contain"
           loading="lazy"
         />
 
@@ -118,7 +118,7 @@ export function ProductCard({
             </div>
           </div>
 
-          <h3 className="text-sm font-bold text-stone-900 dark:text-white line-clamp-2 h-10 leading-snug group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+          <h3 className="text-sm font-semibold text-stone-900 dark:text-white line-clamp-2 h-10 leading-snug group-hover:text-sky-700 dark:group-hover:text-sky-400 transition-colors">
             {displayName}
           </h3>
           <p className="text-xs font-semibold text-stone-500 dark:text-stone-400 truncate">

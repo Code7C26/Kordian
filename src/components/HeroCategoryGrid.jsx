@@ -40,8 +40,8 @@ export function HeroCategoryGrid({
     <div className="relative overflow-hidden bg-stone-50 pb-12 pt-8 sm:pt-12 border-b border-stone-200 dark:bg-stone-950 dark:border-stone-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="text-center max-w-5xl mx-auto space-y-5">
-          <h1 className="hero-title-font mx-auto max-w-5xl text-balance text-3xl font-black leading-tight tracking-[-0.04em] text-stone-950 dark:text-white sm:text-5xl md:text-6xl">
-            {t('Encontrá el ')}<span className="animated-price-gradient bg-gradient-to-r from-sky-500 via-blue-600 to-cyan-500 bg-clip-text text-transparent">{t('precio justo')}</span>{t(' para cada compra')}
+          <h1 className="hero-title-font mx-auto max-w-5xl text-balance text-3xl font-bold leading-tight tracking-[-0.025em] text-stone-950 dark:text-white sm:text-5xl md:text-6xl">
+            {t('Encontrá el ')}<span className="text-sky-700 dark:text-sky-400">{t('precio justo')}</span>{t(' para cada compra')}
           </h1>
 
           <p className="text-sm sm:text-base text-stone-600 dark:text-stone-300 leading-relaxed font-normal max-w-2xl mx-auto">
@@ -55,7 +55,7 @@ export function HeroCategoryGrid({
                 onSearchSubmit();
                 setSearchFocused(false);
               }}
-              className="relative flex items-center shadow-lg shadow-stone-200/50 dark:shadow-none rounded-2xl border-2 border-sky-500/30 dark:border-sky-500/40 bg-white dark:bg-stone-800 focus-within:border-sky-600 transition-all p-1.5"
+              className="relative flex items-center shadow-sm dark:shadow-none rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 focus-within:border-sky-600 transition-colors p-1.5"
             >
               <div className="pl-3 text-stone-400">
                 <Search className="w-5 h-5 text-sky-600 dark:text-sky-400" />
@@ -111,7 +111,7 @@ export function HeroCategoryGrid({
                       onSearchSubmit();
                     }
                   }}
-                  className="rounded-full border border-sky-600 bg-sky-600 px-3 py-1.5 font-semibold text-white transition-colors hover:border-sky-700 hover:bg-sky-700 dark:border-sky-500 dark:bg-sky-600 dark:hover:border-sky-400 dark:hover:bg-sky-500"
+                  className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 font-medium text-stone-700 transition-colors hover:border-sky-500 hover:text-sky-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 dark:hover:border-sky-500 dark:hover:text-sky-300"
                 >
                   {t(tag)}
                 </button>
@@ -155,15 +155,15 @@ export function HeroCategoryGrid({
                 onClick={() => onSelectCategory(cat.id)}
                 className={`group relative min-w-[180px] sm:min-w-[190px] flex-1 snap-start overflow-hidden text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
                   isSelected
-                    ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/20 ring-2 ring-sky-400'
-                    : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 text-stone-800 dark:text-stone-100 hover:border-sky-300 dark:hover:border-sky-700 shadow-xs hover:shadow-md'
+                    ? 'bg-sky-700 text-white border-sky-700'
+                      : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-800 dark:text-stone-100 hover:border-sky-400 dark:hover:border-sky-700'
                 }`}
               >
                 <div className="flex w-full items-start justify-between">
                   <div className={`flex h-14 w-14 items-center justify-center rounded-xl transition-colors ${
                     isSelected
                       ? 'bg-white/20 text-white'
-                      : 'bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 group-hover:bg-sky-100 dark:group-hover:bg-sky-900/60'
+                      : 'bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300 group-hover:bg-sky-50 dark:group-hover:bg-sky-900/60'
                   }`}>
                     <CategoryIconImage src={categoryIcon} className="h-9 w-9" />
                   </div>
@@ -188,12 +188,12 @@ export function HeroCategoryGrid({
             onClick={() => onSelectCategory('todos')}
             className={`group relative order-first min-w-[180px] sm:min-w-[190px] flex-1 snap-start text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
               selectedCategory === 'todos'
-                ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/20 ring-2 ring-sky-400'
-                : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 text-stone-800 dark:text-stone-100 hover:border-sky-300 dark:hover:border-sky-700 shadow-xs hover:shadow-md'
+                ? 'bg-sky-700 text-white border-sky-700'
+                  : 'bg-white dark:bg-stone-800/90 hover:bg-stone-50 dark:hover:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-800 dark:text-stone-100 hover:border-sky-400 dark:hover:border-sky-700'
             }`}
           >
             <div className="flex w-full items-start justify-between">
-              <div className={`flex h-14 w-14 items-center justify-center rounded-xl ${selectedCategory === 'todos' ? 'bg-white/20 text-white' : 'bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400'}`}>
+              <div className={`flex h-14 w-14 items-center justify-center rounded-xl ${selectedCategory === 'todos' ? 'bg-white/20 text-white' : 'bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300'}`}>
                 <CategoryIconImage src={getCategoryIconAsset({ id: 'todos' })} className="h-9 w-9" />
               </div>
             </div>

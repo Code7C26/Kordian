@@ -6,8 +6,8 @@ import carrefourLogo from '../assets/supermarkets/carrefour.svg'
 import discoLogo from '../assets/supermarkets/disco-logo.png'
 
 const promotions = [
-  { store: 'Carrefour', type: 'Descuento en seleccionados', value: 'Hasta 30%', color: 'from-sky-600 to-blue-700', logo: carrefourLogo, logoBackground: 'bg-white', tag: 'Destacado' },
-  { store: 'Disco', type: 'Beneficio en tu compra', value: '20% OFF', color: 'from-rose-500 to-red-600', logo: discoLogo, logoBackground: 'bg-white', tag: 'Por tiempo limitado' },
+  { store: 'Carrefour', type: 'Descuento en seleccionados', value: 'Hasta 30%', color: 'bg-sky-700', logo: carrefourLogo, logoBackground: 'bg-white', tag: 'Destacado' },
+  { store: 'Disco', type: 'Beneficio en tu compra', value: '20% OFF', color: 'bg-rose-600', logo: discoLogo, logoBackground: 'bg-white', tag: 'Por tiempo limitado' },
 ]
 
 export default function CouponsPage() {
@@ -21,7 +21,7 @@ export default function CouponsPage() {
           </Link>
         </BrandHeader>
 
-        <section className="relative mt-7 overflow-hidden rounded-3xl bg-gradient-to-r from-sky-700 via-blue-700 to-indigo-800 p-6 text-white shadow-lg sm:p-9">
+        <section className="relative mt-7 overflow-hidden rounded-2xl bg-sky-700 p-6 text-white shadow-sm sm:p-9">
           <div className="relative z-10 max-w-2xl">
             <h1 className="mt-4 text-3xl font-black leading-tight sm:text-4xl">{t('Cupones y descuentos')}</h1>
             <p className="mt-3 max-w-xl text-sm leading-6 text-sky-100 sm:text-base">
@@ -48,7 +48,7 @@ export default function CouponsPage() {
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             {promotions.map((promotion) => (
               <article key={`${promotion.store}-${promotion.value}`} className="group overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-stone-800 dark:bg-stone-900">
-                <div className={`flex items-center justify-between bg-gradient-to-r ${promotion.color} px-5 py-4 text-white`}>
+                <div className={`flex items-center justify-between ${promotion.color} px-5 py-4 text-white`}>
                   <div className="flex items-center gap-3">
                     <span className={`flex h-11 w-14 shrink-0 items-center justify-center rounded-xl p-2 ${promotion.logoBackground}`}>
                       <img src={promotion.logo} alt={`${promotion.store} logo`} className="max-h-full max-w-full object-contain" />

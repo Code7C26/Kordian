@@ -98,7 +98,7 @@ export default function Login() {
       <div className="w-full max-w-md space-y-6">
         <div className="rounded-[32px] bg-white dark:bg-stone-900 border border-stone-200/70 dark:border-stone-700/70 shadow-[0_30px_80px_rgba(15,23,42,0.12)] p-8">
           <div className="text-center mb-8">
-            <span className="inline-flex rounded-full bg-gradient-to-r from-sky-600 to-emerald-500 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.3em] text-white shadow-lg shadow-sky-500/20">ADMIN</span>
+            <span className="inline-flex rounded-md bg-sky-700 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white">ADMIN</span>
             <h1 className="mt-6 text-3xl font-extrabold text-stone-900 dark:text-white">{t('Accede al panel')}</h1>
             <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">{t('Inicia sesión para administrar categorías, marcas y precios.')}</p>
           </div>
