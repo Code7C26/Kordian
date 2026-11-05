@@ -226,7 +226,7 @@ export function ReportPriceModal({
               <button
                 type="submit"
                 disabled={isSubmitting || storesLoading || !availableStores.length || !selectedStoreName}
-                className="px-5 py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                className="px-5 py-2.5 bg-sky-700 hover:bg-sky-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSubmitting ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                 <span>{isSubmitting ? t('Enviando…') : t('Enviar Reporte')}</span>

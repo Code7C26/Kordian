@@ -8,8 +8,7 @@ export function CategorySelectionPage({ categories, selectedCategory, onSelectCa
   const { language, setLanguage, t } = useLanguage();
 
   return (
-    <main className="relative min-h-[calc(100vh-4rem)] overflow-hidden bg-gradient-to-b from-sky-50 via-white to-stone-50 px-4 py-10 text-stone-900 dark:from-stone-950 dark:via-stone-950 dark:to-stone-900 dark:text-white sm:px-6 lg:px-8">
-      <div className="pointer-events-none absolute left-1/2 top-0 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-sky-300/20 blur-3xl dark:bg-sky-700/10" />
+    <main className="relative min-h-[calc(100vh-4rem)] overflow-hidden bg-stone-50 px-4 py-10 text-stone-900 dark:bg-stone-950 dark:text-white sm:px-6 lg:px-8">
       <div className="relative mx-auto max-w-6xl">
         <div className="mb-8 flex justify-end gap-2" role="group" aria-label={t('Idioma')}>
           {[{ value: 'es', label: 'Español' }, { value: 'en', label: 'English' }].map((option) => (
@@ -25,7 +24,7 @@ export function CategorySelectionPage({ categories, selectedCategory, onSelectCa
           ))}
         </div>
         <div className="mx-auto max-w-3xl text-center">
-          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-white p-2 shadow-xl shadow-sky-600/10">
+          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white p-2 shadow-sm">
             <img src={brandLogo} alt="AR-PRICE" className="h-full w-full object-contain" />
           </div>
           <p className="mb-2 text-xs font-black uppercase tracking-[0.25em] text-sky-600 dark:text-sky-400">{t('Bienvenido a AR-PRICE')}</p>
@@ -53,10 +52,10 @@ export function CategorySelectionPage({ categories, selectedCategory, onSelectCa
                 type="button"
                 aria-pressed={allProductsSelected}
                 onClick={() => onSelectCategory('todos')}
-                className={`group relative overflow-hidden rounded-3xl border p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-sky-400 hover:shadow-xl ${
+                className={`group relative overflow-hidden rounded-2xl border p-5 text-left shadow-sm transition-colors duration-200 hover:border-sky-400 hover:shadow-md ${
                   allProductsSelected
-                    ? 'border-sky-200 bg-sky-600 text-white hover:shadow-sky-500/20'
-                    : 'border-stone-200 bg-white text-stone-900 hover:shadow-sky-500/10 dark:border-stone-700 dark:bg-stone-900 dark:text-white'
+                    ? 'border-sky-700 bg-sky-700 text-white'
+                    : 'border-stone-200 bg-white text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-white'
                 }`}
               >
                 <div className={`absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full transition-transform duration-300 group-hover:scale-125 ${allProductsSelected ? 'bg-white/10' : 'bg-sky-100 dark:bg-sky-950/70'}`} />
@@ -78,10 +77,10 @@ export function CategorySelectionPage({ categories, selectedCategory, onSelectCa
                     type="button"
                     aria-pressed={isSelected}
                     onClick={() => onSelectCategory(category.id)}
-                    className={`group relative overflow-hidden rounded-3xl border p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-sky-400 hover:shadow-xl ${
+                    className={`group relative overflow-hidden rounded-2xl border p-5 text-left shadow-sm transition-colors duration-200 hover:border-sky-400 hover:shadow-md ${
                       isSelected
-                        ? 'border-sky-200 bg-sky-600 text-white hover:shadow-sky-500/20'
-                        : 'border-stone-200 bg-white text-stone-900 hover:shadow-sky-500/10 dark:border-stone-700 dark:bg-stone-900 dark:text-white'
+                        ? 'border-sky-700 bg-sky-700 text-white'
+                        : 'border-stone-200 bg-white text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-white'
                     }`}
                   >
                     <div className={`absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full transition-transform duration-300 group-hover:scale-125 ${isSelected ? 'bg-white/10' : 'bg-sky-100 dark:bg-sky-950/70'}`} />

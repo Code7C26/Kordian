@@ -171,7 +171,7 @@ export function Header({
   }
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-sky-400/30 dark:border-stone-800 bg-sky-600 dark:bg-stone-900/90 backdrop-blur-md transition-colors duration-200">
+    <header className="sticky top-0 z-40 w-full border-b border-sky-800/30 dark:border-stone-800 bg-sky-700 dark:bg-stone-900 transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex min-h-18 flex-wrap items-center justify-between gap-x-2 gap-y-2 py-2 lg:h-18 lg:flex-nowrap lg:gap-4 lg:py-0">
         <div className="flex min-w-0 items-center gap-3">
           <button 
@@ -180,7 +180,7 @@ export function Header({
             title={t('Ir al inicio de Ar-Price')}
           >
             <div className="relative flex items-center gap-3">
-              <div className="relative flex items-center rounded-xl bg-white p-1.5 ring-1 ring-sky-300/70 shadow-[0_0_14px_rgba(14,165,233,0.24)] dark:bg-transparent dark:ring-sky-500/70">
+              <div className="relative flex items-center rounded-lg bg-white p-1.5 ring-1 ring-white/40 dark:bg-transparent dark:ring-sky-500/70">
                 <img
                   src={darkMode ? brandLogoDark : brandLogo}
                   alt="Ar-Price"
@@ -195,7 +195,7 @@ export function Header({
                     <span className="text-white dark:text-sky-400">PRICE</span>
                   </span>
                 </div>
-                <p className="hidden md:block text-[11px] font-semibold italic text-white/80 dark:text-white leading-tight tracking-wide">
+                <p className="hidden md:block text-[11px] font-medium text-white/75 dark:text-white leading-tight tracking-wide">
                   {t('Ahorrar no es suerte, es información')}
                 </p>
               </div>
@@ -213,7 +213,7 @@ export function Header({
             aria-haspopup="dialog"
             aria-expanded={showLocationMenu}
             aria-label={`${t('Cambiar ubicación. Ubicación actual:')} ${selectedCity}`}
-            className="flex shrink-0 items-center gap-1 rounded-xl border border-white/30 bg-white/20 px-2 py-2 text-sm font-medium text-white hover:bg-white/30 dark:border-stone-700/40 dark:bg-stone-900/40 dark:text-stone-200 sm:gap-2 sm:px-4"
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-white/25 bg-white/10 px-2 py-2 text-sm font-medium text-white hover:bg-white/20 dark:border-stone-700/40 dark:bg-stone-900/40 dark:text-stone-200 sm:gap-2 sm:px-4"
           >
             <MapPin className="h-4 w-4 shrink-0 text-white dark:text-sky-400" aria-hidden="true" />
             <span className="max-w-[80px] max-[359px]:max-w-[44px] truncate sm:max-w-[120px] lg:max-w-[180px]">{selectedCity}</span>
@@ -288,7 +288,7 @@ export function Header({
 
               <button
                 onClick={onOpenBasket}
-                className="relative flex items-center gap-2 rounded-2xl bg-sky-600 px-4 py-2 text-sm font-bold text-white shadow-lg transition-colors hover:bg-sky-700"
+                className="relative flex items-center gap-2 rounded-lg border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20"
                 title={t('Canasta Ahorro')}
               >
                 <ShoppingBag className="w-4 h-4" />

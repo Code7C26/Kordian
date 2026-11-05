@@ -17,7 +17,7 @@ import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from './servic
 import { fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
 import { filterProductOffers, getProductPrice } from './utils/productOffers.js';
-import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
+import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent, LogIn } from 'lucide-react';
 import brandLogo from '../assents/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
 
@@ -205,6 +205,7 @@ export default function App() {
   const [selectedProductForComparison, setSelectedProductForComparison] = useState(null);
   const [selectedProductForExplanation, setSelectedProductForExplanation] = useState(null);
   const [basketOpen, setBasketOpen] = useState(false);
+  const [basketLoginNotice, setBasketLoginNotice] = useState(false);
   const [favoritesOnlyView, setFavoritesOnlyView] = useState(false);
   const updateFilters = (updater) => {
     setProductsPage(1)
@@ -629,6 +630,11 @@ export default function App() {
   };
 
   const addToBasket = (product, selectedOffer = null) => {
+    if (!customerUser) {
+      setBasketLoginNotice(true)
+      return
+    }
+
     const { offer, itemId } = getBasketItemDetails(product, selectedOffer)
 
     setBasket((prev) => {
@@ -736,6 +742,55 @@ export default function App() {
         onSelectCategory={handleSelectCategory}
         isAdminPage={false}
       />
+
+      {basketLoginNotice && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-stone-950/65 p-4 backdrop-blur-sm"
+          onClick={() => setBasketLoginNotice(false)}
+        >
+          <div
+            className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-stone-200 bg-white text-center text-stone-800 shadow-2xl shadow-stone-950/25 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="basket-login-notice"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="bg-sky-50 px-7 pb-8 pt-9 dark:bg-stone-800">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-sky-100 bg-white text-sky-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-sky-400">
+                <LogIn className="h-8 w-8" aria-hidden="true" />
+              </div>
+              <h2 id="basket-login-notice" className="text-xl font-extrabold tracking-tight">
+                {t('Inicia sesión para continuar')}
+              </h2>
+            </div>
+            <div className="space-y-5 px-7 pb-7 pt-6">
+              <p className="text-sm leading-6 text-stone-600 dark:text-stone-300">
+                {t('Debes iniciar sesión en tu cuenta para agregar productos a la canasta.')}
+              </p>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBasketLoginNotice(false)
+                    navigate(`/ingresar?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`)
+                  }}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-sky-600/20 transition hover:bg-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-900"
+                >
+                  {t('Iniciar sesión')}
+                  <LogIn className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBasketLoginNotice(false)}
+                  className="w-full rounded-xl px-4 py-2 text-sm font-semibold text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 dark:text-stone-400 dark:hover:bg-stone-800 dark:hover:text-stone-100"
+                >
+                  {t('Ahora no')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(favoriteActionError || (customerUser && favoritesError)) && (
         <p className="mx-auto mt-4 max-w-7xl px-4 text-sm font-semibold text-rose-600 dark:text-rose-400" role="alert">
