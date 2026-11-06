@@ -19,12 +19,24 @@ const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
   : null
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
 const {
-  fetchDiscoPreview,
-  fetchDiscoProductById,
+  fetchDiscoPreviewReport,
   fetchDiscoPromotion,
   InvalidDiscoPromotionRequestError,
+  isValidDiscoProduct,
   findPreviewMatches,
 } = require('./services/discoImporter')
+const {
+  fetchPreview: fetchMamiPreview,
+  findMatches: findMamiMatches,
+  getInvalidReason: getMamiInvalidReason,
+  isValidProduct: isValidMamiProduct,
+  source: mamiSource,
+} = require('./services/mamiImporter')
+const {
+  buildTaxonomyComparison,
+  compareCrossSourceProducts,
+  compareSimulationReport,
+} = require('./services/importerContract')
 const { syncMamiLowPrices } = require('./services/mamiPriceSync')
 const {
   fetchPreview: fetchCarrefourPreview,
@@ -295,10 +307,11 @@ app.get('/admin/import/disco/preview', requireAdmin, async (req, res) => {
     const from = Math.max(0, Number(req.query.from || 0))
     const requestedTo = Number.isFinite(Number(req.query.to)) ? Number(req.query.to) : 99
     const to = Math.max(from, requestedTo)
-    const [previewReport, { data: localProducts, error: productsError }] = await Promise.all([
+    const [previewReport, localProductsResult] = await Promise.all([
       fetchDiscoPreviewReport({ query, from, to }),
-      supabase.from('products').select('id, name, source_product_id, ean'),
+      readAllProductsForImport('id, name, source, source_product_id, ean'),
     ])
+    const { data: localProducts, error: productsError } = localProductsResult
     if (productsError) return res.status(500).json({ error: 'No se pudo consultar el inventario local' })
     res.json({ source: 'Disco', query, from, to, products: findPreviewMatches(previewReport.products, localProducts || []), discarded: previewReport.discarded })
   } catch (error) {
@@ -1161,8 +1174,8 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
         category_id: category.id,
         subcategory_id: subcategory.id,
         image: item.image,
-        classification_source: 'manual',
-        classification_confidence: 'manual',
+        classification_source: 'automatic',
+        classification_confidence: suggestion.confidence,
         source: 'carrefour',
         source_product_id: sourceProductId,
         source_sku: item.sourceSku,
@@ -1311,11 +1324,12 @@ app.get('/admin/import/compare/preview', requireAdmin, async (req, res) => {
     const from = Math.max(0, Number(req.query.from || 0))
     const requestedTo = Number.isFinite(Number(req.query.to)) ? Number(req.query.to) : 49
     const to = Math.max(from, requestedTo)
-    const [mamiPreview, discoPreview, { data: localProducts, error: productsError }] = await Promise.all([
+    const [mamiPreview, discoPreview, localProductsResult] = await Promise.all([
       fetchMamiPreview({ query, from, to }),
       fetchDiscoPreviewReport({ query, from, to }),
-      supabase.from('products').select('id, name, source_product_id, ean, brands(name), offers(id, supermarket, cash_price)'),
+      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price)'),
     ])
+    const { data: localProducts, error: productsError } = localProductsResult
     if (productsError) return res.status(500).json({ error: 'No se pudo consultar el inventario local' })
     const mamiProducts = findMamiMatches(mamiPreview.products, localProducts || [])
     const comparison = compareCrossSourceProducts(mamiProducts, discoPreview.products)
@@ -1401,7 +1415,12 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
         skipped.push({ sourceProductId, reason: 'Producto repetido en la selección' })
         continue
       }
-      const existingBySourceId = sourceProductId ? (existingProducts || []).find((candidate) => String(candidate.source_product_id || '') === sourceProductId) : null
+      const existingBySourceId = sourceProductId
+        ? (existingProducts || []).find((candidate) => (
+          String(candidate.source_product_id || '') === sourceProductId
+          && (candidate.source === 'mami' || (!candidate.source && candidate.offers?.some((offer) => offer.supermarket === 'Mami')))
+        ))
+        : null
       const existingByEan = item.ean ? (existingProducts || []).find((candidate) => String(candidate.ean || '') === String(item.ean)) : null
       const existingByCrossSourceName = findCrossSourceProductMatch(item, existingProducts, 'mami')
       const existing = existingBySourceId || existingByEan || existingByCrossSourceName
@@ -1457,8 +1476,8 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
         category_id: category.id,
         subcategory_id: subcategory.id,
         image: item.image || null,
-        classification_source: 'manual',
-        classification_confidence: 'manual',
+        classification_source: hasManualTaxonomy ? 'manual' : 'automatic',
+        classification_confidence: hasManualTaxonomy ? 'manual' : catalogMapping.confidence,
         source: 'mami',
         source_product_id: sourceProductId,
         source_sku: item.sourceSku || null,
@@ -1533,12 +1552,29 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
     res.json({ source: 'mami', imported, updated, unchanged, skipped, dryRun: false, writeSafety: { productWritesAllowed: true, priceHistoryWritesAllowed: true, mutationSurface: 'mami_import' } })
   } catch (error) {
     if (error.importFailure) {
-      await Promise.all(createdHistoryIds.map((id) => analysisWriter.from('price_history').delete().eq('id', id)))
-      await Promise.all(createdOfferIds.map((id) => analysisWriter.from('offers').delete().eq('id', id)))
-      await Promise.all(updatedOfferPrices.map((offer) => analysisWriter.from('offers').update({ cash_price: offer.cashPrice }).eq('id', offer.id)))
-      await Promise.all(createdProductIds.map((id) => analysisWriter.from('products').delete().eq('id', id)))
-      await Promise.all(createdBrandIds.map((id) => analysisWriter.from('brands').delete().eq('id', id)))
-      return res.status(500).json({ error: error.publicMessage || 'No se pudieron importar los productos de Mami', detail: error.message, rolledBack: true })
+      const rollbackErrors = []
+      const rollbackStage = async (operations) => {
+        const results = await Promise.all(operations.map(async (operation) => {
+          try {
+            return await operation
+          } catch (rollbackError) {
+            return { error: rollbackError }
+          }
+        }))
+        rollbackErrors.push(...results.filter((result) => result?.error).map((result) => result.error.message || String(result.error)))
+      }
+      await rollbackStage(createdHistoryIds.map((id) => analysisWriter.from('price_history').delete().eq('id', id)))
+      await rollbackStage(createdOfferIds.map((id) => analysisWriter.from('offers').delete().eq('id', id)))
+      await rollbackStage(updatedOfferPrices.map((offer) => analysisWriter.from('offers').update({ cash_price: offer.cashPrice }).eq('id', offer.id)))
+      await rollbackStage(createdProductIds.map((id) => analysisWriter.from('products').delete().eq('id', id)))
+      await rollbackStage(createdBrandIds.map((id) => analysisWriter.from('brands').delete().eq('id', id)))
+      if (rollbackErrors.length) console.error('Mami import rollback was incomplete', rollbackErrors)
+      return res.status(500).json({
+        error: error.publicMessage || 'No se pudieron importar los productos de Mami',
+        detail: error.message,
+        rolledBack: rollbackErrors.length === 0,
+        rollbackErrors,
+      })
     }
     console.error('Error importing Mami products', error)
     return res.status(500).json({ error: 'No se pudieron importar los productos de Mami', detail: error.message })
@@ -1560,15 +1596,28 @@ app.post('/admin/import/mami', requireAdmin, (req, res) => {
 })
 
 app.post('/admin/import/disco', requireAdmin, async (req, res) => {
+  const createdProductIds = []
+  const createdOfferIds = []
+  const createdHistoryIds = []
+  const createdBrandIds = []
+  const updatedOfferPrices = []
+  const failImport = (message, detail) => {
+    const error = new Error(detail || message)
+    error.importFailure = true
+    error.publicMessage = message
+    throw error
+  }
   try {
     const items = Array.isArray(req.body?.products) ? req.body.products : []
     if (!items.length) return res.status(400).json({ error: 'Seleccioná al menos un producto' })
-    const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }, { data: brands, error: brandsError }, { data: existingProducts, error: productsError }] = await Promise.all([
-      supabase.from('categories').select('id, name'),
-      supabase.from('subcategories').select('id, name, category_id'),
-      supabase.from('brands').select('id, name'),
-      supabase.from('products').select('id, name, source_product_id, ean, offers(id, supermarket, cash_price)'),
+    const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }, brandsResult, existingProductsResult] = await Promise.all([
+      analysisWriter.from('categories').select('id, name'),
+      analysisWriter.from('subcategories').select('id, name, category_id'),
+      readAllRowsForImport('brands', 'id, name'),
+      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price)'),
     ])
+    const { data: brands, error: brandsError } = brandsResult
+    const { data: existingProducts, error: productsError } = existingProductsResult
     const catalogError = categoriesError || subcategoriesError || brandsError || productsError
     if (catalogError) {
       console.error('Error loading catalog for Disco import', catalogError)
@@ -1578,6 +1627,8 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
     const skipped = []
     const brandCache = new Map()
     const seenSourceProductIds = new Set()
+    const updated = []
+    const unchanged = []
     for (const item of items) {
       if (!isValidDiscoProduct(item)) {
         skipped.push({ sourceProductId: item.sourceProductId, reason: 'Producto inválido o sin precio válido' })
@@ -1594,8 +1645,6 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       const proposedCategory = hasManualTaxonomy
         ? item.proposedCategory
         : catalogMapping.status === 'determined' ? catalogMapping.category : null
-      const updated = []
-      const unchanged = []
       const proposedSubcategory = hasManualTaxonomy
         ? item.proposedSubcategory
         : catalogMapping.status === 'determined' ? catalogMapping.subcategory : null
@@ -1603,7 +1652,10 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
       const subcategory = (subcategories || []).find((candidate) => candidate.name === proposedSubcategory && String(candidate.category_id) === String(category?.id))
       const existingBySourceId = sourceProductId
-        ? (existingProducts || []).find((candidate) => String(candidate.source_product_id || '') === sourceProductId)
+        ? (existingProducts || []).find((candidate) => (
+          String(candidate.source_product_id || '') === sourceProductId
+          && (candidate.source === 'disco' || (!candidate.source && candidate.offers?.some((offer) => offer.supermarket === 'Disco')))
+        ))
         : null
       const existingByEan = item.ean
         ? (existingProducts || []).find((candidate) => String(candidate.ean || '') === String(item.ean))
@@ -1621,9 +1673,11 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
           if (!sameMoneyValue(existingOffer.cash_price, item.price)) {
             const { error: offerUpdateError } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
             if (offerUpdateError) {
-              return res.status(500).json({ error: 'No se pudo actualizar la oferta de Disco', detail: offerUpdateError.message, code: offerUpdateError.code })
+              failImport('No se pudo actualizar la oferta de Disco', offerUpdateError.message)
             }
-            await recordPriceHistory({ productId: existing.id, offerId: existingOffer.id, cashPrice: item.price, source: 'disco_import' })
+            updatedOfferPrices.push({ id: existingOffer.id, cashPrice: existingOffer.cash_price })
+            const historyId = await recordPriceHistory({ productId: existing.id, offerId: existingOffer.id, cashPrice: item.price, source: 'disco_import', throwOnError: true })
+            if (historyId) createdHistoryIds.push(historyId)
             updated.push({ productId: existing.id, sourceProductId, offerId: existingOffer.id })
           } else {
             unchanged.push({ productId: existing.id, sourceProductId, offerId: existingOffer.id })
@@ -1631,9 +1685,11 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         } else {
           const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: existing.id, supermarket: 'Disco', cash_price: item.price }).select().single()
           if (offerError) {
-            return res.status(500).json({ error: 'No se pudo crear la oferta de Disco', detail: offerError.message, code: offerError.code })
+            failImport('No se pudo crear la oferta de Disco', offerError.message)
           }
-          await recordPriceHistory({ productId: existing.id, offerId: offer.id, cashPrice: item.price, source: 'disco_import' })
+          createdOfferIds.push(offer.id)
+          const historyId = await recordPriceHistory({ productId: existing.id, offerId: offer.id, cashPrice: item.price, source: 'disco_import', throwOnError: true })
+          if (historyId) createdHistoryIds.push(historyId)
           existing.offers = [...(existing.offers || []), offer]
           updated.push({ productId: existing.id, sourceProductId, offerId: offer.id })
         }
@@ -1667,12 +1723,13 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
             }
           } else {
             brand = createdBrand
+            createdBrandIds.push(createdBrand.id)
             brands.push(brand)
             brandCache.set(normalizedBrandName, brand)
           }
         } catch (error) {
           console.error('Error creating/updating brand during Disco import', error)
-          return res.status(500).json({ error: 'No se pudo crear la marca', detail: error.message, code: error.code || 'unknown' })
+          failImport('No se pudo crear la marca', error.message)
         }
       }
       if (brand && normalizedBrandName) {
@@ -1684,8 +1741,8 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         category_id: category.id,
         subcategory_id: subcategory.id,
         image: item.image || null,
-        classification_source: 'manual',
-        classification_confidence: 'manual',
+        classification_source: hasManualTaxonomy ? 'manual' : 'automatic',
+        classification_confidence: hasManualTaxonomy ? 'manual' : catalogMapping.confidence,
       }
       const externalProductFields = {
         source: 'disco',
@@ -1710,21 +1767,51 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       }
       if (productError) {
         console.error('Error creating imported Disco product', productError)
-        return res.status(500).json({ error: 'No se pudo crear el producto', detail: productError.message, code: productError.code })
+        failImport('No se pudo crear el producto', productError.message)
       }
+      createdProductIds.push(product.id)
       const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: product.id, supermarket: 'Disco', cash_price: item.price }).select().single()
       if (offerError) {
         console.error('Error creating imported Disco offer', offerError)
-        return res.status(500).json({ error: 'Producto creado, pero no se pudo crear su oferta', detail: offerError.message, code: offerError.code })
+        failImport('Producto creado, pero no se pudo crear su oferta', offerError.message)
       }
-      await recordPriceHistory({ productId: product.id, offerId: offer.id, cashPrice: item.price, source: 'disco_import' })
+      createdOfferIds.push(offer.id)
+      const historyId = await recordPriceHistory({ productId: product.id, offerId: offer.id, cashPrice: item.price, source: 'disco_import', throwOnError: true })
+      if (historyId) createdHistoryIds.push(historyId)
       imported.push({ productId: product.id, sourceProductId: item.sourceProductId })
       existingProducts.push({ ...product, offers: [offer] })
     }
+    invalidateCatalogPageCache()
+    invalidateAnalysisCache()
     res.json({ imported, updated, unchanged, skipped })
   } catch (error) {
     console.error('Error importing Disco products', error)
-    res.status(500).json({ error: 'No se pudieron importar los productos seleccionados' })
+    const rollbackErrors = []
+    const rollbackStage = async (operations) => {
+      const results = await Promise.all(operations.map(async (operation) => {
+        try {
+          return await operation
+        } catch (rollbackError) {
+          return { error: rollbackError }
+        }
+      }))
+      rollbackErrors.push(...results.filter((result) => result?.error).map((result) => result.error.message || String(result.error)))
+    }
+    if (error.importFailure || createdHistoryIds.length || updatedOfferPrices.length || createdOfferIds.length || createdProductIds.length || createdBrandIds.length) {
+      await rollbackStage(createdHistoryIds.map((id) => analysisWriter.from('price_history').delete().eq('id', id)))
+      await rollbackStage(updatedOfferPrices.map((offer) => analysisWriter.from('offers').update({ cash_price: offer.cashPrice }).eq('id', offer.id)))
+      await rollbackStage(createdOfferIds.map((id) => analysisWriter.from('offers').delete().eq('id', id)))
+      await rollbackStage(createdProductIds.map((id) => analysisWriter.from('products').delete().eq('id', id)))
+      await rollbackStage(createdBrandIds.map((id) => analysisWriter.from('brands').delete().eq('id', id)))
+    }
+    if (rollbackErrors.length) console.error('Disco import rollback was incomplete', rollbackErrors)
+    res.status(500).json({
+      error: error.publicMessage || 'No se pudieron importar los productos seleccionados',
+      detail: error.message,
+      ...(error.importFailure || createdHistoryIds.length || updatedOfferPrices.length || createdOfferIds.length || createdProductIds.length || createdBrandIds.length
+        ? { rolledBack: rollbackErrors.length === 0, rollbackErrors }
+        : {}),
+    })
   }
 })
 

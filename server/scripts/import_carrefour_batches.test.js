@@ -1,4 +1,7 @@
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 const test = require('node:test')
 const {
   createBatchId,
@@ -326,6 +329,28 @@ test('refuses execution unless every explicit search term was completely discove
     executeImport(checkpoint, 'unused.json', {}, { batchSize: 2, delayMs: 1 }),
     /no tiene cobertura completa/
   )
+})
+
+test('records elapsed time for a resumable manifest import run', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'carrefour-import-timing-'))
+  const checkpoint = createManifestCheckpoint([], {
+    postalCode: '5186',
+    manifestHash: 'empty-manifest',
+    manifestPath: 'capture.csv',
+  })
+
+  try {
+    await executeImport(checkpoint, path.join(directory, 'checkpoint.json'), {}, {
+      batchSize: 2,
+      delayMs: 1,
+    })
+    assert.ok(checkpoint.lastRunTimingsMs.reconciliation >= 0)
+    assert.ok(checkpoint.lastRunTimingsMs.import >= 0)
+    assert.ok(checkpoint.lastRunTimingsMs.total >= checkpoint.lastRunTimingsMs.import)
+    assert.equal(fs.existsSync(path.join(directory, 'checkpoint.json')), true)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
 })
 
 test('rejects invalid runner limits instead of silently coercing them', () => {

@@ -8,39 +8,38 @@ const getCatalogValue = (product, field) => product[field]
   || product[field === 'subcategory' ? 'subcategories' : 'categories']?.name
   || null
 
-const sameCatalogGroup = (firstProduct, secondProduct, firstClassification, secondClassification) => {
-  const firstSubcategory = getCatalogValue(firstProduct, 'subcategory')
-  const secondSubcategory = getCatalogValue(secondProduct, 'subcategory')
-  if (firstSubcategory && secondSubcategory) return normalize(firstSubcategory) === normalize(secondSubcategory)
-  return firstClassification?.categoryId === secondClassification?.categoryId
-    && firstClassification?.subcategoryId === secondClassification?.subcategoryId
+const getCatalogId = (product, field) => product[`${field}_id`]
+  || product[`${field}Id`]
+  || product[field === 'subcategory' ? 'subcategories' : 'categories']?.id
+  || null
+
+const catalogGroupKey = (product, classification) => {
+  const categoryId = getCatalogId(product, 'category')
+  const subcategoryId = getCatalogId(product, 'subcategory')
+  if (categoryId && subcategoryId) return JSON.stringify(['ids', String(categoryId), String(subcategoryId)])
+
+  const category = getCatalogValue(product, 'category')
+  const subcategory = getCatalogValue(product, 'subcategory')
+  if (category && subcategory) return JSON.stringify(['names', normalize(category), normalize(subcategory)])
+
+  if (classification?.categoryId && classification?.subcategoryId) {
+    return JSON.stringify(['classification', classification.categoryId, classification.subcategoryId])
+  }
+  return null
 }
 
-const classificationGroupKey = (classification) => JSON.stringify([
-  classification?.categoryId,
-  classification?.subcategoryId,
-])
-
 export function createComparableProductIndex(products = [], classificationById = new Map()) {
-  const bySubcategory = new Map()
-  const byClassification = new Map()
+  const byCatalogGroup = new Map()
 
   for (const product of products) {
-    const subcategory = getCatalogValue(product, 'subcategory')
-    if (subcategory) {
-      const key = normalize(subcategory)
-      const matches = bySubcategory.get(key) || []
-      matches.push(product)
-      bySubcategory.set(key, matches)
-    }
-
-    const key = classificationGroupKey(classificationById.get(String(product.id)))
-    const matches = byClassification.get(key) || []
+    const key = catalogGroupKey(product, classificationById.get(String(product.id)))
+    if (!key) continue
+    const matches = byCatalogGroup.get(key) || []
     matches.push(product)
-    byClassification.set(key, matches)
+    byCatalogGroup.set(key, matches)
   }
 
-  return { bySubcategory, byClassification }
+  return { byCatalogGroup }
 }
 
 export function extractMeasure(product) {
@@ -68,28 +67,21 @@ export function normalizePrice(product, price) {
 
 export function findComparableReferences(product, products = [], classificationById = new Map(), productIndex = null) {
   const classification = classificationById.get(String(product.id))
-  const productSubcategory = getCatalogValue(product, 'subcategory')
-  if ((!classification?.categoryId || !classification?.subcategoryId) && !productSubcategory) {
+  const groupKey = catalogGroupKey(product, classification)
+  if (!groupKey) {
     return { level: 'inflacion_general', references: [], referencePrice: 0, confidence: 'baja' }
   }
 
   const productMeasure = extractMeasure(product)
   let candidateProducts = products
   if (productIndex) {
-    const candidatesById = new Map()
-    const groupCandidates = productIndex.byClassification.get(classificationGroupKey(classification)) || []
-    for (const candidate of groupCandidates) candidatesById.set(String(candidate.id), candidate)
-    if (productSubcategory) {
-      const subcategoryCandidates = productIndex.bySubcategory.get(normalize(productSubcategory)) || []
-      for (const candidate of subcategoryCandidates) candidatesById.set(String(candidate.id), candidate)
-    }
-    candidateProducts = [...candidatesById.values()]
+    candidateProducts = productIndex.byCatalogGroup.get(groupKey) || []
   }
   const candidates = candidateProducts
     .filter((candidate) => String(candidate.id) !== String(product.id))
     .map((candidate) => {
       const candidateClassification = classificationById.get(String(candidate.id))
-      if (!sameCatalogGroup(product, candidate, classification, candidateClassification)) return null
+      if (catalogGroupKey(candidate, candidateClassification) !== groupKey) return null
       const sameType = candidateClassification?.type && candidateClassification.type === classification?.type
       const sameVariant = classification?.variant && candidateClassification?.variant && normalize(classification.variant) === normalize(candidateClassification.variant)
       const candidateMeasure = extractMeasure(candidate)
