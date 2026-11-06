@@ -2060,9 +2060,9 @@ app.get('/products/search', async (req, res) => {
 
 // GET /products - fetch from Supabase with simple filters + pagination
 app.post('/products/disco-promotion-preview', discoPromotionIpRateLimit, async (req, res) => {
-  const { sourceUrl, ean } = req.body || {}
+  const { ean } = req.body || {}
   try {
-    const promotion = await fetchDiscoPromotion(sourceUrl, ean)
+    const promotion = await fetchDiscoPromotion(ean)
     res.json({ promotion })
   } catch (error) {
     console.error('Unable to verify Disco product promotion:', error)

@@ -43,7 +43,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
     fetch(apiUrl('/products/disco-promotion-preview'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceUrl: discoSourceUrl, ean: discoEan }),
+      body: JSON.stringify({ ean: discoEan }),
       signal: controller.signal,
     })
       .then(async (response) => {

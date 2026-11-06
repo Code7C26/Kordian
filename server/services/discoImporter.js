@@ -206,7 +206,14 @@ function normalizeDiscoProductUrl(sourceUrl) {
     throw new InvalidDiscoPromotionRequestError('La URL de Disco no es válida')
   }
 
-  if (url.protocol !== 'https:' || url.hostname !== 'www.disco.com.ar' || !url.pathname.endsWith('/p')) {
+  if (
+    url.protocol !== 'https:'
+    || url.hostname !== 'www.disco.com.ar'
+    || url.port
+    || url.username
+    || url.password
+    || !url.pathname.endsWith('/p')
+  ) {
     throw new InvalidDiscoPromotionRequestError('La URL debe corresponder a una ficha de producto de Disco')
   }
 
@@ -225,17 +232,39 @@ export function createDiscoPromotionFetcher({
   const cache = new Map()
   const inFlight = new Map()
 
-  return async function fetchDiscoPromotion(sourceUrl, ean) {
-    const url = normalizeDiscoProductUrl(sourceUrl)
+  return async function fetchDiscoPromotion(ean) {
     const normalizedEan = String(ean || '').replace(/\D/g, '')
     if (!/^\d{8,14}$/.test(normalizedEan)) throw new InvalidDiscoPromotionRequestError('El EAN no es válido')
 
-    const key = `${url}|${normalizedEan}`
+    const key = normalizedEan
     const cached = cache.get(key)
     if (cached && cached.expiresAt > now()) return cached.promotion
     if (inFlight.has(key)) return inFlight.get(key)
 
     const request = (async () => {
+      const params = new URLSearchParams({
+        fq: `alternateIds_Ean:${normalizedEan}`,
+        _from: '0',
+        _to: '49',
+      })
+      const lookupResponse = await fetchImpl(`${DISCO_API_URL}?${params}`, {
+        headers: { Accept: 'application/json' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!lookupResponse.ok) throw new Error(`Disco respondió con HTTP ${lookupResponse.status}`)
+      const products = await lookupResponse.json()
+      const item = (Array.isArray(products) ? products : []).find((product) => (
+        Array.isArray(product.items)
+        && product.items.some((productItem) => (
+          String(productItem.ean || '').replace(/\D/g, '') === normalizedEan
+        ))
+      ))
+      if (!item?.link) {
+        throw new InvalidDiscoPromotionRequestError('No se encontró la ficha de Disco para el EAN indicado')
+      }
+
+      const url = normalizeDiscoProductUrl(item.link)
       const response = await fetchImpl(url, {
         headers: { Accept: 'text/html' },
         redirect: 'error',
@@ -259,8 +288,8 @@ export function createDiscoPromotionFetcher({
 
 const fetchCachedDiscoPromotion = createDiscoPromotionFetcher()
 
-export function fetchDiscoPromotion(sourceUrl, ean) {
-  return fetchCachedDiscoPromotion(sourceUrl, ean)
+export function fetchDiscoPromotion(ean) {
+  return fetchCachedDiscoPromotion(ean)
 }
 
 async function fetchDiscoPage({ query = '', from = 0, to = 49 } = {}) {

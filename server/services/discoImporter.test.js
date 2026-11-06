@@ -123,23 +123,71 @@ test('does not use a promotion for a different product EAN or an expired promoti
   )
 })
 
-test('caches the public product-page request and rejects URLs outside Disco', async () => {
-  let fetchCount = 0
+test('resolves the canonical Disco page from EAN and caches the result', async () => {
+  const requestedUrls = []
   const fetchPromotion = createDiscoPromotionFetcher({
-    fetchImpl: async () => {
-      fetchCount += 1
+    fetchImpl: async (url) => {
+      requestedUrls.push(String(url))
+      if (String(url).startsWith('https://www.disco.com.ar/api/')) {
+        return {
+          ok: true,
+          json: async () => [{
+            link: 'https://www.disco.com.ar/papas-pringles/p?utm_source=api',
+            items: [{ ean: '7896004009162' }],
+          }],
+        }
+      }
       return { ok: true, text: async () => promotionHtml() }
     },
     now: () => Date.parse('2026-11-03T12:00:00Z'),
   })
 
-  const first = await fetchPromotion('https://www.disco.com.ar/papas-pringles/p?utm_source=test', '7896004009162')
-  const second = await fetchPromotion('https://www.disco.com.ar/papas-pringles/p', '7896004009162')
+  const first = await fetchPromotion('7896004009162')
+  const second = await fetchPromotion('7896004009162')
 
   assert.deepEqual(first, second)
-  assert.equal(fetchCount, 1)
-  await assert.rejects(
-    fetchPromotion('https://example.com/papas-pringles/p', '7896004009162'),
-    /ficha de producto de Disco/,
+  assert.equal(requestedUrls.length, 2)
+  assert.equal(
+    requestedUrls[0],
+    'https://www.disco.com.ar/api/catalog_system/pub/products/search?fq=alternateIds_Ean%3A7896004009162&_from=0&_to=49',
   )
+  assert.equal(requestedUrls[1], 'https://www.disco.com.ar/papas-pringles/p')
+})
+
+test('rejects invalid EANs and noncanonical product URLs returned by Disco', async () => {
+  let fetchCount = 0
+  const invalidEanFetcher = createDiscoPromotionFetcher({
+    fetchImpl: async () => {
+      fetchCount += 1
+      return { ok: true, json: async () => [] }
+    },
+  })
+
+  await assert.rejects(invalidEanFetcher('not-an-ean'), /EAN no es válido/)
+  assert.equal(fetchCount, 0)
+
+  const invalidLinkFetcher = createDiscoPromotionFetcher({
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => [{
+        link: 'https://www.disco.com.ar:8443/product/p',
+        items: [{ ean: '7896004009162' }],
+      }],
+    }),
+  })
+  await assert.rejects(invalidLinkFetcher('7896004009162'), /ficha de producto de Disco/)
+})
+
+test('rejects arbitrary URL credentials and ports in product links', async () => {
+  const fetchPromotion = createDiscoPromotionFetcher({
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => [{
+        link: 'https://user:pass@www.disco.com.ar/papas-pringles/p',
+        items: [{ ean: '7896004009162' }],
+      }],
+    }),
+  })
+
+  await assert.rejects(fetchPromotion('7896004009162'), /ficha de producto de Disco/)
 })
