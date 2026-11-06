@@ -45,7 +45,7 @@ test('audits the Serenisima sachet as a manual review candidate without merging'
   assert.ok(result.matchedSignals.includes('measure'))
   assert.ok(result.matchedSignals.includes('fatPercent'))
   assert.ok(result.matchedSignals.includes('container'))
-  assert.ok(result.identifierNotes.includes('mami_source_sku_is_gtin_like'))
+  assert.deepEqual(result.identifierNotes, [])
   assert.equal(result.products[0].offers[0].supermarket, 'Disco')
   assert.equal(result.products[1].offers[0].supermarket, 'Mami')
 })
@@ -78,12 +78,12 @@ test('recognizes valid GTINs but never performs an automatic merge', () => {
   assert.equal(sameGtin.automaticAction, 'none')
 })
 
-test('treats a source SKU matching another source GTIN as manual evidence', () => {
+test('never treats a source SKU as a cross-supermarket identifier', () => {
   const result = evaluateIdentityPair(discoMilk, makeMilk({ source_sku: '7790742348302' }))
 
-  assert.equal(result.decision, 'review')
-  assert.ok(result.matchedSignals.includes('source_sku_matches_gtin'))
-  assert.ok(result.identifierNotes.includes('mami_source_sku_matches_valid_gtin'))
+  assert.equal(result.matchedSignals.includes('gtin'), false)
+  assert.equal(result.matchedSignals.some((signal) => signal.includes('source_sku')), false)
+  assert.deepEqual(result.identifierNotes, [])
   assert.equal(result.automaticAction, 'none')
 })
 
@@ -181,7 +181,7 @@ test('separates Magistral line and fragrance variants with the same capacity', (
   assert.equal(marinaAttributes.flavor, 'marine')
   const exactPair = evaluateIdentityPair(discoUltraMarina, ultraMarina)
   assert.equal(exactPair.decision, 'review')
-  assert.ok(exactPair.matchedSignals.includes('source_sku_matches_gtin'))
+  assert.equal(exactPair.matchedSignals.includes('gtin'), false)
   assert.equal(evaluateIdentityPair(ultraLemon, ultraMarina).decision, 'separate')
   assert.equal(evaluateIdentityPair(ultraLemon, platinumLemon).decision, 'separate')
 })
@@ -209,7 +209,7 @@ test('separates CBSE yerba flavors at the same weight', () => {
   assert.equal(evaluateIdentityPair(guarana, lemon).decision, 'separate')
 })
 
-test('separates yogurt flavors but keeps matching-ID line disagreements for review', () => {
+test('separates yogurt flavors but keeps matching-GTIN line disagreements for review', () => {
   const bananaDrink = {
     ...discoMilk,
     source: 'disco',
@@ -220,13 +220,15 @@ test('separates yogurt flavors but keeps matching-ID line disagreements for revi
   const bananaCremix = {
     ...mamiMilk,
     source: 'mami',
-    source_sku: '7793940340055',
+    source_sku: 'mami-yogurt-banana-cremix',
+    ean: '7793940340055',
     name: 'Yogur Yogurisimo Cremix Banana X 1 L',
     brands: { name: 'YOGURISIMO' },
   }
   const vanillaDrink = {
     ...bananaCremix,
     source_sku: 'mami-yogurt-vanilla',
+    ean: null,
     name: 'Yogur Yogurisimo Bebible Vainilla X 1 L',
   }
   const bananaCremixResult = evaluateIdentityPair(bananaDrink, bananaCremix)
@@ -234,11 +236,12 @@ test('separates yogurt flavors but keeps matching-ID line disagreements for revi
   assert.equal(extractAttributes(bananaCremix).productLine, 'cremix')
   assert.equal(extractAttributes(bananaDrink).style, 'drinkable')
   assert.equal(bananaCremixResult.decision, 'review')
-  assert.ok(bananaCremixResult.matchedSignals.includes('source_sku_matches_gtin'))
+  assert.equal(bananaCremixResult.matchedSignals.includes('gtin'), true)
+  assert.ok(bananaCremixResult.uncertainSignals.includes('productLine'))
   assert.equal(evaluateIdentityPair(bananaDrink, vanillaDrink).decision, 'separate')
 })
 
-test('keeps Yogurísimo style disagreements in manual review when source SKU matches GTIN', () => {
+test('keeps Yogurísimo style disagreements in manual review when a GTIN matches', () => {
   const discoYogurt = {
     ...discoMilk,
     source: 'disco',
@@ -250,8 +253,8 @@ test('keeps Yogurísimo style disagreements in manual review when source SKU mat
   const mamiYogurt = {
     ...mamiMilk,
     source: 'mami',
-    source_sku: '7791337009943',
-    ean: null,
+    source_sku: 'mami-yogurt-140',
+    ean: '7791337009943',
     name: 'YOGUR YOGURISIMO BATIDO FRUTILLA X 140G',
     brands: { name: 'YOGURISIMO' },
   }
@@ -321,7 +324,7 @@ test('reports products that have multiple possible cross-source matches', () => 
 })
 
 test('prefers one reciprocal GTIN match while keeping weaker alternatives visible', () => {
-  const exactMamiMatch = makeMilk({ source_sku: '7790742348302' })
+  const exactMamiMatch = makeMilk({ ean: '7790742348302' })
   const otherDiscoMilk = {
     ...discoMilk,
     id: 14618,

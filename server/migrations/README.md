@@ -106,6 +106,45 @@ Si Carrefour bloquea esa resolución o no devuelve región, la operación se
 detiene sin usar precios no regionalizados. No importar en producción hasta
 validar primero el flujo en un entorno de staging con base de datos aislada.
 
+## Decisiones de matching entre supermercados
+
+Para registrar revisiones reutilizables de pares Carrefour/catálogo local, aplicar
+`20261105_product_match_review_decisions.sql`. La tabla es independiente de
+`cross_source_review_decisions`, que mantiene su contrato actual Mami/Disco.
+Solo el backend con `service_role` puede leer o escribir decisiones.
+
+Los endpoints administrativos son:
+
+- `GET /review/product-match-decisions?source=carrefour&sourceProductIds=id1,id2`
+- `POST /review/product-match-decisions`
+
+El preflight consulta estas decisiones, pero no las crea ni las modifica. Una
+decisión aprobada solo se reutiliza si coinciden los snapshots guardados de
+identidad, incluidos GTIN, presentación, variante, marca e identificadores
+específicos de cada fuente. Si la identidad cambió, el reporte la marca obsoleta
+y vuelve a revisión. No se puede aprobar ni reutilizar un match si ambos
+productos tienen GTIN válidos distintos, o si hay diferencias de presentación
+o variante incompatibles.
+
+La generación de candidatos no crea asociaciones, productos ni ofertas. Los
+umbrales de clasificación predeterminados son 95 para confianza alta, 80 para
+confianza media y 35 como piso de candidatos visibles; se pueden ajustar en la
+ejecución del preflight. Una puntuación no aprueba una asociación automáticamente.
+
+Ejemplo de preflight de solo lectura y exportación de candidatos:
+
+```powershell
+cd server
+node scripts/preflight_carrefour_manifest.js "C:\ruta\captura.csv" `
+  --history "C:\ruta\historico-validado.csv" `
+  --output "C:\ruta\preflight.json" `
+  --candidates-output "C:\ruta\candidatos.csv"
+```
+
+La opción `--skip-decisions` omite explícitamente la lectura de la tabla de
+decisiones, por ejemplo, antes de aplicar esta migración. No desactiva la
+generación de candidatos ni escribe datos.
+
 ## Sincronización de ofertas Carrefour existentes
 
 Para actualizar únicamente ofertas Carrefour ya presentes, aplicar
@@ -231,6 +270,7 @@ Para desplegar el backend que usa las RPC de paginación, hidratación por IDs, 
 5. `20261019_catalog_status_filters.sql`
 6. `20261026_catalog_global_sort.sql`
 7. `20261027_catalog_token_search.sql`
+8. `20261104_catalog_search_timeout_fix.sql`
 
 Si alguna ya fue aplicada, no hace falta repetirla; continuar con la primera pendiente. La migración `20261013_catalog_search_index_cache.sql` conserva el límite de 100 productos por página y agrega el índice ordenado que el servidor usa para hidratar las páginas siguientes sin repetir la búsqueda completa en Supabase. La migración `20261019_catalog_status_filters.sql` permite que los filtros rápidos usen la última clasificación guardada aunque su actualización esté pendiente. El frontend solicita una página por vez; el backend conserva hasta 10 índices de consulta en una caché LRU en memoria, reutilizada al recorrer páginas y separada por búsqueda y filtros. Se descartan al salir del conjunto LRU o al reiniciar Render. Los productos de cada página se vuelven a hidratar desde Supabase.
 
@@ -239,6 +279,8 @@ El endpoint `/products` incluye `X-Catalog-Cache: MISS` cuando calcula un nuevo 
 La migración `20261026_catalog_global_sort.sql` da prioridad al orden seleccionado sobre la relevancia de búsqueda y la marca antes de paginar. Así, precio, ahorro y nombre se ordenan sobre todo el conjunto filtrado y no solo dentro de la página actual.
 
 La migración `20261027_catalog_token_search.sql` hace que cada palabra de la búsqueda coincida independientemente y en cualquier orden, por ejemplo, `Coca 1` encuentra `Gaseosa Cola Sabor Original 1.25 Lts Coca Cola`. Conserva los filtros, el ordenamiento, la paginación y la caché existentes; los términos se separan una sola vez por consulta.
+
+La migración `20261104_catalog_search_timeout_fix.sql` cambia la búsqueda del nombre del comercio a la tabla `offers`, en lugar del CTE de ofertas que puede materializarse y volver a recorrerse por cada producto y término. Así aprovecha el índice existente por `product_id` sin cambiar qué productos coinciden.
 
 La aplicacion no incluye credenciales de propietario de Supabase, por lo que la migracion debe ejecutarse desde el SQL Editor, Supabase CLI autenticado o un pipeline de migraciones del proyecto. La clave anon del backend solo sirve para operaciones permitidas por RLS y no puede crear tablas.
 

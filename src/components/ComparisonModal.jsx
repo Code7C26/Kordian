@@ -1,20 +1,79 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Store, Calendar, Info, Minus, TriangleAlert } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
+import { apiUrl } from '../config/api.js';
 import { ProductImage } from './ProductImage';
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
 import { SupermarketLogo } from './SupermarketLogo.jsx'
 
 export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromBasket, getBasketQuantity, onExplain, onReportPriceInflated }) {
   const [selectedPeriod, setSelectedPeriod] = useState(null);
+  const [discoPromotionCheck, setDiscoPromotionCheck] = useState({ key: '', status: 'idle', promotion: null });
   const { language, t } = useLanguage();
   const translateProductName = useProductNameTranslator([product?.name]);
   const dateLocale = language === 'en' ? 'en-US' : 'es-AR';
+  const sortedStores = getProductOffers(product || {});
+  const discoOffer = sortedStores.find((offer) => (
+    String(offer.supermarket || offer.storeName || '').trim().toLowerCase() === 'disco'
+  ));
+  const discoSourceUrl = String(
+    discoOffer?.source_url
+    || discoOffer?.sourceUrl
+    || product?.source_url
+    || product?.sourceUrl
+    || '',
+  );
+  const discoEan = String(product?.ean || '');
+  const promotionKey = discoOffer
+    && discoSourceUrl
+    && discoEan
+    ? JSON.stringify([discoSourceUrl, discoEan])
+    : '';
+
+  useEffect(() => {
+    if (!promotionKey) {
+      setDiscoPromotionCheck({ key: '', status: 'idle', promotion: null });
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setDiscoPromotionCheck({ key: promotionKey, status: 'loading', promotion: null });
+
+    fetch(apiUrl('/products/disco-promotion-preview'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceUrl: discoSourceUrl, ean: discoEan }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        return payload.promotion || null;
+      })
+      .then((promotion) => {
+        setDiscoPromotionCheck({ key: promotionKey, status: 'ready', promotion });
+      })
+      .catch((error) => {
+        if (error.name === 'AbortError') return;
+        console.error('No se pudo verificar la promoción de Disco:', error);
+        setDiscoPromotionCheck({ key: promotionKey, status: 'error', promotion: null });
+      });
+
+    return () => controller.abort();
+  }, [promotionKey, discoSourceUrl, discoEan]);
+
   if (!product) return null;
   const displayName = translateProductName(product.name);
-  const sortedStores = getProductOffers(product);
   const cheapestStore = sortedStores[0] || { price: 0, supermarket: '' };
+  const activePromotionCheck = discoPromotionCheck.key === promotionKey
+    ? discoPromotionCheck
+    : { key: promotionKey, status: promotionKey ? 'loading' : 'idle', promotion: null };
+  const promotionConditionsUnknown = Boolean(
+    promotionKey
+    && (activePromotionCheck.status !== 'ready' || activePromotionCheck.promotion?.conditionsVerified === false),
+  );
+  const promotionWarning = activePromotionCheck.promotion && !activePromotionCheck.promotion.conditionsVerified;
   const history = Array.isArray(product.priceHistory) ? product.priceHistory : [];
   const serverPeriods = Array.isArray(product.analysis?.pricePeriods) ? product.analysis.pricePeriods : [];
   const historyByDate = history
@@ -130,12 +189,29 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
               <Store className="w-4 h-4 text-sky-600 dark:text-sky-400" />
               <span>{t('Comparador de Precios por Tienda')}</span>
             </h3>
+            {promotionKey && activePromotionCheck.status === 'loading' && (
+              <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                {t('Verificando la promoción de Disco. Se ocultan las diferencias hasta confirmar sus condiciones.')}
+              </p>
+            )}
+            {promotionKey && activePromotionCheck.status === 'error' && (
+              <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                {t('No se pudo verificar la promoción de Disco. No indicamos un comercio más barato.')}
+              </p>
+            )}
+            {promotionWarning && (
+              <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                {t('Disco publica un precio promocional de')} {formatCurrency(activePromotionCheck.promotion.promotionPrice)}
+                {' '}{t('y un precio de referencia de')} {formatCurrency(activePromotionCheck.promotion.referencePrice)}.
+                {' '}{t('Las condiciones de compra no están verificadas; no se declara un ganador.')}
+              </p>
+            )}
             <div className="space-y-2.5">
               {sortedStores.map((store, index) => {
-                const hasComparison = sortedStores.length > 1;
+                const hasComparison = sortedStores.length > 1 && !promotionConditionsUnknown;
                 const isCheapest = hasComparison && index === 0;
-                const isMostExpensive = sortedStores.length > 1 && index === sortedStores.length - 1;
-                const diffFromCheapest = (store.price || 0) - (cheapestStore.price || 0);
+                const isMostExpensive = hasComparison && index === sortedStores.length - 1;
+                const diffFromCheapest = hasComparison ? (store.price || 0) - (cheapestStore.price || 0) : 0;
                 const basketQuantity = getBasketQuantity?.(product, store) || 0;
                 return (
                   <div
@@ -162,7 +238,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
                       </div>
                     </div>
                       <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-0 border-stone-200/60 dark:border-stone-800 pt-2 sm:pt-0">
-                      {!isCheapest && <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold">+{formatCurrency(diffFromCheapest)}</span>}
+                      {hasComparison && !isCheapest && <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold">+{formatCurrency(diffFromCheapest)}</span>}
                       <div className="flex items-center gap-3">
                         <div className="text-right">
                           {Number(store.listPrice) > Number(store.price) && (

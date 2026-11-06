@@ -8,6 +8,7 @@ import Toast from '../components/Toast.jsx'
 import BusinessStoreAssignments from '../components/BusinessStoreAssignments.jsx'
 import RegisteredUserAccounts from '../components/RegisteredUserAccounts.jsx'
 import CatalogTaxonomyReviewPanel from '../components/CatalogTaxonomyReviewPanel.jsx'
+import CarrefourMatchReviewPanel from '../components/CarrefourMatchReviewPanel.jsx'
 import ClearableSearchInput from '../components/ClearableSearchInput.jsx'
 import {
   BriefcaseBusiness,
@@ -44,6 +45,19 @@ const ADMIN_PAGES = [
   { id: 'usuario', label: 'Usuarios registrados', icon: Users },
   { id: 'comercios', label: 'Comercios', icon: BriefcaseBusiness },
 ]
+
+function getTaxonomySuggestionLabel(product) {
+  if (product.proposedCategory && product.proposedSubcategory) {
+    return `${product.proposedCategory} > ${product.proposedSubcategory}`
+  }
+  if (product.taxonomySuggestionStatus === 'ambiguous') {
+    return 'Revisión manual: evidencias en conflicto'
+  }
+  if (product.taxonomySuggestionStatus === 'insufficient_evidence') {
+    return 'Revisión manual: información insuficiente'
+  }
+  return 'Mapeo pendiente'
+}
 
 export default function Admin() {
   const { t } = useLanguage()
@@ -88,6 +102,7 @@ export default function Admin() {
   const [reviewError, setReviewError] = useState('')
   const [reviewDecisions, setReviewDecisions] = useState({})
   const [reviewHistory, setReviewHistory] = useState([])
+  const [reviewReopeningPairKey, setReviewReopeningPairKey] = useState('')
   const [reviewHistorySummary, setReviewHistorySummary] = useState({
     total: 0,
     byStatus: {
@@ -1563,6 +1578,29 @@ export default function Admin() {
         )
       }
     }
+
+  const reopenReviewDecision = async (pairKey) => {
+    setReviewReopeningPairKey(pairKey)
+    try {
+      const response = await adminFetch(
+        `/review/cross-source-decisions/${encodeURIComponent(pairKey)}`,
+        { method: 'DELETE' },
+      )
+      await readApiResponse(response, 'No se pudo reabrir el par para revisión')
+      invalidateCatalogProductResponses()
+      showToast('Par devuelto a la cola de revisión', 'success')
+      await Promise.all([
+        loadReviewDecisions(),
+        loadCrossSourceReview(),
+        loadProducts(productPage),
+      ])
+    } catch (error) {
+      console.error('Error reopening cross-source review decision', error)
+      showToast(error.message || 'No se pudo reabrir el par para revisión', 'error')
+    } finally {
+      setReviewReopeningPairKey('')
+    }
+  }
 
   // =========================================================
   // DISCO
@@ -4088,10 +4126,7 @@ export default function Admin() {
 
                               {!product.existingProduct && (
                                 <p className="mt-1 text-xs text-sky-700">
-                                  {product.proposedCategory &&
-                                  product.proposedSubcategory
-                                    ? `${product.proposedCategory} > ${product.proposedSubcategory}`
-                                    : 'Mapeo pendiente'}
+                                  {getTaxonomySuggestionLabel(product)}
                                 </p>
                               )}
                             </div>
@@ -4257,9 +4292,7 @@ export default function Admin() {
                               )}
                               {!product.existingProduct && (
                                 <p className="mt-1 text-xs text-stone-500">
-                                  {product.proposedCategory && product.proposedSubcategory
-                                    ? `${product.proposedCategory} > ${product.proposedSubcategory}`
-                                    : 'Mapeo pendiente'}
+                                  {getTaxonomySuggestionLabel(product)}
                                 </p>
                               )}
                               {blocked && (
@@ -4289,6 +4322,7 @@ export default function Admin() {
                 categories={categories}
                 taxonomy={taxonomy}
               />
+              <CarrefourMatchReviewPanel />
               <section className="rounded-3xl border border-stone-200/80 bg-white p-6 shadow-sm dark:border-stone-700 dark:bg-stone-800">
                 <div>
                   <h2 className="text-xl font-bold">
@@ -4686,7 +4720,10 @@ export default function Admin() {
                   </div>
                 )}
 
-              <details className="mt-6 rounded-xl border border-stone-200 p-4 dark:border-stone-700">
+              <details
+                open={reviewHistory.some((decision) => decision.status === 'revisión')}
+                className="mt-6 rounded-xl border border-stone-200 p-4 dark:border-stone-700"
+              >
                 <summary className="cursor-pointer font-bold">
                   Historial de decisiones ({reviewHistorySummary.total || reviewHistory.length})
                   <span className="ml-2 text-xs font-normal text-stone-500">
@@ -4699,7 +4736,7 @@ export default function Admin() {
                   <p className="mt-3 text-sm text-stone-500">Todavía no hay decisiones guardadas.</p>
                 ) : (
                   <div className="mt-3 overflow-x-auto">
-                    <table className="w-full min-w-[640px] text-left text-xs">
+                    <table className="w-full min-w-[900px] text-left text-xs">
                       <thead className="border-b border-stone-200 text-stone-500 dark:border-stone-700">
                         <tr>
                           <th className="px-2 py-2">Decisión</th>
@@ -4707,6 +4744,7 @@ export default function Admin() {
                           <th className="px-2 py-2">Producto Disco</th>
                           <th className="px-2 py-2">Administrador</th>
                           <th className="px-2 py-2">Fecha</th>
+                          <th className="px-2 py-2">Acción</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4719,11 +4757,29 @@ export default function Admin() {
                                   ? 'No agrupar'
                                   : 'Revisión'}
                             </td>
-                            <td className="px-2 py-2">{decision.mamiProductId || '—'}</td>
-                            <td className="px-2 py-2">{decision.discoProductId || '—'}</td>
+                            <td className="px-2 py-2">
+                              <div className="font-medium">{decision.mamiProductName || 'Producto Mami'}</div>
+                              <div className="text-stone-500">ID: {decision.mamiProductId || '—'}</div>
+                            </td>
+                            <td className="px-2 py-2">
+                              <div className="font-medium">{decision.discoProductName || 'Producto Disco'}</div>
+                              <div className="text-stone-500">ID: {decision.discoProductId || '—'}</div>
+                            </td>
                             <td className="px-2 py-2">{decision.admin || '—'}</td>
                             <td className="px-2 py-2">
                               {decision.updatedAt ? new Date(decision.updatedAt).toLocaleString() : '—'}
+                            </td>
+                            <td className="px-2 py-2">
+                              {decision.status === 'revisión' && !decision.isGrouped && (
+                                <button
+                                  type="button"
+                                  onClick={() => reopenReviewDecision(decision.pairKey)}
+                                  disabled={reviewReopeningPairKey === decision.pairKey}
+                                  className="rounded-lg border border-amber-300 px-2.5 py-1.5 font-semibold text-amber-800 disabled:opacity-50 dark:text-amber-200"
+                                >
+                                  {reviewReopeningPairKey === decision.pairKey ? 'Reabriendo…' : 'Retomar revisión'}
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))}

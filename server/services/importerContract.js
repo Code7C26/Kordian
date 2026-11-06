@@ -1,3 +1,5 @@
+const { isValidGtin } = require('./productIdentityAudit')
+
 const COMMON_IMPORTER_FIELDS = {
   source: 'source',
   sourceProductId: 'sourceProductId',
@@ -228,10 +230,10 @@ function extractCrossSourceMeasure(product = {}) {
 }
 
 function getCrossSourceIdentifier(product = {}) {
-  const values = [product.ean, product.gtin, product.gtin13, product.sourceSku]
+  const values = [product.ean, product.gtin, product.gtin13]
   return values
     .map((value) => String(value || '').replace(/\D/g, ''))
-    .find((value) => value.length >= 8 && value.length <= 14) || ''
+    .find((value) => isValidGtin(value)) || ''
 }
 
 function compareCrossSourceProducts(mamiProducts = [], discoProducts = []) {
@@ -245,7 +247,7 @@ function compareCrossSourceProducts(mamiProducts = [], discoProducts = []) {
     const leftIdentifier = getCrossSourceIdentifier(left)
     const rightIdentifier = getCrossSourceIdentifier(right)
     if (leftIdentifier && rightIdentifier && leftIdentifier === rightIdentifier) {
-      return { score: 1, method: 'ean_or_sku', confidence: 'alta', comparisonQuality: 'exact_identifier' }
+      return { score: 1, method: 'gtin', confidence: 'alta', comparisonQuality: 'exact_gtin' }
     }
 
     const leftName = normalizeCrossSourceText(left.name)

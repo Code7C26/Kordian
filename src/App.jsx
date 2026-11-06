@@ -472,6 +472,7 @@ export default function App() {
             .map((offer) => ({
               ...offer,
               price: Number(offer.cash_price ?? offer.cashPrice ?? offer.price ?? 0),
+              listPrice: Number(offer.listPrice ?? offer.list_price ?? 0) || null,
               supermarket: offer.supermarket || offer.supermarket_name || offer.storeName || '',
               image: supermarketImages.get(offer.supermarket || offer.supermarket_name || offer.storeName) || '',
             }))
@@ -493,9 +494,11 @@ export default function App() {
               ? {
                   name: primary.supermarket,
                   id: primary.id,
+                  listPrice: primary.listPrice,
                   image: supermarketImages.get(primary.supermarket) || '',
                 }
               : { name: '', id: null },
+            primaryOffer: primary,
             avgMarketPrice,
             percentageDiff: avgMarketPrice
               ? ((avgMarketPrice - currentPrice) / avgMarketPrice) * 100

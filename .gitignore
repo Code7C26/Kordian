@@ -1,6 +1,9 @@
 node_modules/
 server/node_modules/
 server/uploads/mami_import_checkpoint.json
+server/uploads/carrefour_import_checkpoint.json
+server/uploads/carrefour_manifest_import_checkpoint.json
+server/uploads/carrefour_manifest_import_review.csv
 
 .env
 server/.env

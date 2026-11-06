@@ -1,4 +1,4 @@
-const { evaluateIdentityPair, isValidGtin, summarizeProduct } = require('./productIdentityAudit')
+const { evaluateIdentityPair, summarizeProduct } = require('./productIdentityAudit')
 
 const normalize = (value) => String(value || '')
   .toLowerCase()
@@ -40,13 +40,7 @@ function calculateNameSimilarity(left, right) {
 function hasCorroboratedIdentifier(left, right) {
   const leftSummary = summarizeProduct(left)
   const rightSummary = summarizeProduct(right)
-  const leftIds = [leftSummary.validGtin]
-  const rightIds = [rightSummary.validGtin]
-  const leftSku = String(leftSummary.sourceSku || '').replace(/\D/g, '')
-  const rightSku = String(rightSummary.sourceSku || '').replace(/\D/g, '')
-  if (isValidGtin(leftSku)) leftIds.push(leftSku)
-  if (isValidGtin(rightSku)) rightIds.push(rightSku)
-  return leftIds.filter(Boolean).some((identifier) => rightIds.includes(identifier))
+  return Boolean(leftSummary.validGtin && leftSummary.validGtin === rightSummary.validGtin)
 }
 
 function stableValue(value) {
@@ -246,7 +240,6 @@ function matchCrossSourcePair(mamiProduct, discoProduct) {
   const mamiGtin = String(mami.validGtin || '')
   const discoGtin = String(disco.validGtin || '')
   const exactDeclaredGtin = Boolean(mamiGtin && discoGtin && mamiGtin === discoGtin)
-  const sourceSkuOnlyMatch = evaluation.matchedSignals.includes('source_sku_matches_gtin') && !exactDeclaredGtin
   const requiredFields = REQUIRED_FIELDS_BY_FAMILY[mamiFamily] || ['measure', 'flavor']
   const requiredAttributesKnown = requiredFields.every((field) => comparisons.matched.includes(field))
     && comparisons.uncertain.length === 0
@@ -258,16 +251,6 @@ function matchCrossSourcePair(mamiProduct, discoProduct) {
     }
     return makeResult(mami, disco, 'revisión', comparisons, ['exact_gtin_attributes_incomplete'], 'media', evaluation)
   }
-  if (sourceSkuOnlyMatch) {
-    if (requiredAttributesKnown && !comparisons.mismatched.length && !oneSidedExtra) {
-      return makeResult(mami, disco, 'match', comparisons, ['source_sku_corrobated_by_gtin'], 'media', evaluation)
-    }
-    return makeResult(mami, disco, 'revisión', comparisons, ['source_sku_gtin_attributes_incomplete'], 'media', evaluation)
-  }
-  if (evaluation.decision === 'candidate' && requiredAttributesKnown && !comparisons.mismatched.length && !oneSidedExtra) {
-    return makeResult(mami, disco, 'match', comparisons, ['complete_attribute_match'], 'media', evaluation)
-  }
-
   const reasons = [...evaluation.identifierNotes]
   if (!requiredAttributesKnown) reasons.push('important_attributes_missing')
   if (!reasons.length) reasons.push('identity_ambiguous')

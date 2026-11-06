@@ -41,7 +41,12 @@ async function main() {
     }
 
     const mapping = suggestCatalogMapping({ ...product, brand: product.brands?.name })
-    const category = mapping && categoryByName.get(mapping.category)
+    if (mapping.status !== 'determined') {
+      skipped++
+      continue
+    }
+
+    const category = categoryByName.get(mapping.category)
     const subcategory = category && subcategoryByKey.get(`${category.id}:${mapping.subcategory}`)
     if (!category || !subcategory) {
       skipped++
@@ -54,7 +59,7 @@ async function main() {
       category_id: category.id,
       subcategory_id: subcategory.id,
       classification_source: 'automatic',
-      classification_confidence: 'high',
+      classification_confidence: mapping.confidence,
     }).eq('id', product.id)
     if (error) throw error
     updated++

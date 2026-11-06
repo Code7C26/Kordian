@@ -118,6 +118,36 @@ async function clearReviewDecisions() {
   return true
 }
 
+async function deleteReviewDecision(pairKey) {
+  const key = String(pairKey || '').trim()
+  if (!key) throw new TypeError('pairKey is required')
+
+  const { data: current, error: readError } = await analysisWriter
+    .from('cross_source_review_decisions')
+    .select('pair_key, status, reason_codes, updated_at')
+    .eq('pair_key', key)
+    .maybeSingle()
+  if (readError) throw readError
+  if (!current) return { deleted: false, grouped: false }
+
+  const decision = normalizeDecisionRecord(current)
+  if (shouldGroupReviewDecision(decision)) return { deleted: false, grouped: true }
+  if (decision.status !== 'revisión') return { deleted: false, grouped: false }
+
+  const { data, error } = await analysisWriter
+    .from('cross_source_review_decisions')
+    .delete()
+    .eq('pair_key', key)
+    .eq('status', 'revisión')
+    .eq('updated_at', current.updated_at)
+    .select('pair_key')
+  if (error) throw error
+
+  const deleted = Array.isArray(data) && data.length > 0
+  if (deleted) store.delete(key)
+  return { deleted, grouped: false }
+}
+
 function summarizeReviewDecisions(decisions = []) {
   const items = Array.isArray(decisions) ? decisions : []
   const byStatus = { match: 0, no_match: 0, revisión: 0 }
@@ -245,7 +275,9 @@ module.exports = {
   upsertReviewDecision,
   listReviewDecisions,
   clearReviewDecisions,
+  deleteReviewDecision,
   summarizeReviewDecisions,
+  shouldGroupReviewDecision,
   getReviewGroupingPeerIds,
   applyReviewMatchGrouping,
 }

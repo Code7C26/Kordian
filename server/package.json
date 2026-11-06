@@ -10,6 +10,9 @@
     "audit-product-identities": "node scripts/audit_product_identities.js",
     "audit-cross-source-matches": "node scripts/audit_cross_source_matches.js",
     "import-mami-batches": "node scripts/import_mami_batches.js",
+    "import-carrefour-batches": "node scripts/import_carrefour_batches.js",
+    "enrich-carrefour-manifest-history": "node scripts/enrich_carrefour_manifest_history.js",
+    "preflight-carrefour-manifest": "node scripts/preflight_carrefour_manifest.js",
     "sync-disco-token-prices": "node scripts/sync_disco_token_prices.js",
     "sync-disco": "node scripts/sync_disco.js"
   },
