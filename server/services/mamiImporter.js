@@ -430,6 +430,7 @@ async function fetchMamiCategoryReport(route = '', { query = '' } = {}) {
 }
 
 async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
+  const startedAt = Date.now()
   const html = await fetchMamiHomeHtml()
   const categoryHints = extractMamiCategoryHints(html)
   const maxCategoryRoutes = Math.max(1, Number(process.env.MAMI_MAX_CATEGORY_ROUTES || 1000))
@@ -461,18 +462,26 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
       }
     }
   }
+  const discoveryCompletedAt = Date.now()
   const categoryRoutes = Array.from(discoveredCategoryRoutes)
   const productRoutes = Array.from(discoveredProductRoutes)
-  const routeWindow = query.trim()
+  const prioritizedRoutes = query.trim()
     ? prioritizeMamiQueryRoutes(productRoutes, query)
-    : productRoutes.slice(from, Math.min(productRoutes.length, to + 1))
+    : productRoutes
+  const routeWindow = query.trim()
+    ? prioritizedRoutes
+    : prioritizedRoutes.slice(from, Math.min(prioritizedRoutes.length, to + 1))
   const products = []
   const discarded = []
   let detailJsonLdProductCount = 0
   let detailProfileCount = 0
+  let detailRouteCount = 0
 
   for (let index = 0; index < routeWindow.length; index += detailBatchSize) {
-    const results = await Promise.all(routeWindow.slice(index, index + detailBatchSize).map((route) => readMamiDetailRoute(route, query)))
+    if (query.trim() && products.length > to) break
+    const batch = routeWindow.slice(index, index + detailBatchSize)
+    detailRouteCount += batch.length
+    const results = await Promise.all(batch.map((route) => readMamiDetailRoute(route, query)))
     for (const result of results) {
       products.push(...result.products)
       discarded.push(...result.discarded)
@@ -480,8 +489,10 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
       if (result.profileCount) detailProfileCount += 1
     }
   }
+  const detailFetchCompletedAt = Date.now()
+  const selectedProducts = query.trim() ? products.slice(from, to + 1) : products
 
-  const serializableFeed = products.map((product) => ({
+  const serializableFeed = selectedProducts.map((product) => ({
     source: product.source,
     sourceProductId: product.sourceProductId,
     sourceSku: product.sourceSku,
@@ -513,13 +524,13 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
     ? 'contractable_preview_feed'
     : 'feed_not_yet_contractable'
 
-  const feedSerializable = products.length > 0 && products.every((product) => isSerializableMamiProduct(product))
+  const feedSerializable = selectedProducts.length > 0 && selectedProducts.every((product) => isSerializableMamiProduct(product))
   const feedReliability = feedSerializable
     ? 'detail_json_ld_and_profile_hint'
     : 'html_shell_only'
 
   return {
-    products,
+    products: selectedProducts,
     discarded,
     sourceRead: {
       source: 'mami',
@@ -530,6 +541,7 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
       categoryRouteCount: categoryRoutes.length,
       productRoutes,
       productRouteCount: productRoutes.length,
+      detailRouteCount,
       sampleUsed: false,
       scope: 'html_home_category_shell_only',
       payloadType,
@@ -548,8 +560,13 @@ async function fetchMamiPreviewReport({ query = '', from = 0, to = 49 } = {}) {
       to,
       detailJsonLdProductCount,
       detailProfileCount,
-      detailProfileHint: products[0] || null,
+      detailProfileHint: selectedProducts[0] || null,
       detailRouteAttempted: routeWindow[0] || '',
+      timingsMs: {
+        discovery: discoveryCompletedAt - startedAt,
+        detailFetch: detailFetchCompletedAt - discoveryCompletedAt,
+        total: detailFetchCompletedAt - startedAt,
+      },
     },
   }
 }

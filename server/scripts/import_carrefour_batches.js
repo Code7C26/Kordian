@@ -529,6 +529,7 @@ async function requestPreviewPage(query, postalCode, from, headers) {
 }
 
 async function discover(checkpoint, file, headers, { maxPages, delayMs }) {
+  const startedAt = Date.now()
   checkpoint.phase = 'discovering'
   for (const query of checkpoint.queries) {
     let progress = getQueryProgress(checkpoint, query)
@@ -579,6 +580,10 @@ async function discover(checkpoint, file, headers, { maxPages, delayMs }) {
     completeForEntireCarrefourCatalog: false,
     checkedAt: new Date().toISOString(),
   }
+  checkpoint.lastRunTimingsMs = {
+    ...(checkpoint.lastRunTimingsMs || {}),
+    discovery: Date.now() - startedAt,
+  }
   await writeCheckpoint(file, checkpoint)
 }
 
@@ -625,6 +630,8 @@ async function executeImport(checkpoint, file, headers, {
   delayMs,
   maxItemsPerRun = DEFAULT_MAX_ITEMS_PER_RUN,
 }) {
+  const startedAt = Date.now()
+  let phaseStartedAt = startedAt
   const isManifest = checkpoint.scope === 'explicit_manifest_only'
   const coverageComplete = isManifest
     ? checkpoint.coverage?.completeForManifest === true
@@ -636,6 +643,8 @@ async function executeImport(checkpoint, file, headers, {
     throw new Error('El alcance del checkpoint no está identificado como búsqueda por términos explícitos')
   }
   await reconcileUnknownItems(checkpoint, file, headers, batchSize)
+  const reconciliationMs = Date.now() - phaseStartedAt
+  phaseStartedAt = Date.now()
   const allPending = getImportableItems(checkpoint)
   const pending = getImportableItemsForRun(checkpoint, maxItemsPerRun)
   checkpoint.phase = 'importing'
@@ -714,6 +723,12 @@ async function executeImport(checkpoint, file, headers, {
     ? 'partial'
     : 'completed'
   checkpoint.completedAt = new Date().toISOString()
+  checkpoint.lastRunTimingsMs = {
+    ...(checkpoint.lastRunTimingsMs || {}),
+    reconciliation: reconciliationMs,
+    import: Date.now() - phaseStartedAt,
+    total: Date.now() - startedAt,
+  }
   await writeCheckpoint(file, checkpoint)
   const remainingImportable = getImportableItems(checkpoint).length
   console.log(JSON.stringify({
@@ -723,6 +738,7 @@ async function executeImport(checkpoint, file, headers, {
     totalDiscovered: Object.keys(checkpoint.items).length,
     selectedForRun: pending.length,
     remainingImportable,
+    timingsMs: checkpoint.lastRunTimingsMs,
     counts,
   }, null, 2))
   if (allPending.length > pending.length) {

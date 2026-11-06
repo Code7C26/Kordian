@@ -356,15 +356,26 @@ function createReportRow(item, products, taxonomy) {
 }
 
 async function runPreflight(inputPath, options = {}) {
+  const startedAt = Date.now()
+  const timingsMs = {}
+  let phaseStartedAt = startedAt
   const rows = await readCsv(inputPath)
+  timingsMs.manifestRead = Date.now() - phaseStartedAt
+  phaseStartedAt = Date.now()
   const items = rows.map((row, index) => ({
     rowNumber: index + 2,
     ...validateCarrefourManifestRow(row),
   }))
   const validItems = items.filter((item) => item.valid)
   const duplicates = findManifestDuplicates(validItems)
-  const products = await loadLocalProducts(validItems)
-  const taxonomy = await loadTaxonomy()
+  timingsMs.validation = Date.now() - phaseStartedAt
+  phaseStartedAt = Date.now()
+  const [products, taxonomy] = await Promise.all([
+    loadLocalProducts(validItems),
+    loadTaxonomy(),
+  ])
+  timingsMs.localCatalogRead = Date.now() - phaseStartedAt
+  phaseStartedAt = Date.now()
   const reportRows = items.map((item) => createReportRow(item, products, taxonomy))
 
   for (const duplicate of duplicates) {
@@ -444,6 +455,7 @@ async function runPreflight(inputPath, options = {}) {
       },
     }
   }
+  timingsMs.analysis = Date.now() - phaseStartedAt
 
   const counts = finalReportRows.reduce((result, row) => {
     result[row.status] = (result[row.status] || 0) + 1
@@ -456,6 +468,10 @@ async function runPreflight(inputPath, options = {}) {
     inputFile: path.resolve(inputPath),
     rowCount: rows.length,
     counts,
+    timingsMs: {
+      ...timingsMs,
+      total: Date.now() - startedAt,
+    },
     duplicateCount: duplicates.length,
     historicalPricePolicy,
     candidateSummary,
