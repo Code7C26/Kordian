@@ -2,35 +2,58 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const supabaseAdmin = require('../supabaseAdmin')
-const { normalizePairKey, upsertReviewDecision, listReviewDecisions, clearReviewDecisions, summarizeReviewDecisions, getReviewGroupingPeerIds, applyReviewMatchGrouping } = require('./reviewDecisionStore')
+const { normalizePairKey, upsertReviewDecision, listReviewDecisions, clearReviewDecisions, deleteReviewDecision, summarizeReviewDecisions, getReviewGroupingPeerIds, applyReviewMatchGrouping } = require('./reviewDecisionStore')
 
 test('review decision store normalizes keys and persists statuses', async () => {
   const rows = new Map()
   const originalFrom = supabaseAdmin.from
-  supabaseAdmin.from = () => ({
-    upsert(record) {
-      this.record = record
-      return this
-    },
-    select() {
-      return this
-    },
-    single() {
-      const record = { ...this.record, created_at: this.record.updated_at }
-      rows.set(record.pair_key, record)
-      return Promise.resolve({ data: record, error: null })
-    },
-    order() {
-      return Promise.resolve({ data: Array.from(rows.values()), error: null })
-    },
-    delete() {
-      return this
-    },
-    neq() {
-      rows.clear()
-      return Promise.resolve({ error: null })
-    },
-  })
+  supabaseAdmin.from = () => {
+    const query = { filters: {} }
+    return {
+      upsert(record) {
+        query.operation = 'upsert'
+        query.record = record
+        return this
+      },
+      single() {
+        const record = { ...query.record, created_at: query.record.updated_at }
+        rows.set(record.pair_key, record)
+        return Promise.resolve({ data: record, error: null })
+      },
+      order() {
+        return Promise.resolve({ data: Array.from(rows.values()), error: null })
+      },
+      delete() {
+        query.operation = 'delete'
+        return this
+      },
+      eq(column, value) {
+        query.filters[column] = value
+        return this
+      },
+      select() {
+        if (query.operation !== 'delete') return this
+        const record = rows.get(query.filters.pair_key)
+        const matches = record && Object.entries(query.filters)
+          .every(([key, value]) => record[key] === value)
+        if (matches) rows.delete(query.filters.pair_key)
+        return Promise.resolve({
+          data: matches ? [{ pair_key: query.filters.pair_key }] : [],
+          error: null,
+        })
+      },
+      maybeSingle() {
+        return Promise.resolve({
+          data: rows.get(query.filters.pair_key) || null,
+          error: null,
+        })
+      },
+      neq() {
+        rows.clear()
+        return Promise.resolve({ error: null })
+      },
+    }
+  }
 
   try {
     await clearReviewDecisions()
@@ -58,7 +81,7 @@ test('review decision store normalizes keys and persists statuses', async () => 
       mamiProductId: 10,
       discoProductId: 20,
       status: 'revisión',
-      reasonCodes: ['manual_review'],
+      reasonCodes: ['brand_missing'],
       confidence: 'media',
       admin: 'admin2',
     })
@@ -67,10 +90,30 @@ test('review decision store normalizes keys and persists statuses', async () => 
     assert.equal((await listReviewDecisions()).length, 1)
     assert.equal(updated.admin, 'admin2')
 
+    assert.deepEqual(await deleteReviewDecision(pairKey), { deleted: true, grouped: false })
+    assert.deepEqual(await deleteReviewDecision(pairKey), { deleted: false, grouped: false })
+    assert.equal((await listReviewDecisions()).length, 0)
+
+    await upsertReviewDecision({
+      mamiProductId: 10,
+      discoProductId: 20,
+      status: 'match',
+    })
+    assert.deepEqual(await deleteReviewDecision(pairKey), { deleted: false, grouped: true })
+    assert.equal((await listReviewDecisions()).length, 1)
+
+    await upsertReviewDecision({
+      mamiProductId: 10,
+      discoProductId: 20,
+      status: 'revisión',
+      reasonCodes: ['manual_review'],
+    })
+    assert.deepEqual(await deleteReviewDecision(pairKey), { deleted: false, grouped: true })
+
     const summary = summarizeReviewDecisions(await listReviewDecisions())
     assert.equal(summary.total, 1)
     assert.equal(summary.byStatus.revisión, 1)
-    assert.equal(summary.byAdmin.admin2, 1)
+    assert.equal(summary.byAdmin.system, 1)
 
     await clearReviewDecisions()
     assert.equal((await listReviewDecisions()).length, 0)

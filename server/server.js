@@ -18,7 +18,13 @@ const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
   ? require('./supabaseAdmin')
   : null
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
-const { fetchDiscoPreview, fetchDiscoProductById, findPreviewMatches } = require('./services/discoImporter')
+const {
+  fetchDiscoPreview,
+  fetchDiscoProductById,
+  fetchDiscoPromotion,
+  InvalidDiscoPromotionRequestError,
+  findPreviewMatches,
+} = require('./services/discoImporter')
 const { syncMamiLowPrices } = require('./services/mamiPriceSync')
 const {
   fetchPreview: fetchCarrefourPreview,
@@ -39,13 +45,24 @@ const { createCatalogPageCache } = require('./services/catalogPageCache')
 const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
 const { buildCatalogTaxonomyReview } = require('./services/catalogTaxonomyReview')
 const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
+const { getPackageSizeReviewWarning } = require('./services/carrefourManifest')
+const { getExistingCarrefourOfferConflict } = require('./services/carrefourReviewedImport')
 const {
   clearReviewDecisions,
+  deleteReviewDecision,
   listReviewDecisions,
   normalizePairKey,
+  shouldGroupReviewDecision,
   summarizeReviewDecisions,
   upsertReviewDecision,
 } = require('./services/reviewDecisionStore')
+const {
+  approvedMatchCompatibilityIssues,
+  buildIdentitySnapshot,
+  isProductMatchDecisionCurrent,
+  listProductMatchDecisions,
+  upsertProductMatchDecision,
+} = require('./services/productMatchDecisionStore')
 const {
   customerIpReadRateLimit,
   customerIpWriteRateLimit,
@@ -58,6 +75,7 @@ const {
   sharedListInvitationRateLimit,
   sharedListJoinIpRateLimit,
   sharedListJoinRateLimit,
+  discoPromotionIpRateLimit,
   productTranslationIpRateLimit,
 } = require('./rateLimiters')
 const { getPasswordRecoveryFailure } = require('./passwordRecoveryErrors')
@@ -327,16 +345,28 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
     }))
     const products = findMamiMatches(previewReport.products, localProducts || []).map((product) => {
       const mapping = suggestCatalogMapping({
+        ...product,
         name: product.name,
         brand: product.brand,
         source_category: product.sourceCategory,
         source_subcategory: product.proposedSubcategory,
       })
+      const hasManualTaxonomy = ['manual', 'manual_override'].includes(product.mappingStatus)
       return {
         ...product,
-        proposedCategory: product.proposedCategory || mapping?.category || null,
-        proposedSubcategory: product.proposedSubcategory || mapping?.subcategory || null,
-        mappingStatus: product.mappingStatus || (mapping ? 'propuesta_automatica' : 'pendiente'),
+        proposedCategory: hasManualTaxonomy
+          ? product.proposedCategory || null
+          : mapping.status === 'determined' ? mapping.category : null,
+        proposedSubcategory: hasManualTaxonomy
+          ? product.proposedSubcategory || null
+          : mapping.status === 'determined' ? mapping.subcategory : null,
+        mappingStatus: hasManualTaxonomy ? product.mappingStatus : (mapping.status === 'determined'
+          ? 'propuesta_automatica'
+          : mapping.status === 'ambiguous' ? 'revision_manual' : 'pendiente'),
+        taxonomySuggestionStatus: mapping.status,
+        taxonomySuggestionConfidence: mapping.confidence,
+        taxonomySuggestionReason: mapping.reason,
+        taxonomySuggestionRule: mapping.rule,
       }
     })
     res.json({
@@ -362,15 +392,64 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
   }
 })
 
+app.post('/admin/import/carrefour/sync', requireAdmin, async (req, res) => {
+  try {
+    const postalCode = normalizePostalCode(
+      req.body?.postalCode || process.env.CARREFOUR_SYNC_POSTAL_CODE || '5186',
+    )
+    if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
+    const result = await syncCarrefourPrices({
+      database: analysisWriter,
+      historyRecorder: recordPriceHistory,
+      postalCode,
+      onCatalogChange: invalidateCatalogPageCache,
+      maxOffersPerRun: carrefourSyncMaxOffersPerRun,
+      adminUsername: req.admin,
+    })
+    for (const entry of result.updated) {
+      if (entry.previousCashPrice !== entry.updatedCashPrice) {
+        scheduleRelatedPriceStatusRefresh(entry.productId)
+      }
+    }
+    res.json({
+      source: 'carrefour',
+      postalCode,
+      checked: result.checked,
+      updated: result.updated,
+      unchanged: result.unchanged.length,
+      unavailable: result.unavailable,
+      suspicious: result.suspicious,
+      identityMismatch: result.identityMismatch,
+      needsReview: result.needsReview,
+      errors: result.errors,
+      batchLimit: result.batchLimit,
+      nextOfferId: result.nextOfferId,
+      wrapped: result.wrapped,
+      writesPerformed: result.updated.length > 0,
+    })
+  } catch (error) {
+    console.error('Error synchronizing Carrefour prices', error)
+    res.status(502).json({ error: error.message || 'No se pudieron sincronizar los precios de Carrefour' })
+  }
+})
+
 app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
   try {
     const query = String(req.query.query || '').trim().slice(0, 100)
     const postalCode = normalizePostalCode(req.query.postalCode)
     if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
+    const from = req.query.from === undefined ? 0 : Number(req.query.from)
+    const limit = req.query.limit === undefined ? 20 : Number(req.query.limit)
+    if (!Number.isInteger(from) || from < 0 || from > 2000) {
+      return res.status(400).json({ error: 'El desplazamiento de la búsqueda debe estar entre 0 y 2000' })
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+      return res.status(400).json({ error: 'El tamaño de página debe estar entre 1 y 20' })
+    }
 
-    const [previewReport, localProductsResult, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
-      fetchCarrefourPreview({ query, postalCode }),
-      readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price)'),
+    const previewReport = await fetchCarrefourPreview({ query, postalCode, from, limit })
+    const [localProductsResult, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
+      readCarrefourMatchCandidates(previewReport.products),
       analysisWriter.from('categories').select('id, name'),
       analysisWriter.from('subcategories').select('id, name, category_id'),
     ])
@@ -381,7 +460,7 @@ app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
       return res.status(500).json({
         error: 'No se pudo consultar el inventario local o el catálogo de categorías',
         detail: catalogError.code === 'PGRST204' || catalogError.code === '42703'
-          ? 'Verifica las migraciones 20260826_external_catalog.sql y 20261023_carrefour_price_history.sql antes de consultar Carrefour.'
+          ? 'Verifica las migraciones 20260826_external_catalog.sql, 20261023_carrefour_price_history.sql y 20261029_carrefour_offer_identity.sql antes de consultar Carrefour.'
           : catalogError.message || 'Error desconocido del catálogo',
       })
     }
@@ -394,6 +473,7 @@ app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
     const products = previewReport.products.map((product) => {
       const match = findCarrefourLocalMatch(product, localProducts || [])
       const suggestion = suggestCatalogMapping({
+        ...product,
         name: product.name,
         brand: product.brand,
         source_category: product.sourceCategory,
@@ -406,12 +486,34 @@ app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
         && String(candidate.category_id) === String(category?.id)
       ))
       const existingOffer = match.product?.offers?.find((offer) => offer.supermarket === 'Carrefour') || null
+      const packageSizeReviewWarning = match.product
+        ? getPackageSizeReviewWarning(product.name, match.product.name)
+        : null
+      const referenceOffers = (match.product?.offers || []).map((offer) => ({
+        supermarket: offer.supermarket,
+        cashPrice: Number(offer.cash_price),
+        listPrice: Number(offer.list_price) || null,
+      })).filter((offer) => Number.isFinite(offer.cashPrice) && offer.cashPrice > 0)
+      const comparablePrices = [Number(product.price), ...referenceOffers.map((offer) => offer.cashPrice)]
+        .filter((price) => Number.isFinite(price) && price > 0)
+      const priceRatio = comparablePrices.length > 1
+        ? Math.max(...comparablePrices) / Math.min(...comparablePrices)
+        : 1
+      const priceReviewWarnings = priceRatio >= 3
+        ? [`El precio difiere ${priceRatio.toFixed(2)}x de otra oferta del mismo producto`]
+        : []
       const mappingReady = Boolean(category && subcategory)
       return {
         ...product,
         proposedCategory,
         proposedSubcategory,
-        mappingStatus: mappingReady ? 'propuesta_automatica' : 'pendiente',
+        mappingStatus: suggestion.status === 'ambiguous'
+          ? 'revision_manual'
+          : mappingReady ? 'propuesta_automatica' : 'pendiente',
+        taxonomySuggestionStatus: suggestion.status,
+        taxonomySuggestionConfidence: suggestion.confidence,
+        taxonomySuggestionReason: suggestion.reason,
+        taxonomySuggestionRule: suggestion.rule,
         existingProduct: match.product
           ? { id: match.product.id, name: match.product.name, matchedBy: match.matchedBy }
           : null,
@@ -422,11 +524,15 @@ app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
             listPrice: Number(existingOffer.list_price) || null,
           }
           : null,
+        referenceOffers,
+        priceReviewWarnings,
+        packageSizeReviewWarning,
         importBlockedReason: match.ambiguous
           ? match.reason
           : eanCounts.get(String(product.ean || '')) > 1
             ? 'El GTIN aparece en más de un resultado de Carrefour'
-            : (!match.product && !mappingReady ? 'Falta mapeo de categoría y subcategoría' : null),
+            : packageSizeReviewWarning
+              || (!match.product && !mappingReady ? 'Falta mapeo de categoría y subcategoría' : null),
       }
     })
 
@@ -434,9 +540,11 @@ app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
       source: 'carrefour',
       query,
       postalCode,
+      from,
       products,
       discarded: previewReport.discarded,
       resultLimit: previewReport.resultLimit,
+      hasMore: previewReport.hasMore,
       dryRun: true,
       writeSafety: {
         productWritesAllowed: false,
@@ -537,7 +645,12 @@ app.post('/admin/import/carrefour/status', requireAdmin, async (req, res) => {
         }
       }
       if (!historyByOfferId.has(String(offer.id))) {
-        return { ...item, status: 'offer_without_history', productId: match.product.id, offerId: offer.id }
+        return {
+          ...item,
+          status: 'offer_without_history',
+          productId: match.product.id,
+          offerId: offer.id,
+        }
       }
       if (!sameMoneyValue(summaryByOfferId.get(String(offer.id)), item.expectedPrice)) {
         return {
@@ -577,6 +690,36 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
     }
     const requestedIds = Array.isArray(req.body?.productIds) ? req.body.productIds : []
     const productIds = [...new Set(requestedIds.map((id) => String(id || '').trim()))]
+    const reviewSafeRun = req.body?.reviewSafeRun === true
+    const requestedApprovedMatches = Array.isArray(req.body?.approvedMatches)
+      ? req.body.approvedMatches
+      : []
+    const requestedApprovedNoComparables = Array.isArray(req.body?.approvedNoComparables)
+      ? req.body.approvedNoComparables
+      : []
+    const newProductIds = Array.isArray(req.body?.newProductIds)
+      ? [...new Set(req.body.newProductIds.map((id) => String(id || '').trim()))]
+      : []
+    const addOfferIds = Array.isArray(req.body?.addOfferIds)
+      ? [...new Set(req.body.addOfferIds.map((id) => String(id || '').trim()))]
+      : []
+    const approvedMatches = requestedApprovedMatches.map((match) => ({
+      sourceProductId: String(match?.sourceProductId || '').trim(),
+      decisionId: String(match?.decisionId || '').trim(),
+    }))
+    const approvedNoComparables = requestedApprovedNoComparables.map((decision) => ({
+      sourceProductId: String(decision?.sourceProductId || '').trim(),
+      decisionId: String(decision?.decisionId || '').trim(),
+    }))
+    const approvedDecisionSourceIds = [
+      ...approvedMatches.map((match) => match.sourceProductId),
+      ...approvedNoComparables.map((decision) => decision.sourceProductId),
+    ]
+    const reviewSafeSourceIds = [
+      ...approvedDecisionSourceIds,
+      ...newProductIds,
+      ...addOfferIds,
+    ]
     if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
     if (!productIds.length) return res.status(400).json({ error: 'Seleccioná al menos un producto de Carrefour' })
     if (productIds.length > CARREFOUR_IMPORT_BATCH_LIMIT) {
@@ -585,12 +728,32 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
     if (productIds.some((id) => !/^\d{1,20}$/.test(id))) {
       return res.status(400).json({ error: 'La selección contiene identificadores de Carrefour inválidos' })
     }
+    if ((reviewSafeRun && req.body?.bulkRun !== true)
+      || (!reviewSafeRun && (requestedApprovedMatches.length || requestedApprovedNoComparables.length))
+      || (!reviewSafeRun && (newProductIds.length || addOfferIds.length))
+      || (reviewSafeRun && (
+        reviewSafeSourceIds.length !== productIds.length
+        || new Set(reviewSafeSourceIds).size !== reviewSafeSourceIds.length
+        || reviewSafeSourceIds.some((id) => !productIds.includes(id))
+        || [...approvedMatches, ...approvedNoComparables].some((match) => (
+          !/^\d{1,20}$/.test(match.sourceProductId)
+          || !/^[\w.-]{1,100}$/.test(match.decisionId)
+          || !productIds.includes(match.sourceProductId)
+        ))
+        || new Set(approvedDecisionSourceIds).size !== approvedDecisionSourceIds.length
+      ))) {
+      return res.status(400).json({ error: 'Las equivalencias aprobadas no coinciden con la selección del lote' })
+    }
 
     const currentProducts = []
     for (const productId of productIds) {
       const product = await fetchCarrefourProductById(productId, { postalCode })
       if (!product) {
-        return res.status(502).json({ error: `Carrefour no devolvió el producto ${productId}; no se realizaron escrituras` })
+        return res.status(502).json({
+          error: `Carrefour no devolvió el producto ${productId}; no se realizaron escrituras`,
+          noWrites: true,
+          missingSourceProductId: productId,
+        })
       }
       if (String(product.sourceProductId) !== productId || !isValidCarrefourProduct(product)) {
         return res.status(409).json({
@@ -640,15 +803,182 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       })
     }
 
+    const approvedMatchBySource = new Map()
+    const approvedNoComparableBySource = new Map()
+    if (reviewSafeRun && approvedDecisionSourceIds.length) {
+      let savedDecisions
+      try {
+        savedDecisions = await listProductMatchDecisions({
+          source: 'carrefour',
+          sourceProductIds: approvedDecisionSourceIds,
+          database: analysisWriter,
+        })
+      } catch (error) {
+        console.error('Error loading approved Carrefour match decisions', error)
+        return res.status(500).json({
+          error: 'No se pudieron verificar las equivalencias aprobadas',
+          noWrites: true,
+        })
+      }
+
+      const decisionsById = new Map((savedDecisions || []).map((decision) => [String(decision.id), decision]))
+      const requestedDecisions = [
+        ...approvedMatches.map((requested) => ({ ...requested, decisionType: 'match' })),
+        ...approvedNoComparables.map((requested) => ({ ...requested, decisionType: 'no_comparable' })),
+      ].map((requested) => ({
+        requested,
+        decision: decisionsById.get(requested.decisionId) || null,
+      }))
+      const invalidDecision = requestedDecisions.find(({ requested, decision }) => (
+        !decision
+        || decision.source !== 'carrefour'
+        || String(decision.source_product_id) !== requested.sourceProductId
+        || decision.decision_type !== requested.decisionType
+        || decision.status !== 'approved'
+        || (requested.decisionType === 'match'
+          && (decision.local_product_id === null || decision.local_product_id === undefined))
+        || (requested.decisionType === 'no_comparable' && decision.local_product_id !== null)
+      ))
+      if (invalidDecision) {
+        return res.status(409).json({
+          error: `La decisión aprobada de Carrefour ${invalidDecision.requested.sourceProductId} ya no está disponible`,
+          noWrites: true,
+        })
+      }
+
+      const matchDecisions = requestedDecisions.filter(({ requested }) => requested.decisionType === 'match')
+      const noComparableDecisions = requestedDecisions.filter(({ requested }) => requested.decisionType === 'no_comparable')
+      const targetIds = [...new Set(matchDecisions.map(({ decision }) => String(decision.local_product_id)))]
+      if (targetIds.length !== matchDecisions.length) {
+        return res.status(409).json({
+          error: 'Dos productos de Carrefour apuntan al mismo producto local; requiere revisión manual',
+          noWrites: true,
+        })
+      }
+      let targetProducts = []
+      if (targetIds.length) {
+        const targetResult = await analysisWriter
+          .from('products')
+          .select('id, name, source, source_product_id, source_sku, ean, brands(name), offers(id, supermarket, cash_price, list_price, source_product_id, source_sku, source_url)')
+          .in('id', targetIds)
+        if (targetResult.error) {
+          console.error('Error loading approved Carrefour match targets', targetResult.error)
+          return res.status(500).json({
+            error: 'No se pudieron consultar los productos aprobados como referencia',
+            noWrites: true,
+          })
+        }
+        targetProducts = targetResult.data || []
+      }
+      const targetProductsById = new Map(targetProducts.map((product) => [String(product.id), product]))
+      const currentProductsBySourceId = new Map(currentProducts.map((product) => [
+        String(product.sourceProductId),
+        product,
+      ]))
+      for (const { requested, decision } of matchDecisions) {
+        const sourceProduct = currentProductsBySourceId.get(requested.sourceProductId)
+        const targetProduct = targetProductsById.get(String(decision.local_product_id))
+        if (!targetProduct || String(targetProduct.source || '').toLowerCase() === 'carrefour') {
+          return res.status(409).json({
+            error: `La referencia local de Carrefour ${requested.sourceProductId} ya no es válida`,
+            noWrites: true,
+          })
+        }
+        const currentDecision = isProductMatchDecisionCurrent(decision, sourceProduct, targetProduct)
+        if (!currentDecision.current) {
+          return res.status(409).json({
+            error: `La identidad del producto ${requested.sourceProductId} cambió desde su aprobación`,
+            staleReasons: currentDecision.reasons,
+            noWrites: true,
+          })
+        }
+        approvedMatchBySource.set(requested.sourceProductId, targetProduct)
+      }
+      for (const { requested, decision } of noComparableDecisions) {
+        const sourceProduct = currentProductsBySourceId.get(requested.sourceProductId)
+        const currentDecision = isProductMatchDecisionCurrent(decision, sourceProduct)
+        if (!currentDecision.current) {
+          return res.status(409).json({
+            error: `La identidad del producto ${requested.sourceProductId} cambió desde su revisión`,
+            staleReasons: currentDecision.reasons,
+            noWrites: true,
+          })
+        }
+        approvedNoComparableBySource.set(requested.sourceProductId, decision)
+      }
+    }
+
     const imported = []
     const updated = []
     const unchanged = []
     const skipped = []
+    const authorizedCreateIds = new Set([
+      ...newProductIds,
+      ...approvedNoComparableBySource.keys(),
+    ])
     const brandCache = new Map()
     const productCache = [...(existingProducts || [])]
+    for (const approvedProduct of approvedMatchBySource.values()) {
+      if (!productCache.some((product) => String(product.id) === String(approvedProduct.id))) {
+        productCache.push(approvedProduct)
+      }
+    }
+    const findImportMatch = (item) => {
+      const approvedProduct = approvedMatchBySource.get(String(item.sourceProductId))
+      if (!approvedProduct) return findCarrefourLocalMatch(item, productCache)
+      const identityMatch = findCarrefourLocalMatch(item, productCache)
+      if (identityMatch.ambiguous) return identityMatch
+      if (identityMatch.product
+        && String(identityMatch.product.id) !== String(approvedProduct.id)) {
+        return {
+          product: null,
+          matchedBy: null,
+          ambiguous: true,
+          reason: 'Los identificadores actuales apuntan a un producto distinto de la equivalencia aprobada',
+        }
+      }
+      return {
+        product: approvedProduct,
+        matchedBy: 'approved_review_decision',
+        ambiguous: false,
+        reason: null,
+      }
+    }
+    const importTargetsByProductId = new Map()
+    for (const item of currentProducts) {
+      const match = findImportMatch(item)
+      if (!match.product) continue
+      const productId = String(match.product.id)
+      const sourceIds = importTargetsByProductId.get(productId) || []
+      sourceIds.push(String(item.sourceProductId))
+      importTargetsByProductId.set(productId, sourceIds)
+    }
+    const duplicateImportTargets = [...importTargetsByProductId]
+      .filter(([, sourceIds]) => sourceIds.length > 1)
+      .map(([productId, sourceIds]) => ({ productId, sourceProductIds: sourceIds }))
+    if (reviewSafeRun && duplicateImportTargets.length) {
+      return res.status(409).json({
+        error: 'Varios productos de Carrefour apuntan al mismo producto local; requiere revisión manual.',
+        duplicateImportTargets,
+        noWrites: true,
+      })
+    }
+    const packageSizeWarnings = currentProducts.flatMap((item) => {
+      const match = findImportMatch(item)
+      if (!match.product) return []
+      const warning = getPackageSizeReviewWarning(item.name, match.product.name)
+      return warning ? [{ sourceProductId: item.sourceProductId, productId: match.product.id, reason: warning }] : []
+    })
+    if (packageSizeWarnings.length) {
+      return res.status(409).json({
+        error: 'Hay diferencias de presentación que requieren revisión manual; no se realizaron escrituras.',
+        packageSizeWarnings,
+        noWrites: true,
+      })
+    }
     if (req.body?.bulkRun === true) {
       const priceWarnings = currentProducts.flatMap((item) => {
-        const match = findCarrefourLocalMatch(item, productCache)
+        const match = findImportMatch(item)
         if (match.ambiguous) return [{ sourceProductId: item.sourceProductId, reason: match.reason }]
         const referencePrices = (match.product?.offers || [])
           .map((offer) => Number(offer.cash_price))
@@ -668,6 +998,21 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
         })
       }
     }
+    if (reviewSafeRun) {
+      const existingOfferConflicts = currentProducts.flatMap((item) => {
+        const match = findImportMatch(item)
+        if (match.ambiguous) return [{ sourceProductId: item.sourceProductId, reason: match.reason }]
+        const conflict = getExistingCarrefourOfferConflict(item, match.product)
+        return conflict ? [{ sourceProductId: item.sourceProductId, reason: conflict }] : []
+      })
+      if (existingOfferConflicts.length) {
+        return res.status(409).json({
+          error: 'Hay ofertas existentes que requieren revisión manual; no se realizaron escrituras.',
+          conflicts: existingOfferConflicts,
+          noWrites: true,
+        })
+      }
+    }
     const failImport = (message, detail) => {
       const error = new Error(detail || message)
       error.importFailure = true
@@ -677,13 +1022,21 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
 
     for (const item of currentProducts) {
       const sourceProductId = String(item.sourceProductId)
-      const match = findCarrefourLocalMatch(item, productCache)
+      const match = findImportMatch(item)
       if (match.ambiguous) {
         skipped.push({ sourceProductId, reason: match.reason })
         continue
       }
+      if (reviewSafeRun && !match.product && !authorizedCreateIds.has(sourceProductId)) {
+        skipped.push({
+          sourceProductId,
+          reason: 'La referencia de catálogo dejó de estar disponible; requiere revisión antes de crear un producto',
+        })
+        continue
+      }
 
       const suggestion = suggestCatalogMapping({
+        ...item,
         name: item.name,
         brand: item.brand,
         source_category: item.sourceCategory,
@@ -704,15 +1057,27 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
           const nextListPrice = Number(item.listPrice) > Number(item.price) ? Number(item.listPrice) : null
           const priceChanged = !sameMoneyValue(existingOffer.cash_price, item.price)
           const listPriceChanged = (Number(existingOffer.list_price) || null) !== nextListPrice
-          if (priceChanged || listPriceChanged) {
+          const identityChanged = String(existingOffer.source_product_id || '') !== sourceProductId
+            || String(existingOffer.source_sku || '') !== String(item.sourceSku || '')
+            || String(existingOffer.source_url || '') !== String(item.sourceUrl || '')
+          if (priceChanged || listPriceChanged || identityChanged) {
             const { error } = await analysisWriter.from('offers')
-              .update({ cash_price: item.price, list_price: nextListPrice })
+              .update({
+                cash_price: item.price,
+                list_price: nextListPrice,
+                source_product_id: sourceProductId,
+                source_sku: item.sourceSku,
+                source_url: item.sourceUrl,
+              })
               .eq('id', existingOffer.id)
             if (error) failImport('No se pudo actualizar la oferta de Carrefour', error.message)
             updatedOfferPrices.push({
               id: existingOffer.id,
               cashPrice: existingOffer.cash_price,
               listPrice: existingOffer.list_price,
+              sourceProductId: existingOffer.source_product_id,
+              sourceSku: existingOffer.source_sku,
+              sourceUrl: existingOffer.source_url,
             })
             if (priceChanged) {
               const historyId = await recordPriceHistory({
@@ -886,7 +1251,12 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       },
     })
   } catch (error) {
-    if (error.importFailure) {
+    const hasRecordedMutations = createdHistoryIds.length
+      || updatedOfferPrices.length
+      || createdOfferIds.length
+      || createdProductIds.length
+      || createdBrandIds.length
+    if (error.importFailure || hasRecordedMutations) {
       const rollbackResults = []
       const runRollbackStage = async (operations) => {
         rollbackResults.push(...await Promise.all(operations))
@@ -896,7 +1266,13 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       )
       await runRollbackStage(
         updatedOfferPrices.map((offer) => analysisWriter.from('offers')
-          .update({ cash_price: offer.cashPrice, list_price: offer.listPrice })
+          .update({
+            cash_price: offer.cashPrice,
+            list_price: offer.listPrice,
+            source_product_id: offer.sourceProductId,
+            source_sku: offer.sourceSku,
+            source_url: offer.sourceUrl,
+          })
           .eq('id', offer.id)),
       )
       await runRollbackStage(
@@ -1004,9 +1380,20 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
         skipped.push({ sourceProductId: item.sourceProductId, reason: getMamiInvalidReason(item) || 'Producto inválido' })
         continue
       }
-      const catalogMapping = suggestCatalogMapping({ name: item.name, brand: item.brand, source_category: item.sourceCategory, source_subcategory: item.proposedSubcategory })
-      const proposedCategory = catalogMapping?.category || item.proposedCategory
-      const proposedSubcategory = catalogMapping?.subcategory || item.proposedSubcategory
+      const catalogMapping = suggestCatalogMapping({
+        ...item,
+        name: item.name,
+        brand: item.brand,
+        source_category: item.sourceCategory,
+        source_subcategory: item.proposedSubcategory,
+      })
+      const hasManualTaxonomy = ['manual', 'manual_override'].includes(item.mappingStatus)
+      const proposedCategory = hasManualTaxonomy
+        ? item.proposedCategory
+        : catalogMapping.status === 'determined' ? catalogMapping.category : null
+      const proposedSubcategory = hasManualTaxonomy
+        ? item.proposedSubcategory
+        : catalogMapping.status === 'determined' ? catalogMapping.subcategory : null
       const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
       const subcategory = (subcategories || []).find((candidate) => candidate.name === proposedSubcategory && String(candidate.category_id) === String(category?.id))
       const sourceProductId = String(item.sourceProductId || '').trim()
@@ -1197,15 +1584,21 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         continue
       }
       const catalogMapping = suggestCatalogMapping({
+        ...item,
         name: item.name,
         brand: item.brand,
         source_category: item.sourceCategory,
         source_subcategory: item.proposedSubcategory,
       })
-      const proposedCategory = catalogMapping?.category || item.proposedCategory
+      const hasManualTaxonomy = ['manual', 'manual_override'].includes(item.mappingStatus)
+      const proposedCategory = hasManualTaxonomy
+        ? item.proposedCategory
+        : catalogMapping.status === 'determined' ? catalogMapping.category : null
       const updated = []
       const unchanged = []
-      const proposedSubcategory = catalogMapping?.subcategory || item.proposedSubcategory
+      const proposedSubcategory = hasManualTaxonomy
+        ? item.proposedSubcategory
+        : catalogMapping.status === 'determined' ? catalogMapping.subcategory : null
       const sourceProductId = String(item.sourceProductId ?? '').trim()
       const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
       const subcategory = (subcategories || []).find((candidate) => candidate.name === proposedSubcategory && String(candidate.category_id) === String(category?.id))
@@ -1666,6 +2059,21 @@ app.get('/products/search', async (req, res) => {
 })
 
 // GET /products - fetch from Supabase with simple filters + pagination
+app.post('/products/disco-promotion-preview', discoPromotionIpRateLimit, async (req, res) => {
+  const { ean } = req.body || {}
+  try {
+    const promotion = await fetchDiscoPromotion(ean)
+    res.json({ promotion })
+  } catch (error) {
+    console.error('Unable to verify Disco product promotion:', error)
+    res.status(error instanceof InvalidDiscoPromotionRequestError ? 400 : 502).json({
+      error: error instanceof InvalidDiscoPromotionRequestError
+        ? error.message
+        : 'No se pudo verificar la promoción publicada por Disco',
+    })
+  }
+})
+
 app.get('/products', async (req, res) => {
   try {
     const search = String(req.query.search || '').trim()
@@ -2064,7 +2472,9 @@ app.get('/analysis/catalog-taxonomy-review', requireAdmin, async (req, res) => {
       )
       const products = productPages.flatMap((result) => result.data || [])
       const items = buildCatalogTaxonomyReview(products, decisions || []).map((item) => {
-        const suggestedCategoryId = categoryIdsByName.get(String(item.suggestedCategory).toLowerCase()) || null
+        const suggestedCategoryId = item.suggestedCategory
+          ? categoryIdsByName.get(String(item.suggestedCategory).toLowerCase()) || null
+          : null
         const suggestedSubcategoryId = suggestedCategoryId
           ? subcategoryIdsByCategoryAndName.get(`${suggestedCategoryId}:${String(item.suggestedSubcategory).toLowerCase()}`) || null
           : null
@@ -2268,11 +2678,34 @@ app.get('/analysis/cross-source-matches', requireAdmin, async (req, res) => {
 
 app.get('/review/cross-source-decisions', requireAdmin, async (req, res) => {
   const decisions = await listReviewDecisions()
+  const productIds = [...new Set(decisions
+    .flatMap((decision) => [decision.mamiProductId, decision.discoProductId])
+    .filter((id) => id !== null && id !== undefined && String(id).trim() !== '')
+    .map(Number)
+    .filter(Number.isFinite))]
+  let namesById = new Map()
+  if (productIds.length) {
+    const { data: products, error } = await analysisWriter
+      .from('products')
+      .select('id, name')
+      .in('id', productIds)
+    if (error) {
+      console.error('Error loading products for cross-source review decisions', error)
+      return res.status(500).json({ error: 'No se pudieron cargar los nombres de productos revisados' })
+    }
+    namesById = new Map((products || []).map((product) => [String(product.id), product.name]))
+  }
+  const enrichedDecisions = decisions.map((decision) => ({
+    ...decision,
+    mamiProductName: namesById.get(String(decision.mamiProductId)) || null,
+    discoProductName: namesById.get(String(decision.discoProductId)) || null,
+    isGrouped: shouldGroupReviewDecision(decision),
+  }))
   res.json({
     source: 'cross_source',
-    decisions,
-    count: decisions.length,
-    summary: summarizeReviewDecisions(decisions),
+    decisions: enrichedDecisions,
+    count: enrichedDecisions.length,
+    summary: summarizeReviewDecisions(enrichedDecisions),
   })
 })
 
@@ -2301,10 +2734,146 @@ app.post('/review/cross-source-decisions', requireAdmin, async (req, res) => {
   }
 })
 
+app.get('/review/product-match-decisions', requireAdmin, async (req, res) => {
+  try {
+    const source = String(req.query.source || '').trim().toLowerCase()
+    const sourceProductId = String(req.query.sourceProductId || '').trim()
+    const sourceProductIds = String(req.query.sourceProductIds || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    if (!/^[a-z][a-z0-9_-]{1,39}$/.test(source)) {
+      return res.status(400).json({ error: 'El supermercado de origen no es válido' })
+    }
+    if (sourceProductId) sourceProductIds.push(sourceProductId)
+    const uniqueIds = [...new Set(sourceProductIds)]
+    if (!uniqueIds.length || uniqueIds.length > 500
+      || uniqueIds.some((id) => !/^[\w.-]{1,100}$/.test(id))) {
+      return res.status(400).json({ error: 'Indicá entre 1 y 500 IDs de producto de origen válidos' })
+    }
+    const decisions = await listProductMatchDecisions({ source, sourceProductIds: uniqueIds })
+    res.json({ source, decisions, count: decisions.length, readOnly: true })
+  } catch (error) {
+    console.error('Error loading product match review decisions', error)
+    res.status(500).json({
+      error: 'No se pudieron consultar las decisiones de matching',
+      detail: error.message || 'Unknown error',
+    })
+  }
+})
+
+app.post('/review/product-match-decisions', requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {}
+    const source = String(body.source || '').trim().toLowerCase()
+    const sourceProductId = String(body.sourceProductId || '').trim()
+    const sourceSku = String(body.sourceSku || '').trim()
+    const decisionType = String(body.decisionType || '').trim()
+    const status = String(body.status || '').trim()
+    const localProductId = body.localProductId === null || body.localProductId === undefined
+      ? null
+      : Number(body.localProductId)
+    if (!/^[a-z][a-z0-9_-]{1,39}$/.test(source)
+      || !/^[\w.-]{1,100}$/.test(sourceProductId)
+      || sourceSku.length > 100) {
+      return res.status(400).json({ error: 'La identidad del producto de origen no es válida' })
+    }
+    if (!['match', 'no_match', 'no_comparable'].includes(decisionType)
+      || !['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'El tipo o estado de la decisión no es válido' })
+    }
+    if ((decisionType === 'no_comparable' && localProductId !== null)
+      || (decisionType !== 'no_comparable'
+        && (!Number.isSafeInteger(localProductId) || localProductId <= 0))) {
+      return res.status(400).json({ error: 'La decisión requiere un candidato local válido o ninguno para no_comparable' })
+    }
+    const sourceInput = body.sourceProduct
+    if (!sourceInput || typeof sourceInput !== 'object' || Array.isArray(sourceInput)) {
+      return res.status(400).json({ error: 'Falta la evidencia actual del producto de origen' })
+    }
+    const sourceSnapshot = buildIdentitySnapshot(sourceInput, {
+      source,
+      sourceProductId,
+      sourceSku,
+    })
+    if (!sourceSnapshot.name) {
+      return res.status(400).json({ error: 'El nombre del producto de origen es obligatorio' })
+    }
+    let localSnapshot = {}
+    if (localProductId !== null) {
+      const { data: localProduct, error: localProductError } = await analysisWriter
+        .from('products')
+        .select('id, name, source, source_product_id, source_sku, ean, brands(name)')
+        .eq('id', localProductId)
+        .maybeSingle()
+      if (localProductError) throw localProductError
+      if (!localProduct) return res.status(404).json({ error: 'No existe el producto local indicado' })
+      if (String(localProduct.source || '').toLowerCase() === source) {
+        return res.status(409).json({ error: 'El candidato local no puede pertenecer al mismo supermercado de origen' })
+      }
+      localSnapshot = buildIdentitySnapshot(localProduct)
+      if (decisionType === 'match' && status === 'approved') {
+        const compatibilityIssues = approvedMatchCompatibilityIssues(sourceSnapshot, localSnapshot)
+        if (compatibilityIssues.length) {
+          return res.status(409).json({
+            error: 'No se puede aprobar una coincidencia con diferencias de identidad incompatibles',
+            compatibilityIssues,
+          })
+        }
+      }
+    }
+    const evidence = body.evidence ?? {}
+    if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)
+      || JSON.stringify(evidence).length > 10000) {
+      return res.status(400).json({ error: 'La evidencia debe ser un objeto JSON de hasta 10 KB' })
+    }
+    const decision = await upsertProductMatchDecision({
+      source,
+      sourceProductId,
+      sourceSku,
+      localProductId,
+      decisionType,
+      status,
+      sourceSnapshot,
+      localSnapshot,
+      evidence,
+      reviewedBy: String(req.admin || 'admin').slice(0, 100),
+    }, analysisWriter)
+    res.status(201).json({ success: true, decision })
+  } catch (error) {
+    console.error('Error saving product match review decision', error)
+    res.status(500).json({
+      error: 'No se pudo guardar la decisión de matching',
+      detail: error.message || 'Unknown error',
+    })
+  }
+})
+
 app.delete('/review/cross-source-decisions', requireAdmin, async (req, res) => {
   await clearReviewDecisions()
   invalidateCatalogPageCache()
   res.json({ success: true, cleared: true, count: 0 })
+})
+
+app.delete('/review/cross-source-decisions/:pairKey', requireAdmin, async (req, res) => {
+  try {
+    const pairKey = String(req.params.pairKey || '').trim()
+    if (!pairKey || pairKey.length > 200) {
+      return res.status(400).json({ error: 'pairKey is invalid' })
+    }
+    const result = await deleteReviewDecision(pairKey)
+    if (result.grouped) {
+      return res.status(409).json({ error: 'Este par forma parte de una agrupación manual y no se puede reabrir' })
+    }
+    if (!result.deleted) {
+      return res.status(404).json({ error: 'No hay un par marcado en revisión con esa clave' })
+    }
+    invalidateCatalogPageCache()
+    res.json({ success: true, pairKey, status: 'pending' })
+  } catch (error) {
+    console.error('Error reopening cross-source review decision', error)
+    res.status(500).json({ error: 'No se pudo reabrir el par para revisión' })
+  }
 })
 
 app.post('/upload-csv', requireAdmin, (req, res) => {
@@ -5008,9 +5577,11 @@ app.post('/translate/products', productTranslationIpRateLimit, async (req, res) 
   }
 })
 
-if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.PRICE_STATUS_BOOTSTRAP_ENABLED !== 'false') {
   enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue)
     .catch((error) => console.error('Unable to queue missing or stale current price statuses', error))
+} else if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.info('Skipped initial price status refresh bootstrap (PRICE_STATUS_BOOTSTRAP_ENABLED=false)')
 }
 
 if (process.env.DISCO_SYNC_ENABLED === 'true') {

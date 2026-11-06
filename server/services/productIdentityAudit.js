@@ -278,6 +278,12 @@ function compareAttribute(left, right, field, conflicts, matches) {
   }
 }
 
+function hasAttributeValue(value) {
+  return Array.isArray(value)
+    ? value.length > 0
+    : value !== null && value !== undefined && value !== ''
+}
+
 function evaluateIdentityPair(leftProduct, rightProduct) {
   if (!leftProduct || !rightProduct || leftProduct.source === rightProduct.source) return null
 
@@ -324,7 +330,7 @@ function evaluateIdentityPair(leftProduct, rightProduct) {
     if (leftMeasure.baseUnit === rightMeasure.baseUnit
       && Math.abs(leftMeasure.normalizedAmount - rightMeasure.normalizedAmount) < 0.000001) matches.push('measure')
     else conflicts.push({ field: 'measure', left: leftMeasure, right: rightMeasure })
-  } else uncertain.push('measure')
+  } else if (Boolean(leftMeasure) !== Boolean(rightMeasure)) uncertain.push('measure')
 
   const leftCategory = normalizeText(left.category)
   const rightCategory = normalizeText(right.category)
@@ -334,11 +340,10 @@ function evaluateIdentityPair(leftProduct, rightProduct) {
   if (leftSubcategory && rightSubcategory && leftSubcategory === rightSubcategory) matches.push('subcategory')
 
   for (const field of ['form', 'productLine', 'style', 'fatClass', 'fatPercent', 'lactose', 'additionalFeatures', 'flavor', 'container', 'packCount']) {
+    const leftValue = left.attributes[field]
+    const rightValue = right.attributes[field]
     compareAttribute(left.attributes, right.attributes, field, conflicts, matches)
-    if (left.attributes[field] === '' || right.attributes[field] === ''
-      || left.attributes[field] === null || right.attributes[field] === null
-      || (Array.isArray(left.attributes[field]) && Array.isArray(right.attributes[field])
-        && left.attributes[field].length === 0 && right.attributes[field].length === 0)) uncertain.push(field)
+    if (hasAttributeValue(leftValue) !== hasAttributeValue(rightValue)) uncertain.push(field)
   }
 
   const leftGtin = left.validGtin
@@ -350,22 +355,9 @@ function evaluateIdentityPair(leftProduct, rightProduct) {
     identifiers.push('different_valid_gtins')
   }
 
-  for (const [summary, product] of [[left, leftProduct], [right, rightProduct]]) {
-    const sourceSku = String(summary.sourceSku || '').replace(/\D/g, '')
-    const otherGtin = summary === left ? rightGtin : leftGtin
-    if (sourceSku && isValidGtin(sourceSku) && otherGtin) {
-      if (sourceSku === otherGtin) {
-        matches.push('source_sku_matches_gtin')
-        identifiers.push(`${summary.source}_source_sku_matches_valid_gtin`)
-      } else {
-        identifiers.push(`${summary.source}_source_sku_is_gtin_like`)
-      }
-    }
-  }
-
   const hardConflicts = new Set(['measure', 'form', 'productLine', 'style', 'fatClass', 'fatPercent', 'lactose', 'flavor', 'container', 'packCount'])
   const incompatible = conflicts.some((conflict) => hardConflicts.has(conflict.field))
-  const hasStrongIdentifierMatch = matches.includes('gtin') || matches.includes('source_sku_matches_gtin')
+  const hasStrongIdentifierMatch = matches.includes('gtin')
   const nameSimilarity = calculateNameSimilarity(leftProduct, rightProduct)
   const score = Math.min(100,
     25
@@ -381,7 +373,7 @@ function evaluateIdentityPair(leftProduct, rightProduct) {
     + (matches.includes('fatClass') || matches.includes('fatPercent') ? 10 : 0)
     + (matches.includes('container') ? 5 : 0)
     + (matches.includes('packCount') ? 5 : 0)
-    + (matches.includes('gtin') || matches.includes('source_sku_matches_gtin') ? 15 : 0)
+    + (matches.includes('gtin') ? 15 : 0)
     + Math.round(nameSimilarity * 5)
   )
   const decision = nameCompatibility.status === 'weak' && !hasStrongIdentifierMatch
@@ -389,11 +381,11 @@ function evaluateIdentityPair(leftProduct, rightProduct) {
     : incompatible && !hasStrongIdentifierMatch
       ? 'separate'
       : conflicts.some((conflict) => conflict.field === 'gtin' || conflict.field === 'additionalFeatures')
-        || identifiers.length || (incompatible && hasStrongIdentifierMatch)
+          || (hasStrongIdentifierMatch && (incompatible || uncertain.length > 0))
         ? 'review'
-        : score >= 75
-          ? 'candidate'
-          : 'weak_candidate'
+        : hasStrongIdentifierMatch
+          ? score >= 75 ? 'candidate' : 'weak_candidate'
+          : 'review'
 
   return {
     decision,
@@ -444,9 +436,7 @@ function auditProductIdentities(products = [], { includePairIds = null } = {}) {
   }
 
   candidates.sort((left, right) => right.score - left.score || left.nameSimilarity - right.nameSimilarity)
-  const identifierMatches = candidates.filter((candidate) => candidate.matchedSignals.some(
-    (signal) => signal === 'gtin' || signal === 'source_sku_matches_gtin',
-  ))
+  const identifierMatches = candidates.filter((candidate) => candidate.matchedSignals.includes('gtin'))
   const identifierMatchCounts = new Map()
   for (const candidate of identifierMatches) {
     for (const product of candidate.products) {
@@ -506,6 +496,7 @@ function auditProductIdentities(products = [], { includePairIds = null } = {}) {
 
 module.exports = {
   auditProductIdentities,
+  calculateNameSimilarity,
   evaluateIdentityPair,
   extractAttributes,
   extractGtin,

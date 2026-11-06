@@ -128,13 +128,28 @@ function rememberProduct(checkpoint, rawProduct) {
   const mapping = suggestCatalogMapping({
     name: rawProduct.name,
     brand: rawProduct.brand,
+    description: rawProduct.description,
+    presentation: rawProduct.presentation || rawProduct.netContent || rawProduct.net_content,
+    unit: rawProduct.unit || rawProduct.netContentUnit || rawProduct.net_content_unit,
     source_category: rawProduct.sourceCategory,
     source_subcategory: rawProduct.proposedSubcategory,
   })
+  const hasManualTaxonomy = ['manual', 'manual_override'].includes(rawProduct.mappingStatus)
   const product = {
     ...rawProduct,
-    proposedCategory: rawProduct.proposedCategory || mapping?.category || null,
-    proposedSubcategory: rawProduct.proposedSubcategory || mapping?.subcategory || null,
+    proposedCategory: hasManualTaxonomy
+      ? rawProduct.proposedCategory || null
+      : mapping.status === 'determined' ? mapping.category : null,
+    proposedSubcategory: hasManualTaxonomy
+      ? rawProduct.proposedSubcategory || null
+      : mapping.status === 'determined' ? mapping.subcategory : null,
+    mappingStatus: hasManualTaxonomy ? rawProduct.mappingStatus : (mapping.status === 'determined'
+      ? 'propuesta_automatica'
+      : mapping.status === 'ambiguous' ? 'revision_manual' : 'pendiente'),
+    taxonomySuggestionStatus: mapping.status,
+    taxonomySuggestionConfidence: mapping.confidence,
+    taxonomySuggestionReason: mapping.reason,
+    taxonomySuggestionRule: mapping.rule,
   }
   const previous = checkpoint.items[sourceProductId] || {}
   checkpoint.items[sourceProductId] = {
@@ -288,4 +303,4 @@ if (require.main === module) {
   })
 }
 
-module.exports = { requestJson, requestImportBatch }
+module.exports = { rememberProduct, requestJson, requestImportBatch }

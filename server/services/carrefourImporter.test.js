@@ -132,6 +132,67 @@ test('uses the resolved postal-code region for a bounded preview', async () => {
   assert.equal(requestedUrls.length, 2)
   assert.equal(requestedUrls[1].searchParams.get('regionId'), 'v2.region-for-5186')
   assert.equal(requestedUrls[1].searchParams.get('_to'), '19')
+  assert.equal(preview.hasMore, false)
+})
+
+test('supports explicit bounded pagination for catalog discovery', async () => {
+  const requestedUrls = []
+  const importer = createCarrefourImporter({
+    fetchImpl: async (url) => {
+      requestedUrls.push(new URL(url))
+      if (String(url).includes('/api/checkout/pub/regions')) {
+        return jsonResponse([{ id: 'v2.region-for-5186' }])
+      }
+      return jsonResponse(Array.from({ length: 10 }, (_, index) => makeCarrefourProduct({
+        productId: String(720000 + index),
+      })))
+    },
+  })
+
+  const preview = await importer.fetchPreview({
+    query: 'leche',
+    postalCode: '5186',
+    from: 20,
+    limit: 10,
+  })
+  assert.equal(preview.from, 20)
+  assert.equal(preview.resultLimit, 10)
+  assert.equal(preview.hasMore, true)
+  assert.equal(requestedUrls[1].searchParams.get('_from'), '20')
+  assert.equal(requestedUrls[1].searchParams.get('_to'), '29')
+})
+
+test('rejects pagination outside the bounded discovery window', async () => {
+  const importer = createCarrefourImporter({ fetchImpl: async () => jsonResponse([]) })
+  await assert.rejects(
+    importer.fetchPreview({ query: 'leche', postalCode: '5186', from: 2001 }),
+    /desplazamiento debe estar entre 0 y 2000/,
+  )
+  await assert.rejects(
+    importer.fetchPreview({ query: 'leche', postalCode: '5186', limit: 21 }),
+    /tamaño de página debe estar entre 1 y 20/,
+  )
+})
+
+test('marks a full page at the final allowed offset as incomplete coverage', async () => {
+  const importer = createCarrefourImporter({
+    fetchImpl: async (url) => {
+      if (String(url).includes('/api/checkout/pub/regions')) {
+        return jsonResponse([{ id: 'v2.region-for-5186' }])
+      }
+      return jsonResponse(Array.from({ length: 20 }, (_, index) => makeCarrefourProduct({
+        productId: String(720000 + index),
+      })))
+    },
+  })
+
+  const preview = await importer.fetchPreview({
+    query: 'leche',
+    postalCode: '5186',
+    from: 2000,
+    limit: 20,
+  })
+  assert.equal(preview.hasMore, true)
 })
 
 test('does not fall back to an unregionalized price when Carrefour blocks region lookup', async () => {

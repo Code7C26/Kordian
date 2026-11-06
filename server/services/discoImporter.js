@@ -1,6 +1,15 @@
 const DISCO_API_URL = 'https://www.disco.com.ar/api/catalog_system/pub/products/search'
+const DISCO_PROMOTION_CACHE_TTL_MS = 10 * 60 * 1000
+const DISCO_PROMOTION_CACHE_MAX_ENTRIES = 256
 import { createCommonProduct, isValidCommonProduct } from './importerContract.js'
-import { extractGenericProductProfile, parseHtmlProductDetails } from './htmlProductParser.js'
+import { extractGenericProductProfile, extractJsonLdProductItems, parseHtmlProductDetails } from './htmlProductParser.js'
+
+export class InvalidDiscoPromotionRequestError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'InvalidDiscoPromotionRequestError'
+  }
+}
 
 const numeric = (value) => {
   const number = Number(value)
@@ -166,6 +175,121 @@ export function parseDiscoProductDetailHtml(html = '') {
     extractProfile: (value, options) => extractGenericProductProfile(value, options),
     fallbackCategory: 'Disco',
   })
+}
+
+export function parseDiscoPromotionFromHtml(html = '', ean, now = Date.now()) {
+  const expectedEan = String(ean || '').replace(/\D/g, '')
+  if (!/^\d{8,14}$/.test(expectedEan)) return null
+
+  const today = new Date(now).toISOString().slice(0, 10)
+  const product = extractJsonLdProductItems(html).find((item) => (
+    String(item.ean || '').replace(/\D/g, '') === expectedEan
+  ))
+  if (!product || !Number.isFinite(product.price) || !Number.isFinite(product.listPrice)) return null
+
+  if (product.priceValidUntil && product.priceValidUntil < today) return null
+  if (product.price <= 0 || product.listPrice <= product.price) return null
+
+  return {
+    promotionPrice: product.price,
+    referencePrice: product.listPrice,
+    conditionsVerified: false,
+    validUntil: product.priceValidUntil,
+  }
+}
+
+function normalizeDiscoProductUrl(sourceUrl) {
+  let url
+  try {
+    url = new URL(String(sourceUrl || ''))
+  } catch {
+    throw new InvalidDiscoPromotionRequestError('La URL de Disco no es válida')
+  }
+
+  if (
+    url.protocol !== 'https:'
+    || url.hostname !== 'www.disco.com.ar'
+    || url.port
+    || url.username
+    || url.password
+    || !url.pathname.endsWith('/p')
+  ) {
+    throw new InvalidDiscoPromotionRequestError('La URL debe corresponder a una ficha de producto de Disco')
+  }
+
+  url.search = ''
+  url.hash = ''
+  return url.toString()
+}
+
+export function createDiscoPromotionFetcher({
+  fetchImpl = fetch,
+  now = Date.now,
+  cacheTtlMs = DISCO_PROMOTION_CACHE_TTL_MS,
+  maxCacheEntries = DISCO_PROMOTION_CACHE_MAX_ENTRIES,
+} = {}) {
+  if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl must be a function')
+  const cache = new Map()
+  const inFlight = new Map()
+
+  return async function fetchDiscoPromotion(ean) {
+    const normalizedEan = String(ean || '').replace(/\D/g, '')
+    if (!/^\d{8,14}$/.test(normalizedEan)) throw new InvalidDiscoPromotionRequestError('El EAN no es válido')
+
+    const key = normalizedEan
+    const cached = cache.get(key)
+    if (cached && cached.expiresAt > now()) return cached.promotion
+    if (inFlight.has(key)) return inFlight.get(key)
+
+    const request = (async () => {
+      const params = new URLSearchParams({
+        fq: `alternateIds_Ean:${normalizedEan}`,
+        _from: '0',
+        _to: '49',
+      })
+      const lookupResponse = await fetchImpl(`${DISCO_API_URL}?${params}`, {
+        headers: { Accept: 'application/json' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!lookupResponse.ok) throw new Error(`Disco respondió con HTTP ${lookupResponse.status}`)
+      const products = await lookupResponse.json()
+      const item = (Array.isArray(products) ? products : []).find((product) => (
+        Array.isArray(product.items)
+        && product.items.some((productItem) => (
+          String(productItem.ean || '').replace(/\D/g, '') === normalizedEan
+        ))
+      ))
+      if (!item?.link) {
+        throw new InvalidDiscoPromotionRequestError('No se encontró la ficha de Disco para el EAN indicado')
+      }
+
+      const url = normalizeDiscoProductUrl(item.link)
+      const response = await fetchImpl(url, {
+        headers: { Accept: 'text/html' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!response.ok) throw new Error(`Disco respondió con HTTP ${response.status}`)
+
+      const promotion = parseDiscoPromotionFromHtml(await response.text(), normalizedEan, now())
+      cache.set(key, { promotion, expiresAt: now() + cacheTtlMs })
+      while (cache.size > maxCacheEntries) cache.delete(cache.keys().next().value)
+      return promotion
+    })()
+    inFlight.set(key, request)
+    try {
+      return await request
+    } finally {
+      inFlight.delete(key)
+    }
+  }
+}
+
+const fetchCachedDiscoPromotion = createDiscoPromotionFetcher()
+
+export function fetchDiscoPromotion(ean) {
+  return fetchCachedDiscoPromotion(ean)
 }
 
 async function fetchDiscoPage({ query = '', from = 0, to = 49 } = {}) {

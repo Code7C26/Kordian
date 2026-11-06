@@ -197,7 +197,14 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
                   <strong>Actual:</strong> {item.actualCategory || 'Sin categoría'} / {item.actualSubcategory || 'Sin subcategoría'}
                 </p>
                 <p className="rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-                  <strong>Sugerencia automática:</strong> {item.suggestedCategory} / {item.suggestedSubcategory}
+                  <strong>Sugerencia automática:</strong>{' '}
+                  {item.suggestionStatus === 'determined'
+                    ? `${item.suggestedCategory} / ${item.suggestedSubcategory}`
+                    : item.suggestionStatus === 'ambiguous'
+                      ? 'Revisión manual: hay evidencias en conflicto'
+                      : 'Revisión manual: no hay evidencia suficiente'}
+                  {item.suggestionConfidence && ` · Confianza ${item.suggestionConfidence}`}
+                  {item.suggestionReason && ` · ${item.suggestionReason}`}
                 </p>
               </div>
 

@@ -4,6 +4,7 @@ const CARREFOUR_BASE_URL = 'https://www.carrefour.com.ar'
 const CARREFOUR_SEARCH_URL = `${CARREFOUR_BASE_URL}/api/catalog_system/pub/products/search`
 const CARREFOUR_REGIONS_URL = `${CARREFOUR_BASE_URL}/api/checkout/pub/regions`
 const CARREFOUR_MAX_RESULTS = 20
+const CARREFOUR_MAX_OFFSET = 2000
 const CARREFOUR_MAX_POSTAL_CODE_LENGTH = 8
 const CARREFOUR_REQUEST_TIMEOUT_MS = 15000
 const REGION_CACHE_TTL_MS = 60 * 60 * 1000
@@ -174,10 +175,16 @@ function createCarrefourImporter({ fetchImpl = fetch, now = Date.now } = {}) {
     return regionId
   }
 
-  async function fetchProducts({ query = '', postalCode, productId = '' } = {}) {
+  async function fetchProducts({ query = '', postalCode, productId = '', from = 0, limit = CARREFOUR_MAX_RESULTS } = {}) {
     const searchText = String(query || '').trim().slice(0, 100)
     if (!productId && searchText.length < 2) throw new TypeError('Ingresá al menos dos caracteres para buscar')
     if (productId && !/^\d{1,20}$/.test(String(productId))) throw new TypeError('Identificador de Carrefour inválido')
+    if (!Number.isInteger(from) || from < 0 || from > CARREFOUR_MAX_OFFSET) {
+      throw new TypeError(`El desplazamiento debe estar entre 0 y ${CARREFOUR_MAX_OFFSET}`)
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > CARREFOUR_MAX_RESULTS) {
+      throw new TypeError(`El tamaño de página debe estar entre 1 y ${CARREFOUR_MAX_RESULTS}`)
+    }
 
     const regionId = await getRegionId(postalCode)
     const url = new URL(CARREFOUR_SEARCH_URL)
@@ -187,8 +194,8 @@ function createCarrefourImporter({ fetchImpl = fetch, now = Date.now } = {}) {
       url.searchParams.set('_to', '0')
     } else {
       url.searchParams.set('ft', searchText)
-      url.searchParams.set('_from', '0')
-      url.searchParams.set('_to', String(CARREFOUR_MAX_RESULTS - 1))
+      url.searchParams.set('_from', String(from))
+      url.searchParams.set('_to', String(from + limit - 1))
     }
     url.searchParams.set('regionId', regionId)
 
@@ -200,12 +207,12 @@ function createCarrefourImporter({ fetchImpl = fetch, now = Date.now } = {}) {
     return response
   }
 
-  async function fetchPreview({ query = '', postalCode } = {}) {
-    const data = await fetchProducts({ query, postalCode })
+  async function fetchPreview({ query = '', postalCode, from = 0, limit = CARREFOUR_MAX_RESULTS } = {}) {
+    const data = await fetchProducts({ query, postalCode, from, limit })
     const products = []
     const discarded = []
 
-    for (const rawProduct of data.slice(0, CARREFOUR_MAX_RESULTS)) {
+    for (const rawProduct of data.slice(0, limit)) {
       const product = normalizeCarrefourProduct(rawProduct)
       const reason = getCarrefourProductInvalidReason(product)
       if (reason) discarded.push({
@@ -216,7 +223,14 @@ function createCarrefourImporter({ fetchImpl = fetch, now = Date.now } = {}) {
       else products.push(product)
     }
 
-    return { products, discarded, postalCode: normalizePostalCode(postalCode), resultLimit: CARREFOUR_MAX_RESULTS }
+    return {
+      products,
+      discarded,
+      postalCode: normalizePostalCode(postalCode),
+      from,
+      resultLimit: limit,
+      hasMore: data.length === limit,
+    }
   }
 
   async function fetchProductById(productId, { postalCode } = {}) {

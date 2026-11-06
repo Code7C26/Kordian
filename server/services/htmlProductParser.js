@@ -10,6 +10,23 @@ function extractJsonLdProductItems(html = '') {
       for (const item of graph) {
         const type = Array.isArray(item?.['@type']) ? item['@type'] : [item?.['@type'] || item?.type]
         if (!type.includes('Product')) continue
+        const offers = Array.isArray(item.offers) ? item.offers : [item.offers]
+        const offer = offers.find((candidate) => Number(candidate?.price) > 0) || {}
+        const priceSpecifications = [
+          ...(Array.isArray(offer.priceSpecification) ? offer.priceSpecification : [offer.priceSpecification]),
+          ...(Array.isArray(item.priceSpecification) ? item.priceSpecification : [item.priceSpecification]),
+        ]
+        const listPriceSpecification = priceSpecifications.find((specification) => (
+          /listprice/i.test(String(specification?.priceType || ''))
+          && Number(specification?.price) > 0
+        ))
+        const listPrice = Number(
+          listPriceSpecification?.price
+          || offer.listPrice
+          || item.listPrice
+          || item.list_price
+          || 0,
+        ) || null
         products.push({
           sourceProductId: String(item.productID || item.productId || item.sku || item.id || item.product_id || ''),
           sourceSku: String(item.sku || item.productID || item.productId || ''),
@@ -17,10 +34,12 @@ function extractJsonLdProductItems(html = '') {
           name: item.name || item.productName || '',
           brand: String(item.brand?.name || item.brand || item.brandName || ''),
           image: String(item.image || item.imageUrl || (Array.isArray(item.images) ? item.images[0] : '') || ''),
-          price: Number(item.offers?.price || item.price || item.lowPrice || item.priceSpecification?.price || 0) || 0,
-          available: item.offers?.availability || item.availability || true,
+          price: Number(offer.price || item.price || item.lowPrice || item.priceSpecification?.price || 0) || 0,
+          listPrice,
+          priceValidUntil: offer.priceValidUntil || null,
+          available: offer.availability || item.availability || true,
           sourceCategory: String(item.category || item.itemCategory || item.item_type || ''),
-          sourceUrl: item.url || item.sourceUrl || item.link || '',
+          sourceUrl: item.url || item.sourceUrl || item.link || offer.url || '',
         })
       }
     } catch {

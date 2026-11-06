@@ -105,7 +105,7 @@ async function run() {
   const crossSourceReport = compareCrossSourceProducts([
     createCommonProduct({
       sourceProductId: 'mami-yerba-1',
-      ean: '7790000001001',
+      ean: '7790710334603',
       name: 'Yerba Mate Taragui 1kg',
       brand: 'Taragui',
       image: 'https://example.com/mami-yerba.png',
@@ -134,7 +134,7 @@ async function run() {
   ], [
     createCommonProduct({
       sourceProductId: 'disco-yerba-1',
-      ean: '7790000001001',
+      ean: '7790710334603',
       name: 'Yerba Mate Taragui 1kg',
       brand: 'Taragui',
       image: 'https://example.com/disco-yerba.png',
@@ -163,7 +163,7 @@ async function run() {
   ])
   assert.equal(crossSourceReport.paired.length, 2)
   assert.equal(crossSourceReport.priceComparison.length, 2)
-  assert.equal(crossSourceReport.priceComparison[0].match, 'ean_or_sku')
+  assert.equal(crossSourceReport.priceComparison[0].match, 'gtin')
   assert.equal(crossSourceReport.priceComparison[0].confidence, 'alta')
   assert.equal(crossSourceReport.priceComparison[0].deltaPercent, -4)
   assert.equal(crossSourceReport.priceComparison[1].match, 'name_and_brand')

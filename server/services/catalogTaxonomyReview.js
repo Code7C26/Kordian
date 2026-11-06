@@ -11,16 +11,14 @@ function buildCatalogTaxonomyReview(products, decisions = []) {
         ...product,
         brand: product.brands?.name,
       })
-      if (!suggestion) return null
-
       const actualCategory = product.categories?.name || null
       const actualSubcategory = product.subcategories?.name || null
-      if (
-        actualCategory === suggestion.category
-        && actualSubcategory === suggestion.subcategory
-      ) return null
-
       const decision = decisionsByProductId.get(String(product.id)) || null
+      const matchesCurrentTaxonomy = suggestion.status === 'determined'
+        && actualCategory === suggestion.category
+        && actualSubcategory === suggestion.subcategory
+      if (matchesCurrentTaxonomy && !decision) return null
+
       return {
         id: product.id,
         name: product.name,
@@ -34,6 +32,10 @@ function buildCatalogTaxonomyReview(products, decisions = []) {
         actualSubcategory,
         suggestedCategory: suggestion.category,
         suggestedSubcategory: suggestion.subcategory,
+        suggestionStatus: suggestion.status,
+        suggestionConfidence: suggestion.confidence,
+        suggestionReason: suggestion.reason,
+        suggestionRule: suggestion.rule,
         classificationSource: product.classification_source || null,
         decision: decision?.status || 'pending',
         reviewedBy: decision?.admin_username || null,
