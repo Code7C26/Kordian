@@ -1,20 +1,37 @@
-const MAX_CACHED_PRODUCT_IDS = 20000
 const MAX_CACHED_QUERIES = 10
 const MAX_CACHED_PAGES_PER_QUERY = 3
 const CACHE_TTL_MS = 5 * 60 * 1000
 
 function createCatalogPageCache({ ttlMs = CACHE_TTL_MS } = {}) {
-  const indexes = new Map()
+  const queries = new Map()
 
-  function removeIndex(key, entry) {
-    if (indexes.get(key) === entry) indexes.delete(key)
+  function getQueryEntry(key) {
+    let entry = queries.get(key)
+    if (entry && Date.now() - entry.createdAt >= ttlMs) {
+      queries.delete(key)
+      entry = null
+    }
+
+    if (!entry) {
+      entry = {
+        createdAt: Date.now(),
+        pages: new Map(),
+        total: null,
+      }
+    }
+
+    queries.delete(key)
+    queries.set(key, entry)
+    while (queries.size > MAX_CACHED_QUERIES) {
+      queries.delete(queries.keys().next().value)
+    }
+
+    return entry
   }
 
-  function rememberPage(entry, page, pagePromise) {
-    const pageKey = String(page)
+  function rememberPage(entry, pageKey, pagePromise) {
     entry.pages.delete(pageKey)
     entry.pages.set(pageKey, pagePromise)
-
     while (entry.pages.size > MAX_CACHED_PAGES_PER_QUERY) {
       entry.pages.delete(entry.pages.keys().next().value)
     }
@@ -25,135 +42,43 @@ function createCatalogPageCache({ ttlMs = CACHE_TTL_MS } = {}) {
     return pagePromise
   }
 
-  function loadCachedPage(entry, page, pageIds, loadProductsByIds) {
-    const pageKey = String(page)
+  async function getPage({ key, page, limit, loadPage }) {
+    const safePage = Math.max(1, Math.floor(Number(page) || 1))
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 20))
+    const entry = getQueryEntry(key)
+    const pageKey = `${safePage}:${safeLimit}`
     const cachedPage = entry.pages.get(pageKey)
+
     if (cachedPage) {
       entry.pages.delete(pageKey)
       entry.pages.set(pageKey, cachedPage)
-      return { pagePromise: cachedPage, cacheHit: true }
+      return { ...(await cachedPage), cacheHit: true }
     }
 
-    const pagePromise = Promise.resolve().then(async () => {
-      const products = pageIds.length ? await loadProductsByIds(pageIds) : []
-      const productById = new Map(products.map((product) => [String(product?.id), product]))
-      return pageIds.map((id) => productById.get(String(id))).filter(Boolean)
-    })
-    rememberPage(entry, page, pagePromise)
-    return { pagePromise, cacheHit: false }
-  }
-
-  function getIndex(key, loadIndex) {
-    let entry = indexes.get(key)
-
-    if (entry) {
-      if (Date.now() - entry.createdAt >= ttlMs) {
-        indexes.delete(key)
-        entry = null
-      }
-    }
-
-    if (entry) {
-      indexes.delete(key)
-      indexes.set(key, entry)
-    } else {
-      entry = {
-        promise: Promise.resolve().then(loadIndex),
-        pages: new Map(),
-        createdAt: Date.now(),
-      }
-      indexes.set(key, entry)
-      entry.promise.catch(() => removeIndex(key, entry))
-
-      while (indexes.size > MAX_CACHED_QUERIES) {
-        indexes.delete(indexes.keys().next().value)
-      }
-    }
-
-    return entry
-  }
-
-  async function getPage({ key, page, limit, loadIndex, loadProductsByIds, loadPage }) {
-    const safePage = Math.max(1, Math.floor(Number(page) || 1))
-    const safeLimit = Math.max(1, Math.floor(Number(limit) || 20))
-    const existingEntry = indexes.get(key)
-    const wasCached = Boolean(existingEntry && Date.now() - existingEntry.createdAt < ttlMs)
-    const entry = getIndex(key, () => loadIndex(page, limit))
-    const index = await entry.promise
-    const ids = index?.orderedIds
-    const total = Number(index?.total)
-    if (
-      !Array.isArray(ids)
-      || !Array.isArray(index?.data)
-      || !Number.isFinite(total)
-      || ids.length !== total
-      || ids.length > MAX_CACHED_PRODUCT_IDS
-    ) {
-      removeIndex(key, entry)
-      if (Array.isArray(index?.data) && index.page === safePage && index.limit === safeLimit) {
-        rememberPage(entry, safePage, Promise.resolve(index.data))
-        return {
-          data: index.data,
-          total: Number.isFinite(total) ? total : index.data.length,
-          page: safePage,
-          limit: safeLimit,
-          cacheHit: wasCached,
+    const pagePromise = Promise.resolve()
+      .then(() => loadPage(safePage, safeLimit))
+      .then((payload) => {
+        const total = Number(payload?.total)
+        if (!payload || !Array.isArray(payload.data) || !Number.isFinite(total)) {
+          throw new Error('Catalog page loader returned an invalid response')
         }
-      }
-      const payload = await loadPage(page, limit)
-      return { ...payload, cacheHit: false }
-    }
 
-    const start = (safePage - 1) * safeLimit
-    const pageIds = ids.slice(start, start + safeLimit)
-    let pagePromise
-    let cacheHit
-    if (index.page === safePage && index.limit === safeLimit) {
-      pagePromise = rememberPage(entry, safePage, Promise.resolve(index.data))
-      cacheHit = wasCached
-    } else {
-      const pageResult = loadCachedPage(entry, safePage, pageIds, loadProductsByIds)
-      pagePromise = pageResult.pagePromise
-      cacheHit = pageResult.cacheHit
-    }
+        entry.total = total
+        return {
+          data: payload.data,
+          total,
+          page: Number.isFinite(Number(payload.page)) ? Number(payload.page) : safePage,
+          limit: Number.isFinite(Number(payload.limit)) ? Number(payload.limit) : safeLimit,
+        }
+      })
 
-    return {
-      data: await pagePromise,
-      total,
-      page: safePage,
-      limit: safeLimit,
-      cacheHit,
-    }
-  }
-
-  async function prefetchPage({ key, page, limit, loadProductsByIds }) {
-    const entry = indexes.get(key)
-    if (!entry || Date.now() - entry.createdAt >= ttlMs) return false
-
-    const index = await entry.promise
-    const ids = index?.orderedIds
-    const total = Number(index?.total)
-    const safePage = Math.max(1, Math.floor(Number(page) || 1))
-    const safeLimit = Math.max(1, Math.floor(Number(limit) || 20))
-    if (
-      !Array.isArray(ids)
-      || !Number.isFinite(total)
-      || ids.length !== total
-      || ids.length > MAX_CACHED_PRODUCT_IDS
-      || safePage < 1
-      || (safePage - 1) * safeLimit >= total
-    ) return false
-
-    const start = (safePage - 1) * safeLimit
-    const pageIds = ids.slice(start, start + safeLimit)
-    await loadCachedPage(entry, safePage, pageIds, loadProductsByIds).pagePromise
-    return true
+    rememberPage(entry, pageKey, pagePromise)
+    return { ...(await pagePromise), cacheHit: false }
   }
 
   return {
     getPage,
-    prefetchPage,
-    clear: () => indexes.clear(),
+    clear: () => queries.clear(),
   }
 }
 

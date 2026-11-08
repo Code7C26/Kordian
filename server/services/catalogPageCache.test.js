@@ -2,269 +2,219 @@ const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { createCatalogPageCache } = require('./catalogPageCache')
 
-test('reuses an ordered ID index to serve successive pages without re-running the search', async () => {
-  const cache = createCatalogPageCache()
-  let indexLoadCount = 0
-  let hydrationCount = 0
-  const loadIndex = async (page, limit) => {
-    indexLoadCount += 1
+function createPageLoader({ productsByPage, total = 5, calls = [] }) {
+  return async (page, limit) => {
+    calls.push({ page, limit })
     return {
-      data: [{ id: 1 }, { id: 2 }],
-      total: 5,
-      orderedIds: [1, 2, 3, 4, 5],
+      data: productsByPage[page] || [],
+      total,
       page,
       limit,
     }
   }
+}
+
+test('caches complete pages by query, page, and limit without an ordered ID index', async () => {
+  const cache = createCatalogPageCache()
+  const calls = []
+  const loadPage = createPageLoader({
+    productsByPage: {
+      1: [{ id: 1 }, { id: 2 }],
+      2: [{ id: 3 }, { id: 4 }],
+    },
+    calls,
+  })
 
   const firstPage = await cache.getPage({
     key: 'query-a',
     page: 1,
     limit: 2,
-    loadIndex,
-    loadProductsByIds: async () => assert.fail('first page should use index payload'),
-    loadPage: async () => assert.fail('should not fall back'),
+    loadPage,
   })
   const secondPage = await cache.getPage({
     key: 'query-a',
     page: 2,
     limit: 2,
-    loadIndex,
-    loadProductsByIds: async (ids) => {
-      hydrationCount += 1
-      assert.deepEqual(ids, [3, 4])
-      return [{ id: 4 }, { id: 3 }]
-    },
-    loadPage: async () => assert.fail('should not fall back'),
+    loadPage,
+  })
+  const cachedFirstPage = await cache.getPage({
+    key: 'query-a',
+    page: 1,
+    limit: 2,
+    loadPage: async () => assert.fail('should reuse the cached page'),
   })
 
-  assert.deepEqual(firstPage.data.map((product) => product.id), [1, 2])
-  assert.equal(firstPage.cacheHit, false)
+  assert.deepEqual(firstPage, {
+    data: [{ id: 1 }, { id: 2 }],
+    total: 5,
+    page: 1,
+    limit: 2,
+    cacheHit: false,
+  })
   assert.deepEqual(secondPage.data.map((product) => product.id), [3, 4])
   assert.equal(secondPage.total, 5)
-  assert.equal(secondPage.page, 2)
-  assert.equal(secondPage.cacheHit, false)
-  const cachedSecondPage = await cache.getPage({
-    key: 'query-a',
-    page: 2,
-    limit: 2,
-    loadIndex,
-    loadProductsByIds: async () => assert.fail('should use the hydrated page cache'),
-    loadPage: async () => assert.fail('should not fall back'),
-  })
-
-  assert.deepEqual(cachedSecondPage.data.map((product) => product.id), [3, 4])
-  assert.equal(cachedSecondPage.cacheHit, true)
-  assert.equal(indexLoadCount, 1)
-  assert.equal(hydrationCount, 1)
+  assert.deepEqual(cachedFirstPage.data, firstPage.data)
+  assert.equal(cachedFirstPage.cacheHit, true)
+  assert.deepEqual(calls, [{ page: 1, limit: 2 }, { page: 2, limit: 2 }])
 })
 
-test('prefetches the next page so navigation uses hydrated products from cache', async () => {
+test('separates different query keys and page sizes', async () => {
   const cache = createCatalogPageCache()
-  let hydrationCount = 0
-  const loadIndex = async (page, limit) => ({
-    data: [{ id: 1 }, { id: 2 }],
-    total: 4,
-    orderedIds: [1, 2, 3, 4],
+  const calls = []
+  const loadPage = createPageLoader({
+    productsByPage: { 1: [{ id: 1 }], 2: [{ id: 2 }] },
+    calls,
+  })
+
+  await cache.getPage({ key: 'category-a', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'category-b', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'category-a', page: 1, limit: 10, loadPage })
+  await cache.getPage({
+    key: 'category-a',
+    page: 1,
+    limit: 20,
+    loadPage: async () => assert.fail('should reuse the matching query/page/limit'),
+  })
+
+  assert.deepEqual(calls, [
+    { page: 1, limit: 20 },
+    { page: 1, limit: 20 },
+    { page: 1, limit: 10 },
+  ])
+})
+
+test('deduplicates concurrent requests for the same query and page', async () => {
+  const cache = createCatalogPageCache()
+  let loadCount = 0
+  let releaseLoad
+  const loadPage = () => {
+    loadCount += 1
+    return new Promise((resolve) => {
+      releaseLoad = () => resolve({
+        data: [{ id: 7 }],
+        total: 1,
+        page: 1,
+        limit: 20,
+      })
+    })
+  }
+
+  const firstRequest = cache.getPage({ key: 'same-query', page: 1, limit: 20, loadPage })
+  const secondRequest = cache.getPage({ key: 'same-query', page: 1, limit: 20, loadPage })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(loadCount, 1)
+  releaseLoad()
+
+  const [first, second] = await Promise.all([firstRequest, secondRequest])
+  assert.deepEqual(first.data, [{ id: 7 }])
+  assert.deepEqual(second.data, [{ id: 7 }])
+  assert.equal(first.cacheHit, false)
+  assert.equal(second.cacheHit, true)
+})
+
+test('does not cross-contaminate concurrent requests for different pages', async () => {
+  const cache = createCatalogPageCache()
+  const calls = []
+  const loadPage = async (page, limit) => {
+    calls.push({ page, limit })
+    await new Promise((resolve) => setImmediate(resolve))
+    return { data: [{ id: page }], total: 3, page, limit }
+  }
+
+  const [firstPage, secondPage] = await Promise.all([
+    cache.getPage({ key: 'same-query', page: 1, limit: 20, loadPage }),
+    cache.getPage({ key: 'same-query', page: 2, limit: 20, loadPage }),
+  ])
+
+  assert.deepEqual(firstPage.data, [{ id: 1 }])
+  assert.deepEqual(secondPage.data, [{ id: 2 }])
+  assert.deepEqual(calls, [{ page: 1, limit: 20 }, { page: 2, limit: 20 }])
+})
+
+test('expires query pages after the configured TTL', async () => {
+  const cache = createCatalogPageCache({ ttlMs: 1 })
+  let loadCount = 0
+  const loadPage = async (page, limit) => ({
+    data: [{ id: ++loadCount }],
+    total: 1,
     page,
     limit,
   })
-  const loadProductsByIds = async (ids) => {
-    hydrationCount += 1
-    return ids.map((id) => ({ id }))
-  }
 
-  await cache.getPage({
-    key: 'query-a',
-    page: 1,
-    limit: 2,
-    loadIndex,
-    loadProductsByIds,
-    loadPage: async () => assert.fail('should not fall back'),
-  })
-  const prefetched = await cache.prefetchPage({
-    key: 'query-a',
-    page: 2,
-    limit: 2,
-    loadProductsByIds,
-  })
-  const secondPage = await cache.getPage({
-    key: 'query-a',
-    page: 2,
-    limit: 2,
-    loadIndex,
-    loadProductsByIds: async () => assert.fail('should use prefetched products'),
-    loadPage: async () => assert.fail('should not fall back'),
-  })
-
-  assert.equal(prefetched, true)
-  assert.deepEqual(secondPage.data, [{ id: 3 }, { id: 4 }])
-  assert.equal(secondPage.cacheHit, true)
-  assert.equal(hydrationCount, 1)
-})
-
-test('expires query and hydrated page entries after the configured TTL', async () => {
-  const cache = createCatalogPageCache({ ttlMs: 1 })
-  let loadCount = 0
-  const options = {
-    key: 'query-a',
-    page: 1,
-    limit: 2,
-    loadIndex: async (page, limit) => {
-      loadCount += 1
-      return {
-        data: [{ id: loadCount }],
-        orderedIds: [loadCount],
-        total: 1,
-        page,
-        limit,
-      }
-    },
-    loadProductsByIds: async () => assert.fail('should use index payload'),
-    loadPage: async () => assert.fail('should not fall back'),
-  }
-
-  await cache.getPage(options)
+  await cache.getPage({ key: 'query-a', page: 1, limit: 20, loadPage })
   await new Promise((resolve) => setTimeout(resolve, 5))
-  const refreshed = await cache.getPage(options)
+  const refreshed = await cache.getPage({ key: 'query-a', page: 1, limit: 20, loadPage })
 
   assert.equal(loadCount, 2)
   assert.equal(refreshed.cacheHit, false)
   assert.deepEqual(refreshed.data, [{ id: 2 }])
 })
 
-test('keeps recent search indexes when the search query changes', async () => {
+test('clears cached pages after catalog changes', async () => {
   const cache = createCatalogPageCache()
   let loadCount = 0
-  const load = (value) => async (page, limit) => {
-    loadCount += 1
-    return { data: [{ id: value }], orderedIds: [value], total: 1, page, limit }
-  }
-
-  await cache.getPage({
-    key: 'query-a',
-    page: 1,
-    limit: 20,
-    loadIndex: load('a'),
-    loadProductsByIds: async () => assert.fail('should use cached result'),
-    loadPage: async () => assert.fail('should not fall back'),
-  })
-  await cache.getPage({
-    key: 'query-b',
-    page: 1,
-    limit: 20,
-    loadIndex: load('b'),
-    loadProductsByIds: async () => assert.fail('should use cached result'),
-    loadPage: async () => assert.fail('should not fall back'),
-  })
-  const result = await cache.getPage({
-    key: 'query-a',
-    page: 1,
-    limit: 20,
-    loadIndex: async () => assert.fail('should reuse the cached query'),
-    loadProductsByIds: async () => assert.fail('should use cached result'),
-    loadPage: async () => assert.fail('should not fall back'),
+  const loadPage = async (page, limit) => ({
+    data: [{ id: ++loadCount }],
+    total: 1,
+    page,
+    limit,
   })
 
-  assert.deepEqual(result.data, [{ id: 'a' }])
-  assert.equal(result.cacheHit, true)
-  assert.equal(loadCount, 2)
-})
-
-test('evicts the least recently used search when the bounded cache is full', async () => {
-  const cache = createCatalogPageCache()
-  const loadCounts = new Map()
-  const getPage = (key) => cache.getPage({
-    key,
-    page: 1,
-    limit: 20,
-    loadIndex: async (page, limit) => {
-      loadCounts.set(key, (loadCounts.get(key) || 0) + 1)
-      return { data: [{ id: key }], orderedIds: [key], total: 1, page, limit }
-    },
-    loadProductsByIds: async () => assert.fail('should use cached result'),
-    loadPage: async () => assert.fail('should not fall back'),
-  })
-
-  for (let index = 0; index < 10; index += 1) {
-    await getPage(`query-${index}`)
-  }
-  await getPage('query-0')
-  await getPage('query-10')
-  await getPage('query-1')
-  await getPage('query-0')
-
-  assert.equal(loadCounts.get('query-0'), 1)
-  assert.equal(loadCounts.get('query-1'), 2)
-})
-
-test('clears cached indexes after catalog data changes', async () => {
-  const cache = createCatalogPageCache()
-  let loadCount = 0
-  const loadIndex = async (page, limit) => {
-    loadCount += 1
-    return { data: [{ id: loadCount }], orderedIds: [loadCount], total: 1, page, limit }
-  }
-  const options = {
-    key: 'query-a',
-    page: 1,
-    limit: 20,
-    loadIndex,
-    loadProductsByIds: async () => assert.fail('should use cached result'),
-    loadPage: async () => assert.fail('should not fall back'),
-  }
-
-  await cache.getPage(options)
+  await cache.getPage({ key: 'query-a', page: 1, limit: 20, loadPage })
   cache.clear()
-  const refreshed = await cache.getPage(options)
+  const refreshed = await cache.getPage({ key: 'query-a', page: 1, limit: 20, loadPage })
 
   assert.equal(loadCount, 2)
   assert.equal(refreshed.cacheHit, false)
   assert.deepEqual(refreshed.data, [{ id: 2 }])
 })
 
-test('falls back to the requested page if the index response is incomplete', async () => {
+test('limits retained pages per query and queries overall', async () => {
   const cache = createCatalogPageCache()
-  let pageLoadCount = 0
-  const result = await cache.getPage({
-    key: 'large-query',
-    page: 3,
-    limit: 2,
-    loadIndex: async () => ({
-      data: [{ id: 1 }, { id: 2 }],
-      orderedIds: [1, 2],
-      total: 5,
-      page: 1,
-      limit: 2,
-    }),
-    loadProductsByIds: async () => assert.fail('should fall back'),
-    loadPage: async () => {
-      pageLoadCount += 1
-      return { data: [{ id: 5 }], total: 5, page: 3, limit: 2 }
-    },
+  let loadCount = 0
+  const loadPage = async (page, limit) => ({
+    data: [{ id: `${page}-${limit}-${++loadCount}` }],
+    total: 20,
+    page,
+    limit,
   })
 
-  assert.deepEqual(result.data, [{ id: 5 }])
-  assert.equal(result.cacheHit, false)
-  assert.equal(pageLoadCount, 1)
+  for (let page = 1; page <= 4; page += 1) {
+    await cache.getPage({ key: 'query-a', page, limit: 1, loadPage })
+  }
+  await cache.getPage({ key: 'query-b', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-c', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-d', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-e', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-f', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-g', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-h', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-i', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-j', page: 1, limit: 20, loadPage })
+  await cache.getPage({ key: 'query-k', page: 1, limit: 20, loadPage })
+
+  const evictedPage = await cache.getPage({ key: 'query-a', page: 2, limit: 1, loadPage })
+  assert.equal(evictedPage.cacheHit, false)
+  const evictedQuery = await cache.getPage({ key: 'query-b', page: 1, limit: 20, loadPage })
+  assert.equal(evictedQuery.cacheHit, false)
 })
 
-test('uses the index payload for its requested page when ordered IDs are unavailable', async () => {
+test('rejects malformed page results and does not cache them', async () => {
   const cache = createCatalogPageCache()
-  const result = await cache.getPage({
-    key: 'legacy-query',
-    page: 1,
-    limit: 2,
-    loadIndex: async () => ({
-      data: [{ id: 1 }, { id: 2 }],
-      total: 5,
-      page: 1,
-      limit: 2,
-    }),
-    loadProductsByIds: async () => assert.fail('ordered IDs are unavailable'),
-    loadPage: async () => assert.fail('the index payload already contains this page'),
-  })
+  let loadCount = 0
+  const loadPage = async (page, limit) => {
+    loadCount += 1
+    if (loadCount === 1) return { data: null, total: 1 }
+    return { data: [{ id: 1 }], total: 1, page, limit }
+  }
 
-  assert.deepEqual(result.data, [{ id: 1 }, { id: 2 }])
+  await assert.rejects(
+    cache.getPage({ key: 'query-a', page: 1, limit: 20, loadPage }),
+    /invalid response/,
+  )
+  const result = await cache.getPage({ key: 'query-a', page: 1, limit: 20, loadPage })
+
+  assert.equal(loadCount, 2)
   assert.equal(result.cacheHit, false)
+  assert.deepEqual(result.data, [{ id: 1 }])
 })

@@ -2195,27 +2195,28 @@ app.get('/products', async (req, res) => {
       catalogSortVersion,
     })
     const fetchCatalogPage = async (requestedPage, requestedPageLimit) => {
-      const { data, error } = await analysisWriter.rpc('catalog_products_page', {
+      const { data: payload, error } = await analysisWriter.rpc('catalog_products_page', {
         ...queryArgs,
         p_page: requestedPage,
         p_limit: requestedPageLimit,
       })
       if (error) throw error
-      if (!data || typeof data !== 'object' || !Array.isArray(data.data)) {
+      const total = Number(payload?.total)
+      const responsePage = Number(payload?.page)
+      const responseLimit = Number(payload?.limit)
+      if (!payload || typeof payload !== 'object'
+        || !Array.isArray(payload.data)
+        || !Number.isFinite(total)
+        || !Number.isFinite(responsePage)
+        || !Number.isFinite(responseLimit)) {
         throw new Error('Catalog pagination RPC returned an invalid response')
       }
-      return data
-    }
-    const loadProductsByIds = async (productIds) => {
-      const { data: productsPayload, error } = await analysisWriter.rpc('catalog_products_by_ids', {
-        p_product_ids: productIds,
-        p_rules_version: priceStatusRulesVersion,
-      })
-      if (error) throw error
-      if (!Array.isArray(productsPayload?.data)) {
-        throw new Error('Catalog hydration RPC returned an invalid response')
+      return {
+        data: payload.data,
+        total,
+        page: responsePage,
+        limit: responseLimit,
       }
-      return productsPayload.data
     }
     let data
     try {
@@ -2223,31 +2224,20 @@ app.get('/products', async (req, res) => {
         key: cacheKey,
         page,
         limit,
-        loadIndex: fetchCatalogPage,
-        loadProductsByIds,
-        loadPage: () => fetchCatalogPage(page, limit),
+        loadPage: fetchCatalogPage,
       })
     } catch (error) {
       console.error('Supabase catalog pagination error:', error)
       return res.status(500).json({ error: 'Error fetching products' })
     }
     const cacheHit = data?.cacheHit === true
-    const responseData = { ...data }
-    delete responseData.cacheHit
-    delete responseData.orderedIds
     res.set('X-Catalog-Cache', cacheHit ? 'HIT' : 'MISS')
-    if (search && page === 1) res.once('finish', () => scheduleDiscoSearchResults(search))
-    res.json(responseData)
-    if (page * limit < data.total) {
-      setImmediate(() => {
-        catalogPageCache.prefetchPage({
-          key: cacheKey,
-          page: page + 1,
-          limit,
-          loadProductsByIds,
-        }).catch((error) => console.error('Catalog next-page prefetch failed:', error))
-      })
-    }
+    res.json({
+      data: data.data,
+      total: data.total,
+      page: data.page,
+      limit: data.limit,
+    })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Internal server error' })
