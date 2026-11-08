@@ -5018,7 +5018,7 @@ app.post('/shared-lists/:listId/invitations', sharedListInvitationIpRateLimit, r
     }
     const { data: recipient, error: recipientError } = await recipientQuery.maybeSingle()
     if (recipientError) throw recipientError
-    if (recipient?.role !== 'customer') {
+    if (!['customer', 'administrator'].includes(recipient?.role)) {
       return res.status(404).json({ error: 'No se encontró un cliente con ese usuario.' })
     }
     if (recipient.user_id === req.customerUser.id) {
