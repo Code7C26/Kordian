@@ -37,7 +37,7 @@ function extractJsonLdProductItems(html = '') {
           price: Number(offer.price || item.price || item.lowPrice || item.priceSpecification?.price || 0) || 0,
           listPrice,
           priceValidUntil: offer.priceValidUntil || null,
-          available: offer.availability || item.availability || true,
+          available: offer.availability ?? item.availability ?? true,
           sourceCategory: String(item.category || item.itemCategory || item.item_type || ''),
           sourceUrl: item.url || item.sourceUrl || item.link || offer.url || '',
         })
@@ -90,6 +90,7 @@ function parseHtmlProductDetails(html = '', {
       ...item,
       ...profile,
       source,
+      available: item.available ?? profile.available ?? true,
       sourceCategory: item.sourceCategory || profile.sourceCategory || fallbackCategory,
       sourceCategories: item.sourceCategories || [item.sourceCategory || profile.sourceCategory || fallbackCategory],
       sourceUrl: normalizeSourceUrl(item.sourceUrl || profile.sourceUrl || ''),

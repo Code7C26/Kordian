@@ -39,6 +39,7 @@ export function Header({
   favoritesCount = 0,
   onOpenBasket,
   onOpenFavorites,
+  onOpenSharedLists,
   onResetView,
   categories = [],
   selectedCategory,
@@ -325,7 +326,18 @@ export function Header({
                     aria-label={t('Menú principal')}
                     className="absolute right-0 top-full z-50 mt-2 max-h-[min(78vh,40rem)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-stone-200 bg-white p-2 text-stone-800 shadow-xl dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 max-lg:fixed max-lg:right-4 max-lg:left-auto max-lg:top-[116px] max-lg:mt-0 max-sm:top-[108px]"
                   >
-                    <Link role="menuitem" to="/listas-compartidas" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link
+                      role="menuitem"
+                      to="/listas-compartidas"
+                      onClick={(event) => {
+                        setOpenMenu(null)
+                        if (onOpenSharedLists) {
+                          event.preventDefault()
+                          onOpenSharedLists()
+                        }
+                      }}
+                      className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800"
+                    >
                       <UsersRound className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       {t('Lista compartida')}
                     </Link>

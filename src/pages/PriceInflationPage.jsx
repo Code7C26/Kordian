@@ -385,12 +385,6 @@ export default function PriceInflationPage() {
               <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600 dark:text-stone-400">
                 {t('Explora cómo cambian los precios y estima el impacto en tu presupuesto.')}
               </p>
-              <p className="mt-1 text-[10px] text-stone-400 dark:text-stone-500">
-                {t('Ícono de calculadora por')}{' '}
-                <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-300" href="https://www.flaticon.com/authors/srip" target="_blank" rel="noreferrer">srip</a>
-                {' '}{t('en')}{' '}
-                <a className="underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-300" href="https://www.flaticon.com/free-icon/calculator_2344247" target="_blank" rel="noreferrer">Flaticon</a>
-              </p>
             </div>
           </div>
         </section>

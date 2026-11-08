@@ -3761,6 +3761,21 @@ export default function Admin() {
                   </p>
                 )}
 
+                {discoDiscarded.length > 0 && (
+                  <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    <summary className="cursor-pointer font-semibold">
+                      {discoDiscarded.length} producto(s) descartado(s) automáticamente
+                    </summary>
+                    <div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs">
+                      {discoDiscarded.map((product, index) => (
+                        <p key={`${product.sourceProductId || 'sin-id'}-${index}`}>
+                          <strong>{product.name || 'Sin nombre'}</strong>: {product.reason}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
                 {discoPreview.length >
                   0 && (
                   <>
@@ -3948,6 +3963,21 @@ export default function Admin() {
                   <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
                     {mamiError}
                   </p>
+                )}
+
+                {mamiDiscarded.length > 0 && (
+                  <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    <summary className="cursor-pointer font-semibold">
+                      {mamiDiscarded.length} producto(s) descartado(s) automáticamente
+                    </summary>
+                    <div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs">
+                      {mamiDiscarded.map((product, index) => (
+                        <p key={`${product.sourceProductId || 'sin-id'}-${index}`}>
+                          <strong>{product.name || 'Sin nombre'}</strong>: {product.reason}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
                 )}
 
                 {mamiImportSkipped.length >

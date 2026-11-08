@@ -38,6 +38,26 @@ test('converts Mami structured low prices when the visible retail price is unava
   assert.equal(product.price, 3490)
 })
 
+test('interprets Schema.org stock availability instead of discarding in-stock products', () => {
+  const productHtml = (availability) => `<script type="application/ld+json">${JSON.stringify({
+    '@type': 'Product',
+    productID: 'prod123',
+    name: 'Yogur Bebible',
+    brand: 'Mami',
+    image: 'https://example.com/yogur.jpg',
+    category: 'Lácteos',
+    url: 'https://www.supermami.com.ar/super/producto/yogur',
+    offers: { price: 3490, availability },
+  })}</script>`
+
+  const inStock = extractMamiDetailProductsFromHtml(productHtml('https://schema.org/InStock'))
+  const outOfStock = extractMamiDetailProductsFromHtml(productHtml('https://schema.org/OutOfStock'))
+
+  assert.equal(inStock.length, 1)
+  assert.equal(inStock[0].available, true)
+  assert.equal(outOfStock.length, 0)
+})
+
 test('parses both Argentine and decimal Mami price formats', () => {
   assert.equal(extractVisibleMamiPrice('<div class="precio-unidad">$1.234,56 x kg.</div>'), 1234.56)
   assert.equal(extractVisibleMamiPrice('<div class="precio-unidad">$3490.00 x kg.</div>'), 3490)

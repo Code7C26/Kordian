@@ -31,7 +31,10 @@ function numeric(value) {
 }
 
 function normalizeBoolean(value) {
-  return value === true || value === 'true' || value === 1 || value === '1'
+  if (typeof value === 'boolean') return value
+  if (value === 1) return true
+  const normalized = String(value ?? '').trim().toLowerCase().split(/[\/#]/).filter(Boolean).pop()
+  return ['true', '1', 'instock', 'limitedavailability', 'onlineonly', 'preorder'].includes(normalized)
 }
 
 function createCommonProduct(raw = {}, source = 'unknown') {

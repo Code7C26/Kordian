@@ -9,15 +9,7 @@ import {
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
 import { useLanguage } from '../contexts/LanguageContext.jsx';
 import ClearableSearchInput from './ClearableSearchInput.jsx'
-
-const QUICK_SEARCH_TAGS = [
-  'Chocolate',        // Alimentos Frescos y Refrigerados
-  'Licor',            // Almacén y Alimentos
-  'Smart TV',         // Electrónica y Electrodomésticos
-  'Cocina',           // Hogar y Otros
-  'Desodorante',      // Limpieza e Higiene
-  'Zapatillas',       // Ropa y Calzado
-];
+import { getPopularSearchTagsForVisit } from '../utils/quickSearchTags.js'
 
 export function HeroCategoryGrid({
   categories,
@@ -34,6 +26,7 @@ export function HeroCategoryGrid({
   onClearSearch,
 }) {
   const [searchFocused, setSearchFocused] = useState(false);
+  const [quickSearchTags] = useState(() => getPopularSearchTagsForVisit())
   const { t } = useLanguage();
 
   return (
@@ -99,7 +92,7 @@ export function HeroCategoryGrid({
 
             <div aria-label={t('Búsquedas populares')} className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
               <span className="mr-1 font-semibold text-stone-500 dark:text-stone-400">{t('Búsquedas populares')}</span>
-              {QUICK_SEARCH_TAGS.map((tag) => (
+              {quickSearchTags.map((tag) => (
                 <button
                   key={tag}
                   type="button"

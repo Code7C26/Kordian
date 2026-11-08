@@ -304,6 +304,11 @@ test('admin import route imports selected products using mocked database writes'
       proposedCategory: 'Electrodomésticos',
       proposedSubcategory: 'Licuadoras',
     }),
+    suggestCatalogMapping: () => ({
+      status: 'determined',
+      category: 'Electrodomésticos',
+      subcategory: 'Licuadoras',
+    }),
     normalizeBrandName: (name) => String(name || '').trim().toLowerCase(),
     findCrossSourceProductMatch: () => null,
     buildDiscoProductTaxonomyFields: () => ({}),

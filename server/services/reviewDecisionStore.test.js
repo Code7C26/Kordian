@@ -1,6 +1,9 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
+if (!process.env.SUPABASE_URL) process.env.SUPABASE_URL = 'http://127.0.0.1:54321'
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key'
+
 const supabaseAdmin = require('../supabaseAdmin')
 const { normalizePairKey, upsertReviewDecision, listReviewDecisions, clearReviewDecisions, deleteReviewDecision, summarizeReviewDecisions, getReviewGroupingPeerIds, applyReviewMatchGrouping } = require('./reviewDecisionStore')
 

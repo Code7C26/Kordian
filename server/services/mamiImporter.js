@@ -317,7 +317,6 @@ function extractMamiDetailProductsFromHtml(html = '', fallbackSourceUrl = '') {
       sourceCategories: sanitizeSourceCategories(item.sourceCategories || [item.sourceCategory || 'Mami']),
       sourceUrl: normalizeMamiSourceUrl(item.sourceUrl || fallbackSourceUrl || ''),
       seller: 'Mami',
-      available: item.available !== false,
     }),
   }).products
 }

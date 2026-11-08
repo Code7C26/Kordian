@@ -188,7 +188,32 @@ async function run() {
   assert.equal(Boolean(parsed[0]?.image), true)
   assert.equal(Boolean(parsed[0]?.ean || parsed[0]?.sourceSku), true)
 
-  const mamiPreview = mamiContract.fetchPreview ? await mamiContract.fetchPreview({ query: '', from: 0, to: 2 }) : { products: [], discarded: [] }
+  const originalFetch = global.fetch
+  const productRoutes = [
+    '/super/producto/yogur-bebible/_/A-1234-1234-s',
+    '/super/producto/yogur-firme/_/A-1235-1235-s',
+  ]
+  const homeHtml = `<a href="/super/categoria/supermami-lacteos">Lácteos</a>${productRoutes.map((route) => `<a href="${route}">Yogur</a>`).join('')}`
+  global.fetch = async (url) => {
+    const requestUrl = String(url)
+    const body = requestUrl.includes('/super/home')
+      ? homeHtml
+      : requestUrl.includes('/super/categoria/')
+        ? productRoutes.map((route) => `<a href="${route}">Yogur</a>`).join('')
+        : requestUrl.includes('A-1235')
+          ? htmlFeed
+            .replaceAll('prod1234', 'prod1235')
+            .replaceAll('Yogur Bebible', 'Yogur Firme')
+            .replaceAll('A-1234-1234-s', 'A-1235-1235-s')
+          : htmlFeed
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/html' } })
+  }
+  let mamiPreview
+  try {
+    mamiPreview = await mamiContract.fetchPreview({ query: '', from: 0, to: 2 })
+  } finally {
+    global.fetch = originalFetch
+  }
   assert.equal(Array.isArray(mamiPreview.products), true)
   assert.equal(Array.isArray(mamiPreview.discarded), true)
   assert.equal(Boolean(mamiPreview.sourceRead), true)
