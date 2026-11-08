@@ -4,42 +4,28 @@ import { LocalNotifications } from '@capacitor/local-notifications'
 import { PushNotifications } from '@capacitor/push-notifications'
 import { apiUrl } from '../config/api.js'
 import { useLanguage } from './LanguageContext.jsx'
+import {
+  clearCustomerSession,
+  readCustomerSession,
+  storeCustomerSession,
+} from '../utils/customerSessionStorage.js'
+import { clearSharedListNotifications } from '../utils/sharedListNotificationCleanup.js'
 
 const CustomerAuthContext = createContext(null)
-const CUSTOMER_SESSION_KEY = 'arprice_customer_session'
-
-function readStoredSession() {
-  const currentSession = sessionStorage.getItem(CUSTOMER_SESSION_KEY)
-  if (currentSession) {
-    try {
-      return JSON.parse(currentSession)
-    } catch {
-      sessionStorage.removeItem(CUSTOMER_SESSION_KEY)
-      return null
-    }
-  }
-
-  const legacySession = localStorage.getItem(CUSTOMER_SESSION_KEY)
-  if (!legacySession) return null
-
-  try {
-    const parsedSession = JSON.parse(legacySession)
-    sessionStorage.setItem(CUSTOMER_SESSION_KEY, legacySession)
-    localStorage.removeItem(CUSTOMER_SESSION_KEY)
-    return parsedSession
-  } catch {
-    localStorage.removeItem(CUSTOMER_SESSION_KEY)
-    return null
-  }
-}
 
 async function requestJson(path, options = {}) {
   const response = await fetch(apiUrl(path), options)
   const payload = await response.json().catch(() => ({}))
   if (response.status === 404) {
-    throw new Error('El servidor todavía no tiene activadas las funciones de cuenta y recuperación de contraseña. Despliega la actualización del backend.')
+    const error = new Error('El servidor todavía no tiene activadas las funciones de cuenta y recuperación de contraseña. Despliega la actualización del backend.')
+    error.status = response.status
+    throw error
   }
-  if (!response.ok) throw new Error(payload.error || 'No se pudo completar la solicitud.')
+  if (!response.ok) {
+    const error = new Error(payload.error || 'No se pudo completar la solicitud.')
+    error.status = response.status
+    throw error
+  }
   return payload
 }
 
@@ -60,7 +46,7 @@ async function requestCustomerJson(path, accessToken, options = {}) {
 
 export function CustomerAuthProvider({ children }) {
   const { t } = useLanguage()
-  const [session, setSession] = useState(() => readStoredSession())
+  const [session, setSession] = useState(() => readCustomerSession())
   const [logoutNotice, setLogoutNotice] = useState(false)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -70,6 +56,9 @@ export function CustomerAuthProvider({ children }) {
   const [favoritesError, setFavoritesError] = useState('')
   const [pendingNotificationCount, setPendingNotificationCount] = useState(0)
   const pushTokenRef = useRef('')
+  const pushTokenRegistrationRef = useRef(Promise.resolve())
+  const pushLifecycleRef = useRef(Promise.resolve())
+  const pushRegistrationEnabledRef = useRef(false)
 
   useEffect(() => {
     if (!logoutNotice) return undefined
@@ -90,7 +79,7 @@ export function CustomerAuthProvider({ children }) {
   }, [session])
 
   useEffect(() => {
-    const storedSession = readStoredSession()
+    const storedSession = readCustomerSession()
     if (!storedSession?.access_token) {
       setLoading(false)
       return undefined
@@ -103,24 +92,39 @@ export function CustomerAuthProvider({ children }) {
           headers: { Authorization: `Bearer ${storedSession.access_token}` },
         })
         if (active) setProfile(result.profile)
-      } catch {
+      } catch (sessionError) {
+        if (sessionError.status !== 401) {
+          console.error('Customer session could not be validated', sessionError)
+          return
+        }
+
+        if (!storedSession.refresh_token) {
+          if (active) {
+            clearCustomerSession()
+            setSession(null)
+            setProfile(null)
+          }
+          return
+        }
+
         try {
-          if (!storedSession.refresh_token) throw new Error('Session expired')
           const refreshed = await requestJson('/auth/customer-refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refreshToken: storedSession.refresh_token }),
           })
           if (active) {
-            sessionStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(refreshed.session))
+            storeCustomerSession(refreshed.session)
             setSession(refreshed.session)
             setProfile(refreshed.profile)
           }
-        } catch {
-          if (active) {
-            localStorage.removeItem(CUSTOMER_SESSION_KEY)
+        } catch (refreshError) {
+          if (refreshError.status === 401 && active) {
+            clearCustomerSession()
             setSession(null)
             setProfile(null)
+          } else {
+            console.error('Customer session could not be refreshed', refreshError)
           }
         }
       } finally {
@@ -207,7 +211,7 @@ export function CustomerAuthProvider({ children }) {
   }, [session?.access_token])
 
   useEffect(() => {
-    if (!session?.access_token || Capacitor.getPlatform() !== 'android') return undefined
+    if (Capacitor.getPlatform() !== 'android') return undefined
 
     let active = true
     const listeners = []
@@ -218,26 +222,35 @@ export function CustomerAuthProvider({ children }) {
     }
 
     const initializePushNotifications = async () => {
+      await pushLifecycleRef.current
+      if (!session?.access_token) {
+        pushRegistrationEnabledRef.current = false
+        await PushNotifications.unregister()
+        await clearSharedListNotifications(LocalNotifications, PushNotifications)
+        return
+      }
+
+      pushRegistrationEnabledRef.current = true
       await addListener(PushNotifications, 'registration', async ({ value }) => {
-        if (!active) return
+        if (!active || !pushRegistrationEnabledRef.current) return
         pushTokenRef.current = value
-        try {
-          await requestCustomerJson('/customer/push-token', session.access_token, {
+        const registration = requestCustomerJson('/customer/push-token', session.access_token, {
             method: 'POST',
             body: JSON.stringify({ token: value }),
+          }).catch((error) => {
+            console.error('Android push token could not be registered', error)
           })
-        } catch (error) {
-          console.error('Android push token could not be registered', error)
-        }
+        pushTokenRegistrationRef.current = registration
+        await registration
       })
       await addListener(PushNotifications, 'registrationError', (error) => {
         console.error('Android push registration failed', error)
       })
       await addListener(PushNotifications, 'pushNotificationReceived', async (notification) => {
-        if (!active || !['shared_list_item_added', 'shared_list_invitation'].includes(notification.data?.type)) return
+        if (!active || !pushRegistrationEnabledRef.current || !['shared_list_item_added', 'shared_list_invitation'].includes(notification.data?.type)) return
         try {
           const permission = await LocalNotifications.checkPermissions()
-          if (permission.display !== 'granted') return
+          if (!active || !pushRegistrationEnabledRef.current || permission.display !== 'granted') return
           await LocalNotifications.schedule({
             notifications: [{
               id: Math.floor(Math.random() * 2_147_483_647),
@@ -273,12 +286,13 @@ export function CustomerAuthProvider({ children }) {
       })
     }
 
-    initializePushNotifications().catch((error) => {
+    pushLifecycleRef.current = initializePushNotifications().catch((error) => {
       console.error('Android push notifications could not be initialized', error)
     })
 
     return () => {
       active = false
+      pushRegistrationEnabledRef.current = false
       listeners.forEach((listener) => listener.remove())
     }
   }, [session?.access_token, session?.user?.id])
@@ -310,7 +324,7 @@ export function CustomerAuthProvider({ children }) {
       body: JSON.stringify({ username: username.trim(), email: email.trim(), password }),
     })
     if (result.session) {
-      sessionStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(result.session))
+      storeCustomerSession(result.session)
       setSession(result.session)
       setProfile({
         username: result.user?.user_metadata?.username || username.trim(),
@@ -327,7 +341,7 @@ export function CustomerAuthProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier: identifier.trim(), password }),
     })
-    sessionStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(result.session))
+    storeCustomerSession(result.session)
     setSession(result.session)
     setProfile(result.profile)
     return result
@@ -366,6 +380,20 @@ export function CustomerAuthProvider({ children }) {
   const signOut = async ({ showNotice = true } = {}) => {
     const hadSession = Boolean(session)
     const pushToken = pushTokenRef.current
+    pushRegistrationEnabledRef.current = false
+    if (Capacitor.getPlatform() === 'android') {
+      await pushTokenRegistrationRef.current
+      try {
+        await PushNotifications.unregister()
+      } catch (error) {
+        console.error('Android push token could not be unregistered at sign-out', error)
+      }
+      try {
+        await clearSharedListNotifications(LocalNotifications, PushNotifications)
+      } catch (error) {
+        console.error('Shared-list notifications could not be cleared at sign-out', error)
+      }
+    }
     if (session?.access_token && pushToken) {
       try {
         await requestCustomerJson('/customer/push-token', session.access_token, {
@@ -377,7 +405,7 @@ export function CustomerAuthProvider({ children }) {
       }
     }
     pushTokenRef.current = ''
-    sessionStorage.removeItem(CUSTOMER_SESSION_KEY)
+    clearCustomerSession()
     setSession(null)
     setProfile(null)
     setFavorites([])

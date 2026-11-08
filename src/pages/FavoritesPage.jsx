@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config/api.js';
 import { buildProductsQuery } from '../utils/catalogQuery.js';
 import { Header } from '../components/Header.jsx';
+import LoginRequiredNotice from '../components/LoginRequiredNotice.jsx'
 import { SupermarketLogo } from '../components/SupermarketLogo.jsx';
 import { fetchCachedCatalogResponse, readCachedCatalogResponse } from '../services/catalogResponseCache.js';
 import { useSelectedCity } from '../contexts/SelectedCityContext.jsx';
@@ -120,6 +121,16 @@ export default function FavoritesPage() {
     }
   };
 
+  if (!authLoading && !user) {
+    return (
+      <LoginRequiredNotice
+        message="Debes iniciar sesión en tu cuenta para ver tus favoritos."
+        nextPath="/favoritos"
+        onClose={() => navigate('/')}
+      />
+    )
+  }
+
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100 transition-colors duration-200">
       <Header
@@ -163,12 +174,6 @@ export default function FavoritesPage() {
 
         {authLoading ? (
           <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status">{t('Cargando cuenta…')}</section>
-        ) : !user ? (
-          <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800">
-            <h2 className="text-xl font-bold">{t('Inicia sesión para ver tus favoritos')}</h2>
-            <p className="mx-auto mt-2 max-w-md text-sm text-stone-500 dark:text-stone-400">{t('Tus productos favoritos se guardan en tu cuenta y no se comparten con otras cuentas.')}</p>
-            <Link to="/ingresar?next=%2Ffavoritos" className="mt-5 inline-flex rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">{t('Iniciar sesión')}</Link>
-          </section>
         ) : favoritesLoading || isLoading ? (
           <section className="rounded-3xl bg-white p-12 text-center dark:bg-stone-800" role="status" aria-live="polite">
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-sky-600" />

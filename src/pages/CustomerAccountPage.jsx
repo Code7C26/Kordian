@@ -91,6 +91,12 @@ export default function CustomerAccountPage({ section = 'profile' }) {
     }
   }, [accessToken, loading, refreshNotifications, section])
 
+  useEffect(() => {
+    if (!notificationsNotice) return undefined
+    const timeoutId = window.setTimeout(() => setNotificationsNotice(''), 3000)
+    return () => window.clearTimeout(timeoutId)
+  }, [notificationsNotice])
+
   const acceptNotification = async (notification) => {
     setProcessingNotificationId(notification.id)
     setNotificationsError('')

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Check, Copy, ListPlus, LoaderCircle, LogOut, Plus, Search, Share2, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
 import { apiUrl } from '../config/api.js'
@@ -17,6 +17,7 @@ import { filterProductOffers } from '../utils/productOffers.js'
 import { ProductImage } from '../components/ProductImage.jsx'
 import { SupermarketLogo } from '../components/SupermarketLogo.jsx'
 import { formatCurrency } from '../utils/formatters.js'
+import LoginRequiredNotice from '../components/LoginRequiredNotice.jsx'
 
 const ITEM_SEARCH_LIMIT = 20
 const ITEM_SEARCH_MIN_LENGTH = 2
@@ -594,7 +595,13 @@ export default function SharedListsPage() {
   }
   if (!user) {
     const next = `${location.pathname}${location.search}`
-    return <Navigate to={`/ingresar?next=${encodeURIComponent(next)}`} replace />
+    return (
+      <LoginRequiredNotice
+        message="Debes iniciar sesión en tu cuenta para acceder a las listas compartidas."
+        nextPath={next}
+        onClose={() => navigate('/')}
+      />
+    )
   }
 
   const createList = async (event) => {
