@@ -4185,6 +4185,32 @@ app.delete('/customer/notifications/:notificationId', customerNotificationDelete
   }
 })
 
+app.delete('/customer/notifications', customerNotificationDeleteIpRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
+  try {
+    const [activityResult, invitationResult] = await Promise.all([
+      analysisWriter
+        .from('shared_shopping_list_activity_notifications')
+        .delete()
+        .eq('recipient_user_id', req.customerUser.id)
+        .select('id'),
+      analysisWriter
+        .from('shared_shopping_list_invitations')
+        .delete()
+        .eq('invitee_user_id', req.customerUser.id)
+        .eq('status', 'pending')
+        .select('id'),
+    ])
+    if (activityResult.error) throw activityResult.error
+    if (invitationResult.error) throw invitationResult.error
+    return res.json({
+      deletedCount: (activityResult.data || []).length + (invitationResult.data || []).length,
+    })
+  } catch (error) {
+    console.error('Customer notifications bulk deletion failed', error)
+    return res.status(503).json({ error: 'No se pudieron eliminar todas las notificaciones.' })
+  }
+})
+
 app.post('/customer/notifications/:notificationId/read', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.notificationId)) {
     return res.status(400).json({ error: 'La notificación no es válida.' })

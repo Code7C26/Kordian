@@ -17,7 +17,12 @@ async function requestCustomerAccount(path, accessToken, options = {}) {
     },
   })
   const payload = response.status === 204 ? null : await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload?.error || 'No se pudo completar la solicitud.')
+  if (!response.ok) {
+    const errorMessage = response.status === 404 && path === '/customer/notifications'
+      ? 'El servidor todavía no tiene activa la eliminación de todas las notificaciones. Actualiza el backend.'
+      : payload?.error || `No se pudo completar la solicitud. (HTTP ${response.status})`
+    throw new Error(errorMessage)
+  }
   return payload
 }
 
@@ -46,6 +51,7 @@ export default function CustomerAccountPage({ section = 'profile' }) {
   const [notificationsError, setNotificationsError] = useState('')
   const [notificationsNotice, setNotificationsNotice] = useState('')
   const [processingNotificationId, setProcessingNotificationId] = useState('')
+  const [confirmDeleteAllNotifications, setConfirmDeleteAllNotifications] = useState(false)
   const content = pageContent[section] || pageContent.profile
 
   useEffect(() => {
@@ -140,6 +146,25 @@ export default function CustomerAccountPage({ section = 'profile' }) {
       setNotificationsNotice(t('Notificación eliminada.'))
     } catch (error) {
       setNotificationsError(error.message || 'No se pudo eliminar la notificación.')
+    } finally {
+      setProcessingNotificationId('')
+    }
+  }
+
+  const deleteAllNotifications = async () => {
+    if (!notifications.length || processingNotificationId) return
+
+    setConfirmDeleteAllNotifications(false)
+    setProcessingNotificationId('all')
+    setNotificationsError('')
+    setNotificationsNotice('')
+    try {
+      const result = await requestCustomerAccount('/customer/notifications', accessToken, { method: 'DELETE' })
+      setNotifications([])
+      refreshNotifications().catch((error) => console.error('Customer notifications could not be refreshed', error))
+      setNotificationsNotice(`${t('Se eliminaron todas las notificaciones:')} ${result.deletedCount}.`)
+    } catch (error) {
+      setNotificationsError(error.message || 'No se pudieron eliminar todas las notificaciones.')
     } finally {
       setProcessingNotificationId('')
     }
@@ -241,9 +266,22 @@ export default function CustomerAccountPage({ section = 'profile' }) {
           {section === 'alerts' && (
             <div className="mt-7 border-y border-stone-200 py-6 dark:border-stone-800">
               {!notificationsLoading && notifications.length > 0 && (
-                <p className="mb-4 rounded-lg bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 dark:bg-sky-950/40 dark:text-sky-200" role="status">
-                  {notifications.length === 1 ? t('Tienes un mensaje en tus notificaciones.') : t('Tienes mensajes en tus notificaciones.')}
-                </p>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 dark:bg-sky-950/40 dark:text-sky-200" role="status">
+                    {notifications.length === 1 ? t('Tienes un mensaje en tus notificaciones.') : t('Tienes mensajes en tus notificaciones.')}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteAllNotifications(true)}
+                    disabled={Boolean(processingNotificationId)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-rose-300 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                  >
+                    {processingNotificationId === 'all'
+                      ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+                    {t('Eliminar todas')}
+                  </button>
+                </div>
               )}
               {notificationsError && <p className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-200" role="alert">{t(notificationsError)}</p>}
               {notificationsNotice && (
@@ -324,6 +362,56 @@ export default function CustomerAccountPage({ section = 'profile' }) {
 
         </section>
       </div>
+      {section === 'alerts' && confirmDeleteAllNotifications && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-stone-950/60 p-4 backdrop-blur-sm"
+          onClick={() => {
+            if (!processingNotificationId) setConfirmDeleteAllNotifications(false)
+          }}
+        >
+          <section
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl dark:border-stone-700 dark:bg-stone-900"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-all-notifications-title"
+            aria-describedby="delete-all-notifications-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-4 p-6">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                <Trash2 className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div>
+                <h2 id="delete-all-notifications-title" className="text-lg font-bold text-stone-900 dark:text-stone-100">
+                  {t('Eliminar todas las notificaciones')}
+                </h2>
+                <p id="delete-all-notifications-description" className="mt-2 text-sm leading-6 text-stone-600 dark:text-stone-300">
+                  {t('Se eliminarán todas tus notificaciones, incluidas las invitaciones pendientes. Esta acción no se puede deshacer.')}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col-reverse justify-end gap-2 border-t border-stone-200 bg-stone-50 px-6 py-4 dark:border-stone-800 dark:bg-stone-950/50 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteAllNotifications(false)}
+                disabled={Boolean(processingNotificationId)}
+                className="rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-bold text-stone-700 hover:bg-white disabled:opacity-50 dark:border-stone-700 dark:text-stone-200 dark:hover:bg-stone-800"
+              >
+                {t('Cancelar')}
+              </button>
+              <button
+                type="button"
+                onClick={deleteAllNotifications}
+                disabled={Boolean(processingNotificationId)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-700 disabled:cursor-wait disabled:opacity-60"
+              >
+                {processingNotificationId === 'all' && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {t('Eliminar todas las notificaciones')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }

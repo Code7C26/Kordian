@@ -24,7 +24,9 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
   const [sharedListsLoading, setSharedListsLoading] = useState(false)
   const [addingToSharedList, setAddingToSharedList] = useState(false)
   const [sharedListError, setSharedListError] = useState('')
+  const [sharedListNotice, setSharedListNotice] = useState('')
   const [listPickerItem, setListPickerItem] = useState(null)
+  const [listPickerBasket, setListPickerBasket] = useState(false)
   const [addedBasketListItems, setAddedBasketListItems] = useState(() => new Set())
   const [pendingBasketDuplicate, setPendingBasketDuplicate] = useState(null)
   const [basketProductsQueue, setBasketProductsQueue] = useState(null)
@@ -83,6 +85,7 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
       if (existingItem) {
         setPendingBasketDuplicate({ product, existingItem })
         setListPickerItem(null)
+        setListPickerBasket(false)
         setBasketProductsQueue({
           listId,
           remaining: products.slice(index + 1),
@@ -107,7 +110,15 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
     setPendingBasketDuplicate(null)
     setAddingToSharedList(false)
     setSharedListError(firstError)
-    if (!firstError) setListPickerItem(null)
+    if (!firstError) {
+      setSharedListNotice([
+        `${t('Productos agregados correctamente:')} ${addedCount}.`,
+        mergedCount ? `${t('Cantidades sumadas:')} ${mergedCount}.` : '',
+        skippedCount ? `${t('Productos omitidos:')} ${skippedCount}.` : '',
+      ].filter(Boolean).join(' '))
+      setListPickerItem(null)
+      setListPickerBasket(false)
+    }
   }
 
   useEffect(() => {
@@ -151,20 +162,26 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
   }, [accessToken, authLoading, basket.length])
 
   const addBasketItemToSharedList = async (listId) => {
-    if (!listPickerItem || !listId || !accessToken) return
+    if ((!listPickerItem && !listPickerBasket) || !listId || !accessToken) return
     setAddingToSharedList(true)
     setSharedListError('')
+    setSharedListNotice('')
     try {
-      const product = {
-        basketItemId: listPickerItem.id,
-        productId: listPickerItem.product?.id,
-        name: listPickerItem.product?.name || '',
-        quantity: Number(listPickerItem.quantity || 0),
-      }
-      const productKey = `${listId}:${getBasketProductKey(product)}:${product.quantity}`
-      if (completedSharedListItems.current.has(productKey)) {
+      const products = (listPickerBasket ? basket : [listPickerItem]).map((item) => ({
+        basketItemId: item.id,
+        productId: item.product?.id,
+        name: item.product?.name || '',
+        quantity: Number(item.quantity || 0),
+      })).filter((product) => (
+        product.name
+        && product.quantity > 0
+        && !completedSharedListItems.current.has(`${listId}:${getBasketProductKey(product)}:${product.quantity}`)
+      ))
+      if (products.length === 0) {
         setAddingToSharedList(false)
         setListPickerItem(null)
+        setListPickerBasket(false)
+        setSharedListNotice(t('Todos los productos de la canasta ya se procesaron para esta lista.'))
         return
       }
 
@@ -175,7 +192,7 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
       if (!listResponse.ok) throw new Error(listPayload?.error || 'No se pudo leer la lista compartida.')
       await continueAddingBasketProducts(
         listId,
-        [product],
+        products,
         Array.isArray(listPayload.items) ? listPayload.items : [],
         { added: 0, merged: 0, skipped: 0, error: '' },
       )
@@ -359,6 +376,8 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
                                 type="button"
                                 onClick={() => {
                                   setSharedListError('')
+                                  setSharedListNotice('')
+                                  setListPickerBasket(false)
                                   setListPickerItem(item)
                                 }}
                                 disabled={addingToSharedList}
@@ -388,6 +407,23 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
             </div>
           </div>
 
+          <button
+            type="button"
+            onClick={() => {
+              setSharedListError('')
+              setSharedListNotice('')
+              setListPickerItem(null)
+              setListPickerBasket(true)
+            }}
+            disabled={addingToSharedList}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-800 transition-colors hover:bg-sky-100 disabled:cursor-wait disabled:opacity-60 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-950/70"
+          >
+            <ListPlus className="h-4 w-4" aria-hidden="true" />
+            {t('Agregar productos a una lista compartida')}
+          </button>
+          {sharedListNotice && <p className="text-sm text-emerald-700 dark:text-emerald-300" role="status">{sharedListNotice}</p>}
+          {sharedListError && !listPickerItem && !listPickerBasket && <p className="text-sm text-rose-700 dark:text-rose-300" role="alert">{sharedListError}</p>}
+
           <div className="space-y-3 pt-2">
             <h3 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-2"><Store className="w-4 h-4 text-sky-600 dark:text-sky-400" /> <span>{t('Comparativa Total de la Canasta')}</span></h3>
             <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-900/70 border border-stone-200/80 dark:border-stone-800">
@@ -409,11 +445,14 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
           </div>
         </div>
       </div>
-      {listPickerItem && (
+      {(listPickerItem || listPickerBasket) && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
           onClick={() => {
-            if (!addingToSharedList) setListPickerItem(null)
+            if (!addingToSharedList) {
+              setListPickerItem(null)
+              setListPickerBasket(false)
+            }
           }}
         >
           <section
@@ -426,15 +465,20 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 id="basket-list-picker-title" className="text-lg font-bold text-stone-900 dark:text-stone-100">
-                  {t('Agregar a una lista')}
+                  {listPickerBasket ? t('Agregar productos a una lista compartida') : t('Agregar a una lista')}
                 </h2>
                 <p className="mt-1 text-sm text-stone-600 dark:text-stone-300">
-                  {translateProductName(listPickerItem.product?.name)}
+                  {listPickerBasket
+                    ? `${basket.length} ${t(basket.length === 1 ? 'producto seleccionado' : 'productos seleccionados')}`
+                    : translateProductName(listPickerItem.product?.name)}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setListPickerItem(null)}
+                onClick={() => {
+                  setListPickerItem(null)
+                  setListPickerBasket(false)
+                }}
                 disabled={addingToSharedList}
                 className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 disabled:opacity-50 dark:hover:bg-stone-800"
                 aria-label={t('Cerrar aviso')}
@@ -474,7 +518,7 @@ export function SmartBasketModal({ basket, onClose, onUpdateQuantity, onRemoveIt
                 </Link>
               </p>
             )}
-            {addingToSharedList && <p className="text-sm text-stone-500 dark:text-stone-400" role="status">{t('Agregando producto…')}</p>}
+            {addingToSharedList && <p className="text-sm text-stone-500 dark:text-stone-400" role="status">{t(listPickerBasket ? 'Agregando productos…' : 'Agregando producto…')}</p>}
             {sharedListError && <p className="text-sm text-rose-700 dark:text-rose-300" role="alert">{sharedListError}</p>}
           </section>
         </div>
