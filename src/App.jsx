@@ -8,6 +8,7 @@ import { Header } from './components/Header.jsx';
 import { HeroCategoryGrid } from './components/HeroCategoryGrid.jsx';
 import ClearableSearchInput from './components/ClearableSearchInput.jsx'
 import { ProductCard } from './components/ProductCard.jsx';
+import StoreFilter from './components/StoreFilter.jsx'
 import { apiUrl } from './config/api.js';
 import { getTotalPages, getVisiblePageNumbers } from './utils/pagination.js';
 import { buildProductsQuery } from './utils/catalogQuery.js';
@@ -990,18 +991,12 @@ export default function App() {
 
               <div>
                 <label className="block text-[11px] font-extrabold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">{t('Filtrar por Comercio')}</label>
-                <select
+                <StoreFilter
+                  stores={storesList}
                   value={filters.store}
-                  onChange={(e) => updateFilters((prev) => ({ ...prev, store: e.target.value }))}
-                  className="w-full px-3 py-2.5 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl text-xs text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
-                >
-                  <option value="todos">{t('Todos los comercios')}</option>
-                  {storesList.map((store) => (
-                    <option key={store.id} value={store.id}>
-                      {store.name}
-                    </option>
-                  ))}
-                </select>
+                  selectedCity={selectedCity}
+                  onChange={(store) => updateFilters((previous) => ({ ...previous, store }))}
+                />
               </div>
 
               <div>

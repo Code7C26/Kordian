@@ -1,5 +1,21 @@
+const configuredApiBase = import.meta.env.VITE_API_URL?.replace(/\/$/, '')
+const isLoopbackApiBase = (value) => {
+  if (!value) return false
+
+  try {
+    const hostname = new URL(value).hostname
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
+  } catch {
+    return false
+  }
+}
+const usableConfiguredApiBase =
+  import.meta.env.DEV || !isLoopbackApiBase(configuredApiBase)
+    ? configuredApiBase
+    : null
+
 const DEFAULT_API_BASES = [
-  import.meta.env.VITE_API_URL,
+  usableConfiguredApiBase,
   'https://ar-price-api.onrender.com',
   'http://localhost:3000',
   'http://localhost:3100',
@@ -26,9 +42,14 @@ const LEGACY_RENDER_API_BASE = 'https://arprice-backend.onrender.com'
 const CURRENT_RENDER_API_BASE = 'https://ar-price-api.onrender.com'
 
 const storedApiBase = localStorage.getItem(API_BASE_STORAGE_KEY)
-const normalizedStoredApiBase = storedApiBase?.replace(/\/$/, '')
+const storedApiBaseValue = storedApiBase?.replace(/\/$/, '')
+const hasStoredLoopbackApiBase =
+  !import.meta.env.DEV && isLoopbackApiBase(storedApiBaseValue)
+const normalizedStoredApiBase = hasStoredLoopbackApiBase ? null : storedApiBaseValue
 
 if (normalizedStoredApiBase === LEGACY_RENDER_API_BASE) {
+  localStorage.setItem(API_BASE_STORAGE_KEY, CURRENT_RENDER_API_BASE)
+} else if (hasStoredLoopbackApiBase) {
   localStorage.setItem(API_BASE_STORAGE_KEY, CURRENT_RENDER_API_BASE)
 }
 
@@ -183,13 +204,22 @@ export function apiFetch(path, options = {}) {
   return fetchWithApiFallback(path, options)
 }
 
+export function customerApiFetch(path, options = {}) {
+  const target = new URL(path, apiUrl('/'))
+  const normalizedPath = `${target.pathname}${target.search}`
+  const configuredBase = apiUrl('/').replace(/\/$/, '')
+  const bases = [...new Set([configuredBase, CURRENT_RENDER_API_BASE])]
+
+  return fetchWithApiFallback(normalizedPath, options, bases, false, false)
+}
+
 export function adminLogin(options = {}) {
   const localApiBases = DEFAULT_API_BASES.filter((base) =>
     /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(base)
   )
   const candidateBases = import.meta.env.DEV
-    ? [...new Set([import.meta.env.VITE_API_URL, ...localApiBases, CURRENT_RENDER_API_BASE].filter(Boolean))]
-    : [...new Set([import.meta.env.VITE_API_URL, CURRENT_RENDER_API_BASE].filter(Boolean))]
+    ? [...new Set([usableConfiguredApiBase, ...localApiBases, CURRENT_RENDER_API_BASE].filter(Boolean))]
+    : [...new Set([usableConfiguredApiBase, CURRENT_RENDER_API_BASE].filter(Boolean))]
   let lastResponse = null
   let lastError = null
 

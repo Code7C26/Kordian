@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Check, Copy, ListPlus, LoaderCircle, LogOut, Plus, Search, Share2, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx'
-import { apiUrl } from '../config/api.js'
+import { apiUrl, customerApiFetch } from '../config/api.js'
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx'
 import BrandHeader from '../components/BrandHeader.jsx'
 import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from '../services/catalogResponseCache.js'
@@ -145,6 +145,7 @@ export default function SharedListsPage() {
   const [catalogLookupStatuses, setCatalogLookupStatuses] = useState({})
   const [catalogLookupRetryKey, setCatalogLookupRetryKey] = useState(0)
   const requestedItemLookups = useRef(new Set())
+  const pendingSharedListRemovals = useRef(new Set())
   const showCopyShareNotice = (message) => {
     if (copyShareNoticeTimeout.current) window.clearTimeout(copyShareNoticeTimeout.current)
     setCopyShareNotice(message)
@@ -198,6 +199,7 @@ export default function SharedListsPage() {
       const supermarketsPromise = fetchCachedCatalogResponse(apiUrl('/supermarkets'), {
         signal: controller.signal,
         ttlMs: 300_000,
+        fetchImpl: customerApiFetch,
       }).catch((error) => {
         if (error.name !== 'AbortError') {
           console.error('Could not load supermarkets for shared-list items', error)
@@ -227,7 +229,11 @@ export default function SharedListsPage() {
             try {
               const payload = await fetchCachedCatalogResponse(
                 apiUrl(`/products/search?${params.toString()}`),
-                { signal: controller.signal, timeoutMs: CATALOG_REQUEST_TIMEOUT_MS },
+                {
+                  signal: controller.signal,
+                  timeoutMs: CATALOG_REQUEST_TIMEOUT_MS,
+                  fetchImpl: customerApiFetch,
+                },
               )
               const results = Array.isArray(payload) ? payload : payload?.data || []
               const candidates = normalizeCatalogProducts(results)
@@ -346,7 +352,11 @@ export default function SharedListsPage() {
           })
           const payload = await fetchCachedCatalogResponse(
             apiUrl(`/products/search?${params.toString()}`),
-            { signal: controller.signal, timeoutMs: CATALOG_REQUEST_TIMEOUT_MS },
+            {
+              signal: controller.signal,
+              timeoutMs: CATALOG_REQUEST_TIMEOUT_MS,
+              fetchImpl: customerApiFetch,
+            },
           )
           return Array.isArray(payload) ? payload : payload?.data || []
         }
@@ -355,6 +365,7 @@ export default function SharedListsPage() {
           fetchCachedCatalogResponse(apiUrl('/supermarkets'), {
             signal: controller.signal,
             ttlMs: 300_000,
+            fetchImpl: customerApiFetch,
           }).catch((error) => {
             if (error.name === 'AbortError') throw error
             console.error('Could not load supermarkets for product search results', error)
@@ -438,14 +449,24 @@ export default function SharedListsPage() {
   }, [selectedListId])
 
   const request = useCallback(async (path, options = {}) => {
-    const response = await fetch(apiUrl(path), {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...options.headers,
-      },
-    })
+    let response
+    try {
+      response = await customerApiFetch(path, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+          ...options.headers,
+        },
+      })
+    } catch (error) {
+      console.error('Shared-list API request could not connect', { path, error })
+      const connectionError = new Error(
+        'No se pudo conectar con el servidor de listas compartidas. Verifica tu conexión e inténtalo nuevamente.',
+      )
+      connectionError.cause = error
+      throw connectionError
+    }
     const payload = response.status === 204 ? null : await response.json().catch(() => ({}))
     if (!response.ok) {
       const errorMessage = response.status === 404 && path === '/customer/users'
@@ -577,7 +598,15 @@ export default function SharedListsPage() {
     let active = true
     const refresh = () => request(`/shared-lists/${encodeURIComponent(selectedListId)}`)
       .then((data) => {
-        if (active) setSelectedList(data)
+        if (!active) return
+        const itemIds = new Set((data.items || []).map((item) => item.id))
+        for (const itemId of pendingSharedListRemovals.current) {
+          if (!itemIds.has(itemId)) pendingSharedListRemovals.current.delete(itemId)
+        }
+        setSelectedList({
+          ...data,
+          items: (data.items || []).filter((item) => !pendingSharedListRemovals.current.has(item.id)),
+        })
       })
       .catch((loadError) => {
         if (active) setError(loadError.message)
@@ -747,14 +776,41 @@ export default function SharedListsPage() {
   }
 
   const removeItem = async (itemId) => {
+    const listId = selectedListId
+    const itemKey = String(itemId)
+    if (!listId || pendingSharedListRemovals.current.has(itemKey)) return
+    const removedItem = selectedList?.id === listId
+      ? selectedList.items.find((item) => String(item.id) === itemKey)
+      : null
+    if (!removedItem) return
+
     setError('')
+    pendingSharedListRemovals.current.add(itemKey)
+    setSelectedList((current) => (
+      current?.id === listId
+        ? { ...current, items: current.items.filter((item) => String(item.id) !== itemKey) }
+        : current
+    ))
     try {
-      await request(`/shared-lists/${encodeURIComponent(selectedListId)}/items/${encodeURIComponent(itemId)}`, {
+      await request(`/shared-lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`, {
         method: 'DELETE',
       })
-      await loadList(selectedListId)
-      await loadLists()
     } catch (removeError) {
+      pendingSharedListRemovals.current.delete(itemKey)
+      setSelectedList((current) => {
+        if (
+          current?.id !== listId
+          || current.items.some((item) => String(item.id) === itemKey)
+        ) {
+          return current
+        }
+        return {
+          ...current,
+          items: [...current.items, removedItem].sort((left, right) => (
+            String(left.created_at || '').localeCompare(String(right.created_at || ''))
+          )),
+        }
+      })
       setError(removeError.message)
     }
   }

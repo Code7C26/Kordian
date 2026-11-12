@@ -54,6 +54,7 @@ const {
 const CARREFOUR_IMPORT_BATCH_LIMIT = 5
 const { syncDiscoPrices } = require('./services/discoPriceSync')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
+const { getUserProvidedSupermarketLocations } = require('./services/userProvidedSupermarketLocations')
 const { auditCrossSourceProducts } = require('./services/crossSourceProductMatcher')
 const { buildCatalogTaxonomyReview } = require('./services/catalogTaxonomyReview')
 const { suggestCatalogMapping } = require('./services/catalogTaxonomy')
@@ -3189,6 +3190,17 @@ app.get('/supermarkets', async (req, res) => {
   }
 })
 
+app.get('/supermarket-locations', customerIpReadRateLimit, async (req, res) => {
+  const city = String(req.query.city || '').trim()
+  const storeName = String(req.query.store || '').trim()
+  if (!city || city.length > 100 || !storeName || storeName.length > 80) {
+    return res.status(400).json({ error: 'Selecciona una ciudad y un comercio válidos.' })
+  }
+
+  const addresses = getUserProvidedSupermarketLocations(city, storeName)
+  return res.json({ addresses })
+})
+
 app.post('/supermarkets', requireAdmin, async (req, res) => {
   try {
     const { name, image } = req.body || {}
@@ -5509,22 +5521,16 @@ app.delete('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requ
   try {
     const membership = await isSharedListMember(req.params.listId, req.customerUser.id)
     if (!membership) return res.status(404).json({ error: 'No se encontró la lista o no tienes acceso.' })
-    const { data: item, error: itemError } = await analysisWriter
-      .from('shared_shopping_list_items')
-      .select('item_name')
-      .eq('id', req.params.itemId)
-      .eq('list_id', req.params.listId)
-      .maybeSingle()
-    if (itemError) throw itemError
-    if (!item) return res.status(404).json({ error: 'No se encontró el artículo.' })
-    const { error, count } = await analysisWriter
+    const { data: item, error } = await analysisWriter
       .from('shared_shopping_list_items')
       .delete({ count: 'exact' })
       .eq('id', req.params.itemId)
       .eq('list_id', req.params.listId)
+      .select('item_name')
+      .maybeSingle()
     if (error) throw error
-    if (!count) return res.status(404).json({ error: 'No se encontró el artículo.' })
-    await notifySharedListActivitySafely(req.params.listId, req.customerUser.id, 'item_removed', item.item_name)
+    if (!item) return res.status(404).json({ error: 'No se encontró el artículo.' })
+    void notifySharedListActivitySafely(req.params.listId, req.customerUser.id, 'item_removed', item.item_name)
     return res.status(204).end()
   } catch (error) {
     console.error('Shared-list item deletion failed', error)
