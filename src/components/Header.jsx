@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { Capacitor } from '@capacitor/core'
+import { QRCodeSVG } from 'qrcode.react'
 import { 
   ChartNoAxesCombined,
   CircleHelp,
@@ -20,6 +22,7 @@ import {
   TicketPercent,
   Languages,
   X,
+  Download,
 } from 'lucide-react';
 import { adminFetch, apiFetch } from '../config/api.js';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
@@ -29,6 +32,8 @@ import ClearableSearchInput from './ClearableSearchInput.jsx'
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
 import brandLogo from '../../assets/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../../assets/Ar-Price/Logo_final_Negativo.svg';
+
+const APP_DOWNLOAD_URL = 'https://github.com/Code7C26/Kordian/releases/latest/download/Ar-Price.apk'
 
 export function Header({
   darkMode,
@@ -51,6 +56,7 @@ export function Header({
   const { language, setLanguage, t } = useLanguage()
   const isAdminHeader = isAdminPage || location.pathname === '/admin'
   const [openMenu, setOpenMenu] = useState(null)
+  const [showDownloadApp, setShowDownloadApp] = useState(false)
   const showAdminPanel = openMenu === 'admin'
   const showCategoryMenu = openMenu === 'category'
   const showAccountMenu = openMenu === 'account'
@@ -150,6 +156,17 @@ export function Header({
     }
   }, [showLocationMenu])
 
+  useEffect(() => {
+    if (!showDownloadApp) return undefined
+
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setShowDownloadApp(false)
+    }
+
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [showDownloadApp])
+
   const normalizedLocationQuery = locationQuery
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -224,7 +241,7 @@ export function Header({
             <div
               role="dialog"
               aria-label={t('Seleccionar ubicación')}
-              className="absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-stone-200 bg-white p-3 text-stone-900 shadow-xl dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100 sm:left-1/2 sm:-translate-x-1/2"
+              className="absolute right-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-stone-200 bg-white p-3 text-stone-900 shadow-xl dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
             >
               <label htmlFor="location-search" className="mb-2 block text-sm font-bold">{t('Selecciona tu ubicación')}</label>
               <ClearableSearchInput
@@ -358,6 +375,20 @@ export function Header({
                       <CircleHelp className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       {t('FAQ')}
                     </Link>
+                    {!Capacitor.isNativePlatform() && (
+                      <button
+                        role="menuitem"
+                        type="button"
+                        onClick={() => {
+                          setOpenMenu(null)
+                          setShowDownloadApp(true)
+                        }}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800"
+                      >
+                        <Download className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                        {t('Descargar App')}
+                      </button>
+                    )}
                     {user ? (
                       <>
                         <Link role="menuitem" to="/mis-alertas" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
@@ -568,6 +599,59 @@ export function Header({
               <button onClick={() => { setPanelCategoryId(''); setPanelBrandId(''); setPanelSupermarket(''); setPanelPercentage(5) }} className="px-3 py-1 bg-stone-900 text-white dark:bg-stone-200 dark:text-stone-900 rounded">{t('Limpiar')}</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {showDownloadApp && !Capacitor.isNativePlatform() && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowDownloadApp(false)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="download-app-title"
+            className="w-full max-w-md rounded-2xl bg-white p-6 text-center text-stone-900 shadow-2xl dark:bg-stone-900 dark:text-stone-100"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-4 text-left">
+              <div>
+                <h2 id="download-app-title" className="text-xl font-black">{t('Descargar App')}</h2>
+                <p className="mt-2 text-sm text-stone-600 dark:text-stone-300">
+                  {t('Descarga la app de Ar-Price para consultar precios y ahorrar desde tu celular.')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDownloadApp(false)}
+                aria-label={t('Cerrar')}
+                className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            <p className="mb-4 text-sm font-semibold">{t('Escanea el código QR con tu celular para descargar la app.')}</p>
+            <a
+              href={APP_DOWNLOAD_URL}
+              aria-label={t('Descargar APK')}
+              className="mx-auto block w-fit rounded-xl bg-white p-3 shadow-inner"
+            >
+              <QRCodeSVG
+                value={APP_DOWNLOAD_URL}
+                size={216}
+                level="M"
+                includeMargin
+                title={t('Código QR para descargar la app')}
+              />
+            </a>
+            <a
+              href={APP_DOWNLOAD_URL}
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-sky-700"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              {t('Descargar APK')}
+            </a>
+          </section>
         </div>
       )}
 
