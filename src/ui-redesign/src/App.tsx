@@ -17,8 +17,8 @@ import {
 
 import { CATEGORIES, MOCK_PRODUCTS, STORES_LIST } from './data/mockProducts';
 import { Product, FilterState, BasketItem } from './types';
-import brandLogo from '../../../assents/Ar-Price/Logo_final.svg';
-import brandLogoDark from '../../../assents/Ar-Price/Logo_final_Negativo.svg';
+import brandLogo from '../../../assets/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../../../assets/Ar-Price/Logo_final_Negativo.svg';
 import { 
   Search, 
   Filter, 

@@ -11,7 +11,7 @@
 
 `GET /analysis/products` reads the latest persisted rows from `product_price_status`. The server builds or refreshes those rows from current offers, `price_history`, and `price_update_log`; detailed indicators, comparable references, and price periods are stored in `analysis_details`.
 
-The older `price_analysis` migration and the nested `kordian-app movil/Kordian-main/` copy describe a historical implementation. They are not used by the active `server/server.js` entry point. The current-status migration is `server/migrations/20261008_product_price_status.sql`, with additional detail fields in `server/migrations/20261012_price_status_analysis_details.sql`.
+The older `price_analysis` migration and the archived `archive/legacy-mobile/` copy describe a historical implementation. They are not used by the active `server/server.js` entry point. The current-status migration is `server/migrations/20261008_product_price_status.sql`, with additional detail fields in `server/migrations/20261012_price_status_analysis_details.sql`.
 
 ## Integration rule
 

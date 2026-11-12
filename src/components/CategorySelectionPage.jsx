@@ -1,6 +1,6 @@
 import { ArrowRight } from 'lucide-react';
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
-import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
+import brandLogo from '../../assets/Ar-Price/Logo_final.svg';
 import { useLanguage } from '../contexts/LanguageContext.jsx';
 
 export function CategorySelectionPage({ categories, selectedCategory, onSelectCategory }) {

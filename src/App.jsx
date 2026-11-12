@@ -19,8 +19,8 @@ import { fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
 import { filterProductOffers, getProductPrice } from './utils/productOffers.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
-import brandLogo from '../assents/Ar-Price/Logo_final.svg';
-import brandLogoDark from '../assents/Ar-Price/Logo_final_Negativo.svg';
+import brandLogo from '../assets/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../assets/Ar-Price/Logo_final_Negativo.svg';
 import LoginRequiredNotice from './components/LoginRequiredNotice.jsx'
 
 const ReportPriceModal = lazy(() => import('./components/ReportPriceModal.jsx').then((module) => ({ default: module.ReportPriceModal })));

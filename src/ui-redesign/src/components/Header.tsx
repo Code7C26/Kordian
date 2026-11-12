@@ -6,8 +6,8 @@ import {
   ShoppingBag, 
   Heart,
 } from 'lucide-react';
-import brandLogo from '../../../../assents/Ar-Price/Logo_final.svg';
-import brandLogoDark from '../../../../assents/Ar-Price/Logo_final_Negativo.svg';
+import brandLogo from '../../../../assets/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../../../../assets/Ar-Price/Logo_final_Negativo.svg';
 
 interface HeaderProps {
   darkMode: boolean;
