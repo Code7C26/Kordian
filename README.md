@@ -4,7 +4,7 @@ Desarrollo de software y soluciones
 Slogan: **Tecnología que crece con vos.**
 
 <p align="center">
-  <img src="assents/Kordian/flor.gif">
+  <img src="assets/Kordian/flor.gif">
 </p>
 
 ---
@@ -13,7 +13,7 @@ Slogan: **Tecnología que crece con vos.**
 Slogan: **Ahorrar no es suerte, es información.**
 
 <p align="center">
-  <img src="assents/Ar-Price/avion.gif">
+  <img src="assets/Ar-Price/avion.gif">
 </p>
 
 ## Descripción del Proyecto
@@ -198,35 +198,35 @@ Los administradores del sistema y los dueños de negocios locales acceden al pan
 ## Capturas del Sistema
 
 <p align="center">
-  <img src="assents/screenshots/1.png" alt="Buscador de precios">
+  <img src="assets/screenshots/1.png" alt="Buscador de precios">
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/2.png" alt="Filtros y categorías">
+  <img src="assets/screenshots/2.png" alt="Filtros y categorías">
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/3.png" alt="Categorías Principales y Ofertas">
+  <img src="assets/screenshots/3.png" alt="Categorías Principales y Ofertas">
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/4.png" alt="Productos">
+  <img src="assets/screenshots/4.png" alt="Productos">
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/Comparar.png" alt="Comparar Precios">
+  <img src="assets/screenshots/Comparar.png" alt="Comparar Precios">
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/historial_precios.png" alt="Comparar Precios">
+  <img src="assets/screenshots/historial_precios.png" alt="Comparar Precios">
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/5.png" alt="Canasta de Compras">
+  <img src="assets/screenshots/5.png" alt="Canasta de Compras">
 </p>
 
 <p align="center">
-  <img src="assents/screenshots/6.png" alt="Pie de página">
+  <img src="assets/screenshots/6.png" alt="Pie de página">
 </p>
 
 ---

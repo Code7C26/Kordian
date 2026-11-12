@@ -10,8 +10,8 @@ import { fetchCachedCatalogResponse, readCachedCatalogResponse } from '../servic
 import { useSelectedCity } from '../contexts/SelectedCityContext.jsx';
 import { useCustomerAuth } from '../contexts/CustomerAuthContext.jsx';
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
-import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
-import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
+import brandLogo from '../../assets/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../../assets/Ar-Price/Logo_final_Negativo.svg';
 
 export default function FavoritesPage() {
   const { t } = useLanguage();

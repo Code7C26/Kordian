@@ -27,8 +27,8 @@ import { useLanguage } from '../contexts/LanguageContext.jsx';
 import { CITIES_LIST } from '../data/mockProducts.js'
 import ClearableSearchInput from './ClearableSearchInput.jsx'
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
-import brandLogo from '../../assents/Ar-Price/Logo_final.svg';
-import brandLogoDark from '../../assents/Ar-Price/Logo_final_Negativo.svg';
+import brandLogo from '../../assets/Ar-Price/Logo_final.svg';
+import brandLogoDark from '../../assets/Ar-Price/Logo_final_Negativo.svg';
 
 export function Header({
   darkMode,
