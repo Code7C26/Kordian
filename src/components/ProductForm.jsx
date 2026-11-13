@@ -1,30 +1,32 @@
 import { useState } from 'react'
 import { ChevronDown, Save, Store } from 'lucide-react'
+import { useLanguage } from '../contexts/LanguageContext.jsx'
 
 export default function ProductForm({ form, setForm, brands, categories, supermarkets = [], createProduct, editingProduct, editingOfferId = null, saveEdit, cancelEdit, taxonomy = [], skipPriceChangeRecording = false, setSkipPriceChangeRecording }) {
   const [supermarketMenuOpen, setSupermarketMenuOpen] = useState(false)
+  const { t } = useLanguage()
   const selectedCategory = taxonomy.find((category) => String(category.id) === String(form.category_id))
   const subcategories = selectedCategory?.subcategories || []
   const selectedSupermarket = supermarkets.find((supermarket) => supermarket.name === form.supermarket)
   return (
     <section id="admin-product-form" tabIndex={-1} className="mt-6 scroll-mt-6 bg-white dark:bg-stone-800 rounded-2xl p-6 shadow-sm focus:outline-none">
-      <h2 className="text-lg font-bold mb-4">{editingProduct ? 'Editar Producto u Oferta existente' : 'Agregar Producto y/o Precio'}</h2>
+      <h2 className="text-lg font-bold mb-4">{t(editingProduct ? 'Editar Producto u Oferta existente' : 'Agregar Producto y/o Precio')}</h2>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" placeholder="Nombre" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" placeholder={t('Nombre')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <select className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: e.target.value })}>
-          <option value="">Seleccionar marca</option>
+          <option value="">{t('Seleccionar marca')}</option>
           {brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
         </select>
         <select className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value, subcategory_id: '' })}>
-          <option value="">Seleccionar categoría</option>
+          <option value="">{t('Seleccionar categoría')}</option>
           {categories.map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
         </select>
         <select className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 disabled:opacity-60" value={form.subcategory_id || ''} onChange={(e) => setForm({ ...form, subcategory_id: e.target.value })} disabled={!form.category_id}>
-          <option value="">Seleccionar subcategoría</option>
+          <option value="">{t('Seleccionar subcategoría')}</option>
           {subcategories.map((subcategory) => <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>)}
         </select>
-        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder="Calificación" value={form.rating} onChange={(e) => setForm({ ...form, rating: e.target.value })} />
-        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" placeholder="URL Imagen" value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} />
+        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder={t('Calificación')} value={form.rating} onChange={(e) => setForm({ ...form, rating: e.target.value })} />
+        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" placeholder={t('URL Imagen')} value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} />
         <div className="relative">
           <button
             type="button"
@@ -35,7 +37,7 @@ export default function ProductForm({ form, setForm, brands, categories, superma
           >
             <span className="flex items-center gap-2 min-w-0">
               {selectedSupermarket?.image ? <img src={selectedSupermarket.image} alt="" className="w-7 h-7 rounded object-contain shrink-0" /> : <Store size={20} className="text-stone-400 shrink-0" />}
-              <span className="truncate">{selectedSupermarket?.name || 'Seleccionar supermercado'}</span>
+              <span className="truncate">{selectedSupermarket?.name || t('Seleccionar supermercado')}</span>
             </span>
             <ChevronDown size={18} className="shrink-0" />
           </button>
@@ -47,7 +49,7 @@ export default function ProductForm({ form, setForm, brands, categories, superma
                 onClick={() => { setForm({ ...form, supermarket: '' }); setSupermarketMenuOpen(false) }}
               >
                 <Store size={20} className="text-stone-400 shrink-0" />
-                Seleccionar supermercado
+                {t('Seleccionar supermercado')}
               </button>
               {supermarkets.map((supermarket) => (
                 <button
@@ -65,33 +67,33 @@ export default function ProductForm({ form, setForm, brands, categories, superma
             </div>
           )}
         </div>
-        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder="Precio contado" value={form.cashPrice} onChange={(e) => setForm({ ...form, cashPrice: e.target.value })} />
-        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder="Cantidad cuotas" value={form.installmentsQuantity} onChange={(e) => setForm({ ...form, installmentsQuantity: e.target.value })} />
-        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder="Valor cuota" value={form.installmentPrice} onChange={(e) => setForm({ ...form, installmentPrice: e.target.value })} />
+        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder={t('Precio contado')} value={form.cashPrice} onChange={(e) => setForm({ ...form, cashPrice: e.target.value })} />
+        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder={t('Cantidad cuotas')} value={form.installmentsQuantity} onChange={(e) => setForm({ ...form, installmentsQuantity: e.target.value })} />
+        <input className="px-3 py-2 rounded-lg border bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100" type="number" placeholder={t('Valor cuota')} value={form.installmentPrice} onChange={(e) => setForm({ ...form, installmentPrice: e.target.value })} />
       </div>
       {editingProduct && editingOfferId !== null && (
         <label className="mt-4 flex items-center gap-2 text-sm text-stone-700 dark:text-stone-200">
           <input type="checkbox" checked={skipPriceChangeRecording} onChange={(e) => setSkipPriceChangeRecording?.(e.target.checked)} className="h-4 w-4 accent-sky-600" />
-          No registrar esta edición en historial ni actualizaciones
+          {t('No registrar esta edición en historial ni actualizaciones')}
         </label>
       )}
       <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
         {editingProduct ? (
           <>
             <button onClick={saveEdit} className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg">
-              <Save size={16} /> Guardar cambios
+              <Save size={16} /> {t('Guardar cambios')}
             </button>
             <button onClick={cancelEdit} className="px-4 py-2 bg-stone-200 dark:bg-stone-700 text-stone-900 dark:text-white rounded-lg">
-              Cancelar
+              {t('Cancelar')}
             </button>
           </>
         ) : (
           <button onClick={createProduct} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg">
-            <Save size={16} /> Agregar producto
+            <Save size={16} /> {t('Agregar producto')}
           </button>
         )}
         {form.installmentsQuantity && form.installmentPrice && (
-          <div className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg">Total: <strong>${Number(form.installmentsQuantity) * Number(form.installmentPrice)}</strong></div>
+          <div className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg">{t('Total')}: <strong>${Number(form.installmentsQuantity) * Number(form.installmentPrice)}</strong></div>
         )}
       </div>
     </section>

@@ -60,7 +60,7 @@ function getTaxonomySuggestionLabel(product) {
 }
 
 export default function Admin() {
-  const { t } = useLanguage()
+  const { language, t } = useLanguage()
   const [activePage, setActivePage] = useState('arbol')
 
   const [darkMode, setDarkMode] = useState(() => {
@@ -212,9 +212,9 @@ export default function Admin() {
   const showToast = (message, type = 'success', title) => {
     setToast({
       visible: true,
-      message,
+      message: t(message),
       type,
-      title,
+      title: title ? t(title) : title,
     })
 
     setTimeout(() => {
@@ -405,7 +405,7 @@ export default function Admin() {
   const deleteProduct = async (id) => {
     if (
       !window.confirm(
-        '¿Eliminar este producto?',
+        t('¿Eliminar este producto?'),
       )
     ) {
       return
@@ -449,7 +449,7 @@ export default function Admin() {
   const deleteOffer = async (id) => {
     if (
       !window.confirm(
-        '¿Eliminar esta oferta?',
+        t('¿Eliminar esta oferta?'),
       )
     ) {
       return
@@ -1007,7 +1007,7 @@ export default function Admin() {
   const deleteSubcategory = async (id) => {
     if (
       !window.confirm(
-        '¿Eliminar esta subcategoría? Los productos conservarán su categoría principal.',
+        t('¿Eliminar esta subcategoría? Los productos conservarán su categoría principal.'),
       )
     ) {
       return
@@ -1046,7 +1046,7 @@ export default function Admin() {
   ) => {
     if (
       !window.confirm(
-        '¿Eliminar este supermercado? Las ofertas existentes conservarán su nombre.',
+        t('¿Eliminar este supermercado? Las ofertas existentes conservarán su nombre.'),
       )
     ) {
       return
@@ -1285,7 +1285,7 @@ export default function Admin() {
   ) => {
     if (
       !window.confirm(
-        '¿Eliminar este registro y restaurar los precios anteriores?',
+        t('¿Eliminar este registro y restaurar los precios anteriores?'),
       )
     ) {
       return
@@ -1502,10 +1502,12 @@ export default function Admin() {
           ),
         )
 
-        showToast(
-          `Decisión guardada: ${savedStatus}`,
-          'success',
-        )
+        const savedDecisionLabel = savedStatus === 'match'
+          ? t('Agrupar')
+          : savedStatus === 'no_match'
+            ? t('No agrupar')
+            : t('Revisión')
+        showToast(`${t('Decisión guardada:')} ${savedDecisionLabel}`, 'success')
 
         await loadReviewDecisions()
         await loadProducts(
@@ -1529,7 +1531,7 @@ export default function Admin() {
     async () => {
       if (
         !window.confirm(
-          '¿Reiniciar las decisiones guardadas? Se borrará el historial manual y los pares volverán a su estado sugerido.',
+          t('¿Reiniciar las decisiones guardadas? Se borrará el historial manual y los pares volverán a su estado sugerido.'),
         )
       ) {
         return
@@ -2253,26 +2255,22 @@ export default function Admin() {
           <thead className="border-b border-stone-200 text-xs uppercase tracking-wide text-stone-500 dark:border-stone-700 dark:text-stone-400">
             <tr>
               <th className="py-3 pr-4">
-                Fecha
+                {t('Fecha')}
               </th>
               <th className="py-3 pr-4">
-                {automatic
-                  ? 'Cambios'
-                  : 'Filtros aplicados'}
+                {t(automatic ? 'Cambios' : 'Filtros aplicados')}
               </th>
               <th className="py-3 pr-4">
-                {automatic
-                  ? 'Variación'
-                  : 'Porcentaje'}
+                {t(automatic ? 'Variación' : 'Porcentaje')}
               </th>
               <th className="py-3 pr-4">
-                Productos
+                {t('Productos')}
               </th>
               <th className="py-3 pr-4">
-                Administrador
+                {t('Administrador')}
               </th>
               <th className="py-3">
-                Acción
+                {t('Acción')}
               </th>
             </tr>
           </thead>
@@ -2301,14 +2299,14 @@ export default function Admin() {
 
               const appliedFilters = [
                 categoryName
-                  ? `Categoría: ${categoryName}`
+                  ? `${t('Categoría')}: ${categoryName}`
                   : null,
                 brandName
-                  ? `Marca: ${brandName}`
+                  ? `${t('Marca')}: ${brandName}`
                   : null,
                 update.filters
                   ?.supermarket
-                  ? `Supermercado: ${update.filters.supermarket}`
+                  ? `${t('Supermercado')}: ${update.filters.supermarket}`
                   : null,
               ].filter(Boolean)
 
@@ -2393,7 +2391,7 @@ export default function Admin() {
               const changeLabel =
                 changeType ===
                 'classification_edit'
-                  ? 'Clasificación de producto'
+                  ? t('Clasificación de producto')
                   : changeType ===
                       'product_edit'
                     ? `Producto: ${
@@ -2401,13 +2399,13 @@ export default function Admin() {
                           ?.productName ||
                         update.filters
                           ?.productId ||
-                        'editado'
+                        t('editado')
                       }`
                     : null
 
               const formatPercentage = (value) => {
                 const numericValue = Number(value)
-                if (numericValue === 0) return 'Sin cambios'
+                if (numericValue === 0) return t('Sin cambios')
                 if (numericValue !== 0 && Math.abs(numericValue) < 0.05) {
                   return `${numericValue > 0 ? '+' : '-'}<0.1%`
                 }
@@ -2433,16 +2431,16 @@ export default function Admin() {
                 Number.isFinite(
                   linkedPricePercentage,
                 )
-                  ? `Edición (${
+                  ? `${t('Edición')} (${
                       formatPercentage(linkedPricePercentage)
                     })`
-                  : 'Edición'
+                  : t('Edición')
 
               const updateLabel =
                 isProductEdit
                   ? changeLabel
                   : isManualImport
-                  ? `${isMamiPriceRepair ? 'Corrección de precios Mami' : `Importación ${isDiscoImport ? 'Disco' : isCarrefourImport ? 'Carrefour' : 'Mami'}`}${
+                  ? `${isMamiPriceRepair ? t('Corrección de precios Mami') : `${t('Importación')} ${isDiscoImport ? 'Disco' : isCarrefourImport ? 'Carrefour' : 'Mami'}`} ${
                       isDiscoImport && update.filters?.query
                         ? `: ${update.filters.query}`
                         : isCarrefourImport && update.filters?.postal_code
@@ -2452,14 +2450,14 @@ export default function Admin() {
                             : ''
                     }`
                     : automatic
-                      ? `Sincronización de precios Disco${suspiciousCount ? ` · ${suspiciousCount} para revisar` : ''}`
+                      ? `${t('Sincronización de precios Disco')}${suspiciousCount ? ` · ${suspiciousCount} ${t('para revisar')}` : ''}`
                       : suspiciousCount
-                        ? `${suspiciousCount} precio(s) para revisar`
+                        ? `${suspiciousCount} ${t('precio(s) para revisar')}`
                       : appliedFilters.length
                         ? appliedFilters.join(
                             ' · ',
                           )
-                        : 'Sin filtros'
+                        : t('Sin filtros')
 
               const updateValue =
                 isProductEdit
@@ -2468,14 +2466,14 @@ export default function Admin() {
                     ? isMamiPriceRepair
                       ? changes.length
                         ? formatPercentage(percentage)
-                        : 'Sin cambios'
-                      : 'Importación'
+                        : t('Sin cambios')
+                      : t('Importación')
                     : automatic && !changes.length
                           ? suspiciousCount
-                            ? 'Revisión manual'
-                            : 'Sin cambios'
+                            ? t('Revisión manual')
+                            : t('Sin cambios')
                     : changes.length && Number(changes[0].previousCashPrice) <= 0
-                      ? 'Nuevo precio'
+                      ? t('Nuevo precio')
                     : formatPercentage(percentage)
 
               return (
@@ -2486,9 +2484,7 @@ export default function Admin() {
                   <td className="whitespace-nowrap py-3 pr-4 text-xs text-stone-500 dark:text-stone-400">
                     {new Date(
                       update.updated_at,
-                    ).toLocaleString(
-                      'es-AR',
-                    )}
+                    ).toLocaleString(language === 'en' ? 'en-US' : 'es-AR')}
                   </td>
 
                   <td className="py-3 pr-4 font-semibold">
@@ -2533,7 +2529,7 @@ export default function Admin() {
                       }
                       className="text-sm font-semibold text-rose-600 hover:underline"
                     >
-                      Eliminar
+                      {t('Eliminar')}
                     </button>
                   </td>
                 </tr>
@@ -2695,7 +2691,7 @@ export default function Admin() {
           {activePage === 'arbol' && (
             <section className="rounded-3xl border border-stone-200/80 bg-white p-6 shadow-sm dark:border-stone-700 dark:bg-stone-800">
               <h2 className="mb-4 text-xl font-bold">
-                Árbol de categorías
+                {t('Árbol de categorías')}
               </h2>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -2706,12 +2702,12 @@ export default function Admin() {
                       className="rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-stone-700 dark:bg-stone-900"
                     >
                       <h3 className="font-bold">
-                        {category.name}{' '}
+                        {t(category.name)}{' '}
                         <span className="text-xs font-semibold text-stone-500">
                           (
                           {category.productCount ||
                             0}{' '}
-                          productos)
+                          {t('productos')})
                         </span>
                       </h3>
 
@@ -2729,7 +2725,7 @@ export default function Admin() {
                               >
                                 <div className="font-semibold text-sky-700 dark:text-sky-300">
                                   {
-                                    subcategory.name
+                                    t(subcategory.name)
                                   }{' '}
                                   <span className="text-xs font-normal text-stone-500">
                                     (
@@ -2744,7 +2740,7 @@ export default function Admin() {
                         </ul>
                       ) : (
                         <p className="mt-3 text-sm text-stone-500">
-                          Sin subcategorías
+                          {t('Sin subcategorías')}
                         </p>
                       )}
                     </div>
@@ -2941,13 +2937,13 @@ export default function Admin() {
             <>
               <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
                 <h3 className="mb-4 font-semibold">
-                  Filtros rápidos
+                  {t('Filtros rápidos')}
                 </h3>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                   <ClearableSearchInput
                     className="w-full rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
-                    placeholder="Buscar producto"
+                    placeholder={t('Buscar producto')}
                     value={
                       productSearch
                     }
@@ -2982,7 +2978,7 @@ export default function Admin() {
                     }}
                   >
                     <option value="">
-                      Todas las categorías
+                      {t('Todas las categorías')}
                     </option>
 
                     {categories.map(
@@ -3021,8 +3017,8 @@ export default function Admin() {
                   >
                     <option value="">
                       {productCategoryFilter
-                        ? 'Todas las subcategorías'
-                        : 'Elegí una categoría primero'}
+                        ? t('Todas las subcategorías')
+                        : t('Elegí una categoría primero')}
                     </option>
 
                     {(
@@ -3069,7 +3065,7 @@ export default function Admin() {
                     }}
                   >
                     <option value="">
-                      Todas las marcas
+                      {t('Todas las marcas')}
                     </option>
 
                     {brands.map(
@@ -3136,14 +3132,14 @@ export default function Admin() {
               <section className="mt-6">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <h2 className="text-xl font-bold">
-                    Productos
+                    {t('Productos')}
                   </h2>
 
                   <div className="flex items-center gap-3 text-sm text-stone-500 dark:text-stone-400">
                     <span>
-                      Página{' '}
+                      {t('Página')}{' '}
                       {productPage}{' '}
-                      de {totalPages}
+                      {t('de')} {totalPages}
                     </span>
 
                     <select
@@ -3196,7 +3192,7 @@ export default function Admin() {
                       }
                       className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
                     >
-                      Anterior
+                      {t('Anterior')}
                     </button>
 
                     {visibleProductPages.map(
@@ -3238,7 +3234,7 @@ export default function Admin() {
                       }
                       className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
                     >
-                      Siguiente
+                      {t('Siguiente')}
                     </button>
                   </div>
                 )}
@@ -3284,7 +3280,7 @@ export default function Admin() {
                               </h3>
 
                               <p className="text-sm text-stone-500">
-                                Marca:{' '}
+                                {t('Marca')}:{' '}
                                 {
                                   product
                                     .brands
@@ -3293,7 +3289,7 @@ export default function Admin() {
                               </p>
 
                               <p className="text-sm text-stone-500">
-                                Categoría:{' '}
+                                {t('Categoría')}:{' '}
                                 {
                                   product
                                     .categories
@@ -3302,11 +3298,11 @@ export default function Admin() {
                               </p>
 
                               <p className="text-sm text-stone-500">
-                                Subcategoría:{' '}
+                                {t('Subcategoría')}:{' '}
                                 {product
                                   .subcategories
                                   ?.name ||
-                                  'Sin subcategoría'}
+                                  t('Sin subcategoría')}
                               </p>
 
                               <p className="text-sm">
@@ -3327,7 +3323,7 @@ export default function Admin() {
                             }
                             className="w-full rounded-lg bg-amber-500 px-4 py-2 text-white hover:bg-amber-600"
                           >
-                            Editar producto
+                            {t('Editar producto')}
                           </button>
                         </div>
 
@@ -3363,7 +3359,7 @@ export default function Admin() {
                                       {
                                         offers.length
                                       }{' '}
-                                      registro
+                                      {t('registro')}
                                       {offers.length >
                                       1
                                         ? 's'
@@ -3383,7 +3379,7 @@ export default function Admin() {
                                       >
                                         <div>
                                           <div className="text-sm">
-                                            Contado:{' '}
+                                            {t('Contado')}:{' '}
                                             {formatCurrency(
                                               Number(
                                                 offer.cash_price ||
@@ -3418,7 +3414,7 @@ export default function Admin() {
                                               )
                                             }
                                             className="rounded-lg bg-amber-500 p-2 text-white hover:bg-amber-600"
-                                            title="Editar precio"
+                                            title={t('Editar precio')}
                                           >
                                             <Pencil
                                               size={
@@ -3435,7 +3431,7 @@ export default function Admin() {
                                               )
                                             }
                                             className="rounded-lg bg-rose-600 p-2 text-white hover:bg-rose-700"
-                                            title="Eliminar precio"
+                                            title={t('Eliminar precio')}
                                           >
                                             <Trash2
                                               size={
@@ -3452,9 +3448,7 @@ export default function Admin() {
                             )
                           ) : (
                             <div className="rounded-lg bg-stone-50 p-3 text-sm text-stone-500 dark:bg-stone-900">
-                              Este producto no
-                              tiene precios
-                              registrados aún.
+                              {t('Este producto no tiene precios registrados aún.')}
                             </div>
                           )}
 
@@ -3468,7 +3462,7 @@ export default function Admin() {
                               }
                               className="rounded bg-sky-600 px-3 py-2 text-white"
                             >
-                              Agregar precio
+                              {t('Agregar precio')}
                             </button>
 
                             <button
@@ -3480,7 +3474,7 @@ export default function Admin() {
                               }
                               className="rounded bg-red-600 px-3 py-2 text-white"
                             >
-                              Eliminar producto
+                              {t('Eliminar producto')}
                             </button>
                           </div>
                         </div>
@@ -3490,11 +3484,11 @@ export default function Admin() {
                 </div>
                 {productLoadError ? (
                   <p role="alert" className="mt-4 text-sm text-rose-600 dark:text-rose-400">
-                    {productLoadError}
+                    {t(productLoadError)}
                   </p>
                 ) : products.length === 0 ? (
                   <p className="mt-4 text-sm text-stone-500 dark:text-stone-400">
-                    No se encontraron productos con esos filtros.
+                    {t('No se encontraron productos con esos filtros.')}
                   </p>
                 ) : null}
               </section>
@@ -3510,12 +3504,11 @@ export default function Admin() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-bold">
-                    Registro de actualizaciones
+                    {t('Registro de actualizaciones')}
                   </h2>
 
                   <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-                    Cada aplicación de cambios
-                    queda registrada aquí.
+                    {t('Cada aplicación de cambios queda registrada aquí.')}
                   </p>
                 </div>
 
@@ -3526,27 +3519,26 @@ export default function Admin() {
                   }
                   className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-stone-600 dark:hover:bg-stone-700"
                 >
-                  Actualizar
+                  {t('Actualizar')}
                 </button>
               </div>
 
               <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">
-                Actualizaciones manuales
+                {t('Actualizaciones manuales')}
               </h3>
 
               {renderPriceUpdates(
                 manualPriceUpdates,
-                'Todavía no hay actualizaciones manuales registradas.',
+                t('Todavía no hay actualizaciones manuales registradas.'),
               )}
 
               <h3 className="mb-3 mt-8 text-sm font-bold uppercase tracking-wide text-stone-500">
-                Sincronizaciones automáticas
-                de Disco
+                {t('Sincronizaciones automáticas de Disco')}
               </h3>
 
               {renderPriceUpdates(
                 discoPriceUpdates,
-                'Todavía no hay sincronizaciones automáticas registradas.',
+                t('Todavía no hay sincronizaciones automáticas registradas.'),
                 true,
               )}
             </section>
@@ -3556,9 +3548,9 @@ export default function Admin() {
             <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-xl font-bold">Reportes de precios</h2>
+                  <h2 className="text-xl font-bold">{t('Reportes de precios')}</h2>
                   <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-                    Reportes enviados por la comunidad, con los datos de la cuenta que los presentó.
+                    {t('Reportes enviados por la comunidad, con los datos de la cuenta que los presentó.')}
                   </p>
                 </div>
                 <button
@@ -3567,19 +3559,19 @@ export default function Admin() {
                   disabled={priceReportsLoading}
                   className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold hover:bg-stone-100 disabled:opacity-50 dark:border-stone-600 dark:hover:bg-stone-700"
                 >
-                  {priceReportsLoading ? 'Actualizando…' : 'Actualizar'}
+                  {t(priceReportsLoading ? 'Actualizando…' : 'Actualizar')}
                 </button>
               </div>
 
               {priceReportsError && (
                 <p className="mb-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200" role="alert">
-                  {priceReportsError}
+                  {t(priceReportsError)}
                 </p>
               )}
               {priceReportsLoading && priceReports.length === 0 ? (
-                <p className="py-8 text-center text-sm text-stone-500" role="status">Cargando reportes…</p>
+                <p className="py-8 text-center text-sm text-stone-500" role="status">{t('Cargando reportes…')}</p>
               ) : priceReports.length === 0 ? (
-                <p className="py-8 text-center text-sm text-stone-500">Todavía no hay reportes de precios.</p>
+                <p className="py-8 text-center text-sm text-stone-500">{t('Todavía no hay reportes de precios.')}</p>
               ) : (
                 <div className="space-y-4">
                   {priceReports.map((report) => (
@@ -3592,34 +3584,34 @@ export default function Admin() {
                           </p>
                         </div>
                         <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold capitalize text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                          {report.status || 'pendiente'}
+                          {t(report.status || 'pendiente')}
                         </span>
                       </div>
                       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                         <div>
-                          <dt className="text-xs font-semibold uppercase text-stone-500">Tipo de reporte</dt>
-                          <dd className="mt-1 font-semibold capitalize">{report.report_type}</dd>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">{t('Tipo de reporte')}</dt>
+                          <dd className="mt-1 font-semibold capitalize">{t(report.report_type)}</dd>
                         </div>
                         <div>
-                          <dt className="text-xs font-semibold uppercase text-stone-500">Precio observado</dt>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">{t('Precio observado')}</dt>
                           <dd className="mt-1 font-semibold">{formatCurrency(Number(report.reported_price))}</dd>
                         </div>
                         <div>
-                          <dt className="text-xs font-semibold uppercase text-stone-500">Reportado por</dt>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">{t('Reportado por')}</dt>
                           <dd className="mt-1 font-semibold">{report.reporter_username}</dd>
                         </div>
                         <div>
-                          <dt className="text-xs font-semibold uppercase text-stone-500">Email de la cuenta</dt>
-                          <dd className="mt-1 break-all font-semibold">{report.reporter_email || 'No disponible'}</dd>
+                          <dt className="text-xs font-semibold uppercase text-stone-500">{t('Email de la cuenta')}</dt>
+                          <dd className="mt-1 break-all font-semibold">{report.reporter_email || t('No disponible')}</dd>
                         </div>
                       </dl>
                       {report.comments && (
                         <p className="mt-4 whitespace-pre-wrap rounded-lg bg-stone-50 p-3 text-sm text-stone-700 dark:bg-stone-900 dark:text-stone-300">
-                          <strong>Detalles:</strong> {report.comments}
+                          <strong>{t('Detalles')}:</strong> {report.comments}
                         </p>
                       )}
                       <p className="mt-3 text-xs text-stone-500 dark:text-stone-400">
-                        Enviado el {new Date(report.created_at).toLocaleString('es-AR')}
+                        {t('Enviado el')} {new Date(report.created_at).toLocaleString(language === 'en' ? 'en-US' : 'es-AR')}
                       </p>
                     </article>
                   ))}
@@ -3641,53 +3633,50 @@ export default function Admin() {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <h2 className="text-xl font-bold">
-                      Vista previa de Disco
+                      {t('Vista previa de Disco')}
                     </h2>
 
                     <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-                      Consulta productos externos
-                      sin modificar el inventario.
+                      {t('Consulta productos externos sin modificar el inventario.')}
                     </p>
 
                     {discoSyncStatus?.lastSyncAt && (
                       <p className="mt-2 text-xs text-stone-500">
-                        Última sincronización:{' '}
+                        {t('Última sincronización')}:{' '}
                         {new Date(
                           discoSyncStatus.lastSyncAt,
-                        ).toLocaleString(
-                          'es-AR',
-                        )}{' '}
+                        ).toLocaleString(language === 'en' ? 'en-US' : 'es-AR')}{' '}
                         ·{' '}
                         {
                           discoSyncStatus.changes
                         }{' '}
-                        cambio(s)
+                        {t('cambio(s)')}
                       </p>
                     )}
 
                     {discoSyncStatus?.suspicious?.length > 0 && (
                       <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
-                        Precios omitidos para revisar:{' '}
+                        {t('Precios omitidos para revisar')}:{' '}
                         {discoSyncStatus.suspicious.slice(0, 3).map((item) => item.name).join(', ')}
                         {discoSyncStatus.suspicious.length > 3
-                          ? ` y ${discoSyncStatus.suspicious.length - 3} más`
+                          ? ` ${t('y')} ${discoSyncStatus.suspicious.length - 3} ${t('más')}`
                           : ''}
                       </p>
                     )}
 
                     {discoImportStatus && (
                       <p className="mt-2 text-xs text-stone-500">
-                        Búsquedas públicas:{' '}
+                        {t('Búsquedas públicas')}:{' '}
                         {
                           discoImportStatus.searches
                         }{' '}
-                        · Importados:{' '}
+                        · {t('Importados')}:{' '}
                         {
                           discoImportStatus
                             .totals
                             .imported
                         }{' '}
-                        · Actualizados:{' '}
+                        · {t('Actualizados')}:{' '}
                         {
                           discoImportStatus
                             .totals
@@ -3719,7 +3708,7 @@ export default function Admin() {
                             .value,
                         )
                       }
-                      placeholder="Buscar en Disco"
+                      placeholder={t('Buscar en Disco')}
                     />
 
                     <button
@@ -3729,9 +3718,7 @@ export default function Admin() {
                       }
                       className="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white hover:bg-sky-500"
                     >
-                      {discoLoading
-                        ? 'Consultando...'
-                        : 'Consultar'}
+                      {t(discoLoading ? 'Consultando...' : 'Consultar')}
                     </button>
                   </form>
                 </div>
@@ -3743,7 +3730,7 @@ export default function Admin() {
                     disabled={discoLoading}
                     className="rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-700 disabled:opacity-50 dark:text-amber-300"
                   >
-                    {discoLoading ? 'Verificando precios...' : 'Verificar ofertas menores a $1.000'}
+                    {t(discoLoading ? 'Verificando precios...' : 'Verificar ofertas menores a $1.000')}
                   </button>
                   <button
                     type="button"
@@ -3751,25 +3738,25 @@ export default function Admin() {
                     disabled={discoLoading}
                     className="rounded-lg border border-rose-600 px-4 py-2 font-semibold text-rose-700 disabled:opacity-50 dark:text-rose-300"
                   >
-                    {discoLoading ? 'Verificando precios...' : 'Verificar ofertas mayores o iguales a $50.000'}
+                    {t(discoLoading ? 'Verificando precios...' : 'Verificar ofertas mayores o iguales a $50.000')}
                   </button>
                 </div>
 
                 {discoError && (
                   <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
-                    {discoError}
+                    {t(discoError)}
                   </p>
                 )}
 
                 {discoDiscarded.length > 0 && (
                   <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                     <summary className="cursor-pointer font-semibold">
-                      {discoDiscarded.length} producto(s) descartado(s) automáticamente
+                      {discoDiscarded.length} {t('producto(s) descartado(s) automáticamente')}
                     </summary>
                     <div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs">
                       {discoDiscarded.map((product, index) => (
                         <p key={`${product.sourceProductId || 'sin-id'}-${index}`}>
-                          <strong>{product.name || 'Sin nombre'}</strong>: {product.reason}
+                          <strong>{product.name || t('Sin nombre')}</strong>: {t(product.reason)}
                         </p>
                       ))}
                     </div>
@@ -3790,7 +3777,7 @@ export default function Admin() {
                         }
                         className="rounded-lg border border-sky-600 px-4 py-2 font-semibold text-sky-700 dark:text-sky-300"
                       >
-                        Actualizar precios
+                        {t('Actualizar precios')}
                       </button>
 
                       <button
@@ -3804,7 +3791,7 @@ export default function Admin() {
                         }
                         className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
                       >
-                        Importar seleccionados
+                        {t('Importar seleccionados')}
                       </button>
                     </div>
 
@@ -3872,7 +3859,7 @@ export default function Admin() {
 
                               <p className="text-sm text-stone-500">
                                 {product.brand ||
-                                  'Marca no informada'}
+                                  t('Marca no informada')}
                               </p>
 
                               <p className="mt-1 font-black text-emerald-700">
@@ -3883,7 +3870,7 @@ export default function Admin() {
 
                               {product.possibleDuplicate && (
                                 <span className="mt-2 inline-block rounded-md bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800">
-                                  Posible duplicado
+                                  {t('Posible duplicado')}
                                 </span>
                               )}
                             </div>
@@ -3901,13 +3888,11 @@ export default function Admin() {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <h2 className="text-xl font-bold">
-                      Vista previa de Mami
+                      {t('Vista previa de Mami')}
                     </h2>
 
                     <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-                      Consulta productos externos,
-                      revisa sus ofertas y selecciona
-                      cuáles importar.
+                      {t('Consulta productos externos, revisa sus ofertas y selecciona cuáles importar.')}
                     </p>
                   </div>
 
@@ -3931,7 +3916,7 @@ export default function Admin() {
                             .value,
                         )
                       }
-                      placeholder="Buscar en Mami"
+                      placeholder={t('Buscar en Mami')}
                     />
 
                     <button
@@ -3941,9 +3926,7 @@ export default function Admin() {
                       }
                       className="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white"
                     >
-                      {mamiLoading
-                        ? 'Consultando...'
-                        : 'Consultar'}
+                      {t(mamiLoading ? 'Consultando...' : 'Consultar')}
                     </button>
                   </form>
                 </div>
@@ -3955,25 +3938,25 @@ export default function Admin() {
                     disabled={mamiLoading}
                     className="rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-700 disabled:opacity-50 dark:text-amber-300"
                   >
-                    {mamiLoading ? 'Verificando precios...' : 'Verificar y corregir precios bajos'}
+                    {t(mamiLoading ? 'Verificando precios...' : 'Verificar y corregir precios bajos')}
                   </button>
                 </div>
 
                 {mamiError && (
                   <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
-                    {mamiError}
+                    {t(mamiError)}
                   </p>
                 )}
 
                 {mamiDiscarded.length > 0 && (
                   <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                     <summary className="cursor-pointer font-semibold">
-                      {mamiDiscarded.length} producto(s) descartado(s) automáticamente
+                      {mamiDiscarded.length} {t('producto(s) descartado(s) automáticamente')}
                     </summary>
                     <div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs">
                       {mamiDiscarded.map((product, index) => (
                         <p key={`${product.sourceProductId || 'sin-id'}-${index}`}>
-                          <strong>{product.name || 'Sin nombre'}</strong>: {product.reason}
+                          <strong>{product.name || t('Sin nombre')}</strong>: {t(product.reason)}
                         </p>
                       ))}
                     </div>
@@ -3987,7 +3970,7 @@ export default function Admin() {
                       {
                         mamiImportSkipped.length
                       }{' '}
-                      producto(s) omitido(s)
+                      {t('producto(s) omitido(s)')}
                     </summary>
 
                     <div className="mt-3 space-y-1 text-xs">
@@ -4001,7 +3984,7 @@ export default function Admin() {
                           >
                             <strong>
                               {item.sourceProductId ||
-                                'Sin ID'}
+                                t('Sin ID')}
                             </strong>
                             : {item.reason}
                           </p>
@@ -4016,10 +3999,7 @@ export default function Admin() {
                   <>
                     <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-stone-500">
-                        Los productos nuevos sin
-                        categoría o subcategoría
-                        quedan fuera de la selección
-                        masiva.
+                        {t('Los productos nuevos sin categoría o subcategoría quedan fuera de la selección masiva.')}
                       </p>
 
                       <div className="flex gap-2">
@@ -4033,7 +4013,7 @@ export default function Admin() {
                           }
                           className="rounded-lg border border-emerald-600 px-4 py-2 font-semibold text-emerald-700"
                         >
-                          Seleccionar válidos
+                          {t('Seleccionar válidos')}
                         </button>
 
                         <button
@@ -4047,7 +4027,7 @@ export default function Admin() {
                           }
                           className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
                         >
-                          Importar seleccionados
+                          {t('Importar seleccionados')}
                         </button>
                       </div>
                     </div>
@@ -4123,15 +4103,15 @@ export default function Admin() {
 
                               <p className="text-xs text-stone-500">
                                 {product.brand ||
-                                  'Marca no informada'}{' '}
+                                  t('Marca no informada')}{' '}
                                 ·{' '}
                                 {product.existingProduct
-                                  ? 'Producto existente'
-                                  : 'Producto nuevo'}
+                                  ? t('Producto existente')
+                                  : t('Producto nuevo')}
                               </p>
 
                               <p className="mt-1 font-black text-emerald-700">
-                                Mami:{' '}
+                                {t('Mami')}:{' '}
                                 {formatCurrency(
                                   product.price,
                                 )}
@@ -4156,7 +4136,7 @@ export default function Admin() {
 
                               {!product.existingProduct && (
                                 <p className="mt-1 text-xs text-sky-700">
-                                  {getTaxonomySuggestionLabel(product)}
+                                  {t(getTaxonomySuggestionLabel(product))}
                                 </p>
                               )}
                             </div>
@@ -4174,13 +4154,13 @@ export default function Admin() {
                 <div className="flex flex-col gap-4">
                   <div>
                     <h2 className="text-xl font-bold">
-                      Importación controlada de Carrefour
+                      {t('Importación controlada de Carrefour')}
                     </h2>
                     <p className="mt-1 max-w-3xl text-sm text-stone-500 dark:text-stone-400">
-                      Consulta el catálogo regional por el endpoint público de VTEX. La vista previa no escribe datos; cada lote vuelve a validar precio, stock e identificadores antes de importar.
+                      {t('Consulta el catálogo regional por el endpoint público de VTEX. La vista previa no escribe datos; cada lote vuelve a validar precio, stock e identificadores antes de importar.')}
                     </p>
                     <p className="mt-2 text-xs font-semibold text-sky-700 dark:text-sky-300">
-                      Zona de consulta: CP {carrefourPostalCode || 'sin definir'} · Predeterminado: Alta Gracia (5186) · Máximo 20 resultados por consulta y 5 productos por lote.
+                      {t('Zona de consulta')}: CP {carrefourPostalCode || t('sin definir')} · {t('Predeterminado')}: Alta Gracia (5186) · {t('Máximo')} 20 {t('resultados por consulta y')} 5 {t('productos por lote')}.
                     </p>
                   </div>
 
@@ -4197,15 +4177,15 @@ export default function Admin() {
                       clearLabel={t('Limpiar búsqueda')}
                       onChange={(event) => setCarrefourQuery(event.target.value)}
                       onClear={() => setCarrefourQuery('')}
-                      placeholder="Buscar en Carrefour"
-                      aria-label="Buscar productos de Carrefour"
+                      placeholder={t('Buscar en Carrefour')}
+                      aria-label={t('Buscar productos de Carrefour')}
                     />
                     <input
                       className="rounded-lg border bg-white px-3 py-2 text-stone-900 dark:bg-stone-900 dark:text-stone-100"
                       value={carrefourPostalCode}
                       onChange={(event) => setCarrefourPostalCode(event.target.value)}
-                      placeholder="Código postal"
-                      aria-label="Código postal de Carrefour"
+                      placeholder={t('Código postal')}
+                      aria-label={t('Código postal de Carrefour')}
                       maxLength={8}
                     />
                     <button
@@ -4213,26 +4193,26 @@ export default function Admin() {
                       disabled={carrefourLoading}
                       className="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
                     >
-                      {carrefourLoading ? 'Consultando...' : 'Vista previa'}
+                      {t(carrefourLoading ? 'Consultando...' : 'Vista previa')}
                     </button>
                   </form>
                 </div>
 
                 {carrefourError && (
                   <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
-                    {carrefourError}
+                    {t(carrefourError)}
                   </p>
                 )}
 
                 {carrefourImportSkipped.length > 0 && (
                   <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
                     <summary className="cursor-pointer font-semibold">
-                      {carrefourImportSkipped.length} producto(s) omitido(s) en el último lote
+                      {carrefourImportSkipped.length} {t('producto(s) omitido(s) en el último lote')}
                     </summary>
                     <div className="mt-3 space-y-1 text-xs">
                       {carrefourImportSkipped.map((item, index) => (
                         <p key={`${item.sourceProductId || 'sin-id'}-${index}`}>
-                          <strong>{item.sourceProductId || 'Sin ID'}</strong>: {item.reason}
+                          <strong>{item.sourceProductId || t('Sin ID')}</strong>: {t(item.reason)}
                         </p>
                       ))}
                     </div>
@@ -4242,12 +4222,12 @@ export default function Admin() {
                 {carrefourDiscarded.length > 0 && (
                   <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
                     <summary className="cursor-pointer font-semibold">
-                      {carrefourDiscarded.length} producto(s) fuera de la importación segura
+                      {carrefourDiscarded.length} {t('producto(s) fuera de la importación segura')}
                     </summary>
                     <div className="mt-3 space-y-1 text-xs">
                       {carrefourDiscarded.map((item, index) => (
                         <p key={`${item.sourceProductId || 'sin-id'}-${index}`}>
-                          <strong>{item.sourceProductId || 'Sin ID'}</strong>: {item.reason}
+                          <strong>{item.sourceProductId || t('Sin ID')}</strong>: {t(item.reason)}
                         </p>
                       ))}
                     </div>
@@ -4258,7 +4238,7 @@ export default function Admin() {
                   <>
                     <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
                       <p className="text-xs text-stone-500">
-                        Seleccionados: {selectedCarrefourProducts.length}/5. Los productos sin GTIN válido, con variantes ambiguas o sin categoría compatible no se pueden importar.
+                        {t('Seleccionados')}: {selectedCarrefourProducts.length}/5. {t('Los productos sin GTIN válido, con variantes ambiguas o sin categoría compatible no se pueden importar.')}
                       </p>
                       <button
                         type="button"
@@ -4266,7 +4246,7 @@ export default function Admin() {
                         disabled={carrefourLoading || !selectedCarrefourProducts.length}
                         className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
                       >
-                        {carrefourLoading ? 'Importando...' : 'Importar lote seleccionado'}
+                        {t(carrefourLoading ? 'Importando...' : 'Importar lote seleccionado')}
                       </button>
                     </div>
 
@@ -4301,7 +4281,7 @@ export default function Admin() {
                             <div className="min-w-0 flex-1">
                               <p className="font-bold">{product.name}</p>
                               <p className="text-xs text-stone-500">
-                                {product.brand || 'Marca no informada'} · EAN {product.ean} · SKU {product.sourceSku}
+                                {product.brand || t('Marca no informada')} · EAN {product.ean} · SKU {product.sourceSku}
                               </p>
                               <p className="mt-1 font-black text-emerald-700">
                                 Carrefour: {formatCurrency(product.price)}
@@ -4312,22 +4292,22 @@ export default function Admin() {
                                 )}
                               </p>
                               <p className="text-xs text-stone-500">
-                                Stock informado: {product.stock}
+                                {t('Stock informado')}: {product.stock}
                               </p>
                               {product.existingProduct && (
                                 <p className="mt-1 text-xs text-sky-700">
-                                  Se asociará a “{product.existingProduct.name}” por {product.existingProduct.matchedBy === 'ean' ? 'EAN exacto' : 'ID exacto de Carrefour'}.
-                                  {product.existingOffer && ` Actualizará la oferta existente (${formatCurrency(product.existingOffer.cashPrice)}).`}
+                                  {t('Se asociará a')} “{product.existingProduct.name}” {t('por')} {product.existingProduct.matchedBy === 'ean' ? t('EAN exacto') : t('ID exacto de Carrefour')}.
+                                  {product.existingOffer && ` ${t('Actualizará la oferta existente')} (${formatCurrency(product.existingOffer.cashPrice)}).`}
                                 </p>
                               )}
                               {!product.existingProduct && (
                                 <p className="mt-1 text-xs text-stone-500">
-                                  {getTaxonomySuggestionLabel(product)}
+                                  {t(getTaxonomySuggestionLabel(product))}
                                 </p>
                               )}
                               {blocked && (
                                 <p className="mt-1 text-xs font-semibold text-rose-700">
-                                  No importable: {product.importBlockedReason}
+                                  {t('No importable')}: {t(product.importBlockedReason)}
                                 </p>
                               )}
                             </div>
@@ -4356,12 +4336,11 @@ export default function Admin() {
               <section className="rounded-3xl border border-stone-200/80 bg-white p-6 shadow-sm dark:border-stone-700 dark:bg-stone-800">
                 <div>
                   <h2 className="text-xl font-bold">
-                    Revisión de agrupación
+                    {t('Revisión de agrupación')}
                   </h2>
 
                   <p className="mt-1 max-w-3xl text-sm text-stone-500 dark:text-stone-400">
-                    Evalúa cada par como Agrupar,
-                    No agrupar o Revisión.
+                    {t('Evalúa cada par como Agrupar, No agrupar o Revisión.')}
                   </p>
                 </div>
 
@@ -4384,9 +4363,7 @@ export default function Admin() {
                     }`}
                   />
 
-                  {reviewLoading
-                    ? 'Actualizando...'
-                    : 'Actualizar pares'}
+                  {t(reviewLoading ? 'Actualizando...' : 'Actualizar pares')}
                 </button>
 
                 <button
@@ -4401,13 +4378,13 @@ export default function Admin() {
                   className="inline-flex items-center gap-2 rounded-xl border border-rose-300 px-4 py-2.5 text-sm font-semibold text-rose-700 disabled:opacity-45"
                 >
                   <RotateCcw className="h-4 w-4" />
-                  Reiniciar decisiones
+                  {t('Reiniciar decisiones')}
                 </button>
               </div>
 
               {reviewError && (
                 <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-                  {reviewError}
+                  {t(reviewError)}
                 </div>
               )}
 
@@ -4415,7 +4392,7 @@ export default function Admin() {
                 <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                   <div className="rounded-xl border p-3">
                     <div className="text-[11px] uppercase tracking-wide text-stone-500">
-                      Pares analizados
+                      {t('Pares analizados')}
                     </div>
                     <div className="mt-2 text-2xl font-black">
                       {
@@ -4438,7 +4415,7 @@ export default function Admin() {
 
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                     <div className="text-[11px] uppercase tracking-wide text-amber-700">
-                      Revisión
+                      {t('Revisión')}
                     </div>
                     <div className="mt-2 text-2xl font-black text-amber-700">
                       {
@@ -4449,7 +4426,7 @@ export default function Admin() {
 
                   <div className="rounded-xl border border-rose-200 bg-rose-50 p-3">
                     <div className="text-[11px] uppercase tracking-wide text-rose-700">
-                      No match
+                      {t('No match')}
                     </div>
                     <div className="mt-2 text-2xl font-black text-rose-700">
                       {
@@ -4485,10 +4462,10 @@ export default function Admin() {
                     </button>
 
                     <span className="font-bold">
-                      Par{' '}
+                      {t('Par')}{' '}
                       {visibleReviewIndex +
                         1}{' '}
-                      de{' '}
+                      {t('de')}{' '}
                       {
                         reviewCandidates.length
                       }
@@ -4556,11 +4533,11 @@ export default function Admin() {
                             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
                               {decision ===
                               'match'
-                                ? 'Agrupar'
+                                ? t('Agrupar')
                                 : decision ===
                                     'no_match'
-                                  ? 'No agrupar'
-                                  : 'Revisión'}
+                                  ? t('No agrupar')
+                                  : t('Revisión')}
                             </span>
 
                             <div className="flex gap-2">
@@ -4593,7 +4570,7 @@ export default function Admin() {
                                 }
                                 className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white"
                               >
-                                Agrupar
+                                {t('Agrupar')}
                               </button>
 
                               <button
@@ -4612,7 +4589,7 @@ export default function Admin() {
                                 }
                                 className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white"
                               >
-                                No agrupar
+                                {t('No agrupar')}
                               </button>
 
                               <button
@@ -4631,7 +4608,7 @@ export default function Admin() {
                                 }
                                 className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-white"
                               >
-                                Revisión
+                                {t('Revisión')}
                               </button>
                             </div>
                           </div>
@@ -4655,11 +4632,11 @@ export default function Admin() {
                                       }
                                       alt={
                                         product?.name ||
-                                        'Producto'
+                                        t('Producto')
                                       }
                                       productName={
                                         product?.name ||
-                                        'Producto'
+                                        t('Producto')
                                       }
                                       className="h-16 w-16 rounded-lg"
                                     />
@@ -4668,13 +4645,13 @@ export default function Admin() {
                                       <div className="text-[11px] uppercase tracking-wide text-stone-500">
                                         {index ===
                                         0
-                                          ? 'Mami'
-                                          : 'Disco'}
+                                          ? t('Mami')
+                                          : t('Disco')}
                                       </div>
 
                                       <h3 className="font-bold">
                                         {product?.name ||
-                                          'Sin nombre'}
+                                          t('Sin nombre')}
                                       </h3>
                                     </div>
                                   </div>
@@ -4682,49 +4659,49 @@ export default function Admin() {
                                   <div className="space-y-2 text-sm">
                                     <p>
                                       <strong>
-                                        Marca:
+                                        {t('Marca')}:
                                       </strong>{' '}
                                       {product?.brand ||
                                         product
                                           ?.brands
                                           ?.name ||
-                                        'Sin marca'}
+                                        t('Sin marca')}
                                     </p>
 
                                     <p>
                                       <strong>
-                                        Familia:
+                                        {t('Familia')}:
                                       </strong>{' '}
                                       {product
                                         ?.attributes
                                         ?.family ||
-                                        'Sin familia'}
+                                        t('Sin familia')}
                                     </p>
 
                                     <p>
                                       <strong>
-                                        Medida:
+                                        {t('Medida')}:
                                       </strong>{' '}
                                       {product
                                         ?.attributes
                                         ?.measure
                                         ? `${product.attributes.measure.amount} ${product.attributes.measure.baseUnit}`
-                                        : 'Sin medida'}
+                                        : t('Sin medida')}
                                     </p>
 
                                     <p>
                                       <strong>
-                                        Presentación:
+                                        {t('Presentación')}:
                                       </strong>{' '}
                                       {product
                                         ?.attributes
                                         ?.container ||
-                                        'Sin presentación'}
+                                        t('Sin presentación')}
                                     </p>
 
                                     <p>
                                       <strong>
-                                        Precio:
+                                        {t('Precio')}:
                                       </strong>{' '}
                                       {formatLowestPrice(
                                         product?.offers,
@@ -4745,8 +4722,7 @@ export default function Admin() {
                 0 &&
                 !reviewLoading && (
                   <div className="mt-5 rounded-xl border border-dashed p-5 text-sm text-stone-500">
-                    No hay candidatos de
-                    revisión disponibles.
+                    {t('No hay candidatos de revisión disponibles.')}
                   </div>
                 )}
 
@@ -4755,26 +4731,26 @@ export default function Admin() {
                 className="mt-6 rounded-xl border border-stone-200 p-4 dark:border-stone-700"
               >
                 <summary className="cursor-pointer font-bold">
-                  Historial de decisiones ({reviewHistorySummary.total || reviewHistory.length})
+                  {t('Historial de decisiones')} ({reviewHistorySummary.total || reviewHistory.length})
                   <span className="ml-2 text-xs font-normal text-stone-500">
-                    Agrupar: {reviewHistorySummary.byStatus.match || 0}
-                    {' · '}No agrupar: {reviewHistorySummary.byStatus.no_match || 0}
-                    {' · '}Revisión: {reviewHistorySummary.byStatus.revisión || 0}
+                    {t('Agrupar')}: {reviewHistorySummary.byStatus.match || 0}
+                    {' · '}{t('No agrupar')}: {reviewHistorySummary.byStatus.no_match || 0}
+                    {' · '}{t('Revisión')}: {reviewHistorySummary.byStatus.revisión || 0}
                   </span>
                 </summary>
                 {reviewHistory.length === 0 ? (
-                  <p className="mt-3 text-sm text-stone-500">Todavía no hay decisiones guardadas.</p>
+                  <p className="mt-3 text-sm text-stone-500">{t('Todavía no hay decisiones guardadas.')}</p>
                 ) : (
                   <div className="mt-3 overflow-x-auto">
                     <table className="w-full min-w-[900px] text-left text-xs">
                       <thead className="border-b border-stone-200 text-stone-500 dark:border-stone-700">
                         <tr>
-                          <th className="px-2 py-2">Decisión</th>
-                          <th className="px-2 py-2">Producto Mami</th>
-                          <th className="px-2 py-2">Producto Disco</th>
-                          <th className="px-2 py-2">Administrador</th>
-                          <th className="px-2 py-2">Fecha</th>
-                          <th className="px-2 py-2">Acción</th>
+                          <th className="px-2 py-2">{t('Decisión')}</th>
+                          <th className="px-2 py-2">{t('Producto Mami')}</th>
+                          <th className="px-2 py-2">{t('Producto Disco')}</th>
+                          <th className="px-2 py-2">{t('Administrador')}</th>
+                          <th className="px-2 py-2">{t('Fecha')}</th>
+                          <th className="px-2 py-2">{t('Acción')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4782,22 +4758,22 @@ export default function Admin() {
                           <tr key={decision.pairKey || decision.id} className="border-b border-stone-100 last:border-0 dark:border-stone-700/60">
                             <td className="px-2 py-2 font-bold">
                               {decision.status === 'match'
-                                ? 'Agrupar'
+                                ? t('Agrupar')
                                 : decision.status === 'no_match'
-                                  ? 'No agrupar'
-                                  : 'Revisión'}
+                                  ? t('No agrupar')
+                                  : t('Revisión')}
                             </td>
                             <td className="px-2 py-2">
-                              <div className="font-medium">{decision.mamiProductName || 'Producto Mami'}</div>
+                              <div className="font-medium">{decision.mamiProductName || t('Producto Mami')}</div>
                               <div className="text-stone-500">ID: {decision.mamiProductId || '—'}</div>
                             </td>
                             <td className="px-2 py-2">
-                              <div className="font-medium">{decision.discoProductName || 'Producto Disco'}</div>
+                              <div className="font-medium">{decision.discoProductName || t('Producto Disco')}</div>
                               <div className="text-stone-500">ID: {decision.discoProductId || '—'}</div>
                             </td>
                             <td className="px-2 py-2">{decision.admin || '—'}</td>
                             <td className="px-2 py-2">
-                              {decision.updatedAt ? new Date(decision.updatedAt).toLocaleString() : '—'}
+                              {decision.updatedAt ? new Date(decision.updatedAt).toLocaleString(language === 'en' ? 'en-US' : 'es-AR') : '—'}
                             </td>
                             <td className="px-2 py-2">
                               {decision.status === 'revisión' && !decision.isGrouped && (
@@ -4807,7 +4783,7 @@ export default function Admin() {
                                   disabled={reviewReopeningPairKey === decision.pairKey}
                                   className="rounded-lg border border-amber-300 px-2.5 py-1.5 font-semibold text-amber-800 disabled:opacity-50 dark:text-amber-200"
                                 >
-                                  {reviewReopeningPairKey === decision.pairKey ? 'Reabriendo…' : 'Retomar revisión'}
+                                  {t(reviewReopeningPairKey === decision.pairKey ? 'Reabriendo…' : 'Retomar revisión')}
                                 </button>
                               )}
                             </td>
@@ -4838,15 +4814,15 @@ export default function Admin() {
               <RegisteredUserAccounts />
 
               <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-stone-800">
-                <h2 className="mb-1 text-lg font-bold">Credenciales de acceso al panel</h2>
+                <h2 className="mb-1 text-lg font-bold">{t('Credenciales de acceso al panel')}</h2>
                 <p className="mb-4 text-sm text-stone-500 dark:text-stone-400">
-                  Las cuentas registradas con tipo Administrador también pueden ingresar usando su usuario y contraseña de AR-PRICE.
+                  {t('Las cuentas registradas con tipo Administrador también pueden ingresar usando su usuario y contraseña de AR-PRICE.')}
                 </p>
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <input
                     className="rounded-lg border px-3 py-2"
-                    placeholder="Usuario"
+                    placeholder={t('Usuario')}
                     value={adminForm.username}
                     onChange={(event) => setAdminForm({
                       ...adminForm,
@@ -4857,7 +4833,7 @@ export default function Admin() {
                   <input
                     type="password"
                     className="rounded-lg border px-3 py-2"
-                    placeholder="Contraseña"
+                    placeholder={t('Contraseña')}
                     value={adminForm.password}
                     onChange={(event) => setAdminForm({
                       ...adminForm,
@@ -4868,7 +4844,7 @@ export default function Admin() {
 
                 <div className="mt-4">
                   <button type="button" onClick={createAdmin} className="rounded-lg bg-sky-600 px-4 py-2 text-white">
-                    Crear credencial independiente
+                    {t('Crear credencial independiente')}
                   </button>
                 </div>
 
