@@ -82,6 +82,7 @@ const {
   customerPasswordResetIpRateLimit,
   customerPriceReportIpRateLimit,
   customerNotificationDeleteIpRateLimit,
+  customerLoginIpRateLimit,
   customerReadRateLimit,
   customerWriteRateLimit,
   sharedListInvitationIpRateLimit,
@@ -3662,7 +3663,7 @@ app.post('/admins', requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/login', async (req, res) => {
+app.post('/login', customerLoginIpRateLimit, async (req, res) => {
   try {
     const { username, password } = req.body || {}
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
@@ -3943,7 +3944,7 @@ app.post('/auth/customer-register', async (req, res) => {
   }
 })
 
-app.post('/auth/customer-login', async (req, res) => {
+app.post('/auth/customer-login', customerLoginIpRateLimit, async (req, res) => {
   try {
     if (!requireCustomerAuthStorage(res)) return
     const identifier = String(req.body?.identifier || '').trim()
