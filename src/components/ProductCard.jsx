@@ -72,12 +72,12 @@ export function ProductCard({
         />
 
         <div className="absolute top-2.5 left-2.5 z-10">
-          <div className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 font-extrabold text-[11px] shadow-xs ${
+          <div className={`inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-semibold ${
             product.status === 'OFERTA'
-              ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800'
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-900'
               : isInflated
-                ? 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800'
-                : 'bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-950/80 dark:text-sky-300 dark:border-sky-800'
+                ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-900'
+                : 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-900'
           }`}>
             <span>{statusLabel}</span>
           </div>

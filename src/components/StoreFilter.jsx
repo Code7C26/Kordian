@@ -210,8 +210,17 @@ export default function StoreFilter({ stores, value, onChange, selectedCity }) {
               ) : locationDialog.addresses.length ? (
                 <ul className="space-y-2">
                   {locationDialog.addresses.map((address) => (
-                    <li key={address} className="rounded-lg bg-stone-50 px-3 py-2.5 text-sm text-stone-800 dark:bg-stone-800 dark:text-stone-100">
-                      {address}
+                    <li key={address}>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${address}, ${locationDialog.store.name}, ${locationDialog.city}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`${t('Ver ubicación en Maps')}: ${address}, ${locationDialog.city}`}
+                        className="flex items-center justify-between gap-3 rounded-lg bg-stone-50 px-3 py-2.5 text-sm text-stone-800 transition-colors hover:bg-sky-50 hover:text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700 dark:hover:text-sky-300"
+                      >
+                        <span>{address}</span>
+                        <MapPin className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                      </a>
                     </li>
                   ))}
                 </ul>
