@@ -727,6 +727,10 @@ export default function App() {
     }
   }, [productsPage, totalPages]);
 
+  useEffect(() => {
+    document.getElementById('products-grid')?.scrollIntoView({ block: 'start' });
+  }, [productsPage]);
+
   const currentCategoryName = categories.find((c) => c.id === filters.category)?.name || 'Todos los productos';
   const selectedTaxonomyCategory = taxonomy.find((category) => String(category.id) === String(filters.category));
   const availableSubcategories = selectedTaxonomyCategory?.subcategories || [];
@@ -1030,7 +1034,7 @@ export default function App() {
                 type="button"
                  onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'todos' }))}
                  aria-pressed={filters.priceStatus === 'todos'}
-                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'todos' ? 'bg-stone-700 text-white dark:bg-stone-200 dark:text-stone-900' : 'bg-stone-100 text-stone-700 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700'}`}
+                 className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors ${filters.priceStatus === 'todos' ? 'border-stone-300 bg-stone-100 text-stone-700 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-200' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300 dark:hover:bg-stone-800'}`}
                >
                  {t('Todos')}
                </button>
@@ -1038,7 +1042,7 @@ export default function App() {
                  type="button"
                  onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'OFERTA' }))}
                  aria-pressed={filters.priceStatus === 'OFERTA'}
-                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'OFERTA' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900'}`}
+                 className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors ${filters.priceStatus === 'OFERTA' ? 'border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-200' : 'border-emerald-100 bg-emerald-50 text-emerald-700 hover:border-emerald-200 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-950/80'}`}
               >
                 <Tag className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('En oferta')}
@@ -1047,7 +1051,7 @@ export default function App() {
                 type="button"
                 onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'EN_PRECIO' }))}
                 aria-pressed={filters.priceStatus === 'EN_PRECIO'}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'EN_PRECIO' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-900'}`}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors ${filters.priceStatus === 'EN_PRECIO' ? 'border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-800 dark:bg-sky-950/80 dark:text-sky-200' : 'border-sky-100 bg-sky-50 text-sky-700 hover:border-sky-200 hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-300 dark:hover:bg-sky-950/80'}`}
               >
                 <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('En precio')}
@@ -1056,7 +1060,7 @@ export default function App() {
                 type="button"
                 onClick={() => updateFilters((prev) => ({ ...prev, priceStatus: 'INFLADO' }))}
                 aria-pressed={filters.priceStatus === 'INFLADO'}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors ${filters.priceStatus === 'INFLADO' ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900'}`}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors ${filters.priceStatus === 'INFLADO' ? 'border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-800 dark:bg-rose-950/80 dark:text-rose-200' : 'border-rose-100 bg-rose-50 text-rose-700 hover:border-rose-200 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300 dark:hover:bg-rose-950/80'}`}
               >
                 <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('Inflado')}
@@ -1119,7 +1123,8 @@ export default function App() {
                 </p>
               )}
               <div
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6"
+                id="products-grid"
+                className="grid scroll-mt-20 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6"
                 aria-busy={isLoadingProducts}
               >
                 {paginatedProducts.map((product) => (
