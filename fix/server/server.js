@@ -3882,7 +3882,7 @@ app.post('/auth/customer-register', async (req, res) => {
     if (!/^[a-z0-9]{6,32}$/.test(username)) {
       return res.status(400).json({ error: 'El usuario debe tener entre 6 y 32 caracteres alfanuméricos.' })
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' })
     }
     if (!/^[a-zA-Z0-9]{8,}$/.test(password)) {
