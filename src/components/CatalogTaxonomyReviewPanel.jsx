@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, RefreshCw, RotateCcw, X } from 'lucide-react'
 import { adminFetch, readApiResponse } from '../config/api.js'
+import { useLanguage } from '../contexts/LanguageContext.jsx'
 
 const PAGE_SIZE = 20
 
@@ -12,6 +13,7 @@ const STATUS_OPTIONS = [
 ]
 
 export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
+  const { language, t } = useLanguage()
   const [items, setItems] = useState([])
   const [summary, setSummary] = useState(null)
   const [status, setStatus] = useState('pending')
@@ -91,9 +93,9 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
     <section className="rounded-3xl border border-amber-200/80 bg-white p-6 shadow-sm dark:border-amber-900/70 dark:bg-stone-800">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold">Posibles errores de categorías</h2>
+          <h2 className="text-xl font-bold">{t('Posibles errores de categorías')}</h2>
           <p className="mt-1 max-w-3xl text-sm text-stone-500 dark:text-stone-400">
-            Revisa sugerencias basadas en reglas antes de aplicar cambios. El relevamiento se ejecuta solo al solicitarlo y no altera el catálogo hasta que confirmes una clasificación.
+            {t('Revisa sugerencias basadas en reglas antes de aplicar cambios. El relevamiento se ejecuta solo al solicitarlo y no altera el catálogo hasta que confirmes una clasificación.')}
           </p>
         </div>
         <button
@@ -103,17 +105,17 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
           className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? 'Revisando...' : loaded ? 'Actualizar relevamiento' : 'Cargar relevamiento'}
+          {t(loading ? 'Revisando...' : loaded ? 'Actualizar relevamiento' : 'Cargar relevamiento')}
         </button>
       </div>
 
       {summary && (
         <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
-            ['Pendientes', summary.pending, 'border-amber-200 bg-amber-50 text-amber-800'],
-            ['Corregidos', summary.resolved, 'border-emerald-200 bg-emerald-50 text-emerald-800'],
-            ['Descartados', summary.dismissed, 'border-stone-200 bg-stone-50 text-stone-700'],
-            ['Detectados', summary.total, 'border-sky-200 bg-sky-50 text-sky-800'],
+            [t('Pendientes'), summary.pending, 'border-amber-200 bg-amber-50 text-amber-800'],
+            [t('Corregidos'), summary.resolved, 'border-emerald-200 bg-emerald-50 text-emerald-800'],
+            [t('Descartados'), summary.dismissed, 'border-stone-200 bg-stone-50 text-stone-700'],
+            [t('Detectados'), summary.total, 'border-sky-200 bg-sky-50 text-sky-800'],
           ].map(([label, count, classes]) => (
             <div key={label} className={`rounded-xl border p-3 ${classes}`}>
               <div className="text-[11px] uppercase tracking-wide">{label}</div>
@@ -126,7 +128,7 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
       {loaded && (
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-y border-stone-200 py-4 dark:border-stone-700">
           <label className="flex items-center gap-2 text-sm font-semibold">
-            Mostrar
+            {t('Mostrar')}
             <select
               value={status}
               onChange={(event) => loadReview(1, event.target.value)}
@@ -134,32 +136,32 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
               className="rounded-lg border border-stone-300 bg-white px-3 py-2 dark:border-stone-600 dark:bg-stone-900"
             >
               {STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
+                <option key={option.value} value={option.value}>                {t(option.label)}</option>
               ))}
             </select>
           </label>
           <div className="flex items-center gap-3 text-sm text-stone-500 dark:text-stone-400">
-            {generatedAt && <span>Generado: {new Date(generatedAt).toLocaleString()}</span>}
-            <span>{total ? `${(page - 1) * PAGE_SIZE + 1}-${Math.min(page * PAGE_SIZE, total)} de ${total}` : 'Sin resultados'}</span>
+            {generatedAt && <span>{t('Generado')}: {new Date(generatedAt).toLocaleString(language === 'en' ? 'en-US' : 'es-AR')}</span>}
+            <span>{total ? `${(page - 1) * PAGE_SIZE + 1}-${Math.min(page * PAGE_SIZE, total)} ${t('de')} ${total}` : t('Sin resultados')}</span>
           </div>
         </div>
       )}
 
       {error && (
         <p role="alert" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-          {error}
+          {t(error)}
         </p>
       )}
 
       {!loaded && !loading && (
         <div className="mt-5 rounded-xl border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500 dark:border-stone-600 dark:text-stone-400">
-          El relevamiento no se ejecuta automáticamente. Pulsa “Cargar relevamiento” para analizar las clasificaciones.
+          {t('El relevamiento no se ejecuta automáticamente. Pulsa “Cargar relevamiento” para analizar las clasificaciones.')}
         </div>
       )}
 
       {loaded && items.length === 0 && !loading && (
         <div className="mt-5 rounded-xl border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500 dark:border-stone-600 dark:text-stone-400">
-          No hay productos en este estado.
+          {t('No hay productos en este estado.')}
         </div>
       )}
 
@@ -188,29 +190,29 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
                       ? 'bg-stone-100 text-stone-700'
                       : 'bg-amber-100 text-amber-800'
                 }`}>
-                  {item.decision === 'resolved' ? 'Corregido' : item.decision === 'dismissed' ? 'Descartado' : 'Pendiente'}
+                  {t(item.decision === 'resolved' ? 'Corregido' : item.decision === 'dismissed' ? 'Descartado' : 'Pendiente')}
                 </span>
               </div>
 
               <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <p className="rounded-lg bg-stone-50 p-3 dark:bg-stone-900">
-                  <strong>Actual:</strong> {item.actualCategory || 'Sin categoría'} / {item.actualSubcategory || 'Sin subcategoría'}
+                  <strong>{t('Actual')}:</strong> {item.actualCategory || t('Sin categoría')} / {item.actualSubcategory || t('Sin subcategoría')}
                 </p>
                 <p className="rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-                  <strong>Sugerencia automática:</strong>{' '}
+                  <strong>{t('Sugerencia automática')}:</strong>{' '}
                   {item.suggestionStatus === 'determined'
                     ? `${item.suggestedCategory} / ${item.suggestedSubcategory}`
                     : item.suggestionStatus === 'ambiguous'
-                      ? 'Revisión manual: hay evidencias en conflicto'
-                      : 'Revisión manual: no hay evidencia suficiente'}
-                  {item.suggestionConfidence && ` · Confianza ${item.suggestionConfidence}`}
+                      ? t('Revisión manual: hay evidencias en conflicto')
+                      : t('Revisión manual: no hay evidencia suficiente')}
+                  {item.suggestionConfidence && ` · ${t('Confianza')} ${item.suggestionConfidence}`}
                   {item.suggestionReason && ` · ${item.suggestionReason}`}
                 </p>
               </div>
 
               {(item.sourceCategory || item.sourceSubcategory) && (
                 <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">
-                  Clasificación de origen: {[item.sourceCategory, item.sourceSubcategory].filter(Boolean).join(' / ')}
+                  {t('Clasificación de origen')}: {[item.sourceCategory, item.sourceSubcategory].filter(Boolean).join(' / ')}
                 </p>
               )}
 
@@ -218,7 +220,7 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
                 <>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <label className="text-xs font-bold text-stone-600 dark:text-stone-300">
-                      Categoría correcta
+                      {t('Categoría correcta')}
                       <select
                         value={selection.categoryId}
                         onChange={(event) => {
@@ -231,14 +233,14 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
                         }}
                         className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 dark:border-stone-600 dark:bg-stone-900 dark:text-white"
                       >
-                        <option value="">Seleccionar categoría</option>
+                        <option value="">{t('Seleccionar categoría')}</option>
                         {categories.map((option) => (
                           <option key={option.id} value={String(option.id)}>{option.name}</option>
                         ))}
                       </select>
                     </label>
                     <label className="text-xs font-bold text-stone-600 dark:text-stone-300">
-                      Subcategoría correcta
+                      {t('Subcategoría correcta')}
                       <select
                         value={selection.subcategoryId}
                         onChange={(event) => updateSelection(item, {
@@ -248,7 +250,7 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
                         disabled={!selection.categoryId || subcategories.length === 0}
                         className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 disabled:opacity-50 dark:border-stone-600 dark:bg-stone-900 dark:text-white"
                       >
-                        <option value="">Seleccionar subcategoría</option>
+                        <option value="">{t('Seleccionar subcategoría')}</option>
                         {subcategories.map((option) => (
                           <option key={option.id} value={String(option.id)}>{option.name}</option>
                         ))}
@@ -263,7 +265,7 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
                       className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
                     >
                       <Check className="h-4 w-4" />
-                      Aplicar clasificación
+                      {t('Aplicar clasificación')}
                     </button>
                     <button
                       type="button"
@@ -272,7 +274,7 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
                       className="inline-flex items-center gap-2 rounded-lg border border-stone-300 px-3 py-2 text-xs font-bold text-stone-700 disabled:opacity-50 dark:border-stone-600 dark:text-stone-200"
                     >
                       <X className="h-4 w-4" />
-                      Descartar sugerencia
+                      {t('Descartar sugerencia')}
                     </button>
                   </div>
                 </>
@@ -284,7 +286,7 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
                   className="mt-4 inline-flex items-center gap-2 rounded-lg border border-sky-300 px-3 py-2 text-xs font-bold text-sky-700 disabled:opacity-50 dark:text-sky-300"
                 >
                   <RotateCcw className="h-4 w-4" />
-                  Reabrir revisión
+                  {t('Reabrir revisión')}
                 </button>
               )}
             </article>
@@ -293,7 +295,7 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
       </div>
 
       {loaded && totalPages > 1 && (
-        <nav className="mt-5 flex items-center justify-center gap-4" aria-label="Páginas de revisión de categorías">
+        <nav className="mt-5 flex items-center justify-center gap-4" aria-label={t('Páginas de revisión de categorías')}>
           <button
             type="button"
             onClick={() => loadReview(page - 1)}
@@ -302,7 +304,7 @@ export default function CatalogTaxonomyReviewPanel({ categories, taxonomy }) {
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
-          <span className="text-sm font-bold">Página {page} de {totalPages}</span>
+          <span className="text-sm font-bold">{t('Página')} {page} {t('de')} {totalPages}</span>
           <button
             type="button"
             onClick={() => loadReview(page + 1)}

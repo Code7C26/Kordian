@@ -242,7 +242,7 @@ export default function CustomerAuthPage({ mode = 'login' }) {
                 </div>
                 <div>
                   <label htmlFor="customer-email" className="mb-1.5 block text-sm font-semibold">{t('Email')}</label>
-                  <input id="customer-email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => { setEmail(event.target.value); setErrors((current) => ({ ...current, email: undefined })) }} className={fieldClass(Boolean(errors.email))} placeholder="usuario@email.com" aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'email-error' : undefined} />
+                  <input id="customer-email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => { setEmail(event.target.value); setErrors((current) => ({ ...current, email: undefined })) }} className={fieldClass(Boolean(errors.email))} placeholder={t('usuario@email.com')} aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'email-error' : undefined} />
                   {errors.email && <p id="email-error" className="mt-1 text-xs font-medium text-rose-600">{t(errors.email)}</p>}
                 </div>
               </>
