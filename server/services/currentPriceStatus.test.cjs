@@ -154,3 +154,55 @@ test('startup queues current-version statuses with incomplete details', async ()
 
   assert.deepEqual(enqueued, [10])
 })
+
+test('startup without the details check reads only lightweight columns', async () => {
+  const { enqueueIncompletePriceStatuses } = require('./currentPriceStatus')
+  let productPageRead = false
+  const selectedStatusColumns = []
+  const database = {
+    from(table) {
+      if (table === 'products') {
+        return {
+          select: () => ({
+            order: () => ({
+              range: async () => {
+                if (productPageRead) return { data: [], error: null }
+                productPageRead = true
+                return { data: [{ id: 10 }, { id: 11 }, { id: 12 }], error: null }
+              },
+            }),
+          }),
+        }
+      }
+      return {
+        select: (columns) => {
+          selectedStatusColumns.push(columns)
+          return {
+            in: async () => ({
+              data: [
+                { product_id: 10, rules_version: PRICE_STATUS_RULES_VERSION },
+                { product_id: 11, rules_version: 'old-version' },
+              ],
+              error: null,
+            }),
+            neq: () => ({
+              order: () => ({
+                range: async () => ({ data: [], error: null }),
+              }),
+            }),
+          }
+        },
+      }
+    },
+  }
+  const enqueued = []
+  await enqueueIncompletePriceStatuses(
+    database,
+    { enqueue: (ids) => enqueued.push(...ids) },
+    undefined,
+    { checkDetails: false },
+  )
+
+  assert.deepEqual(enqueued, [11, 12])
+  assert.ok(selectedStatusColumns.every((columns) => !columns.includes('analysis_details')))
+})

@@ -40,7 +40,11 @@ async function requestCustomerJson(path, accessToken, options = {}) {
   if (response.status === 404) {
     throw new Error('El servidor todavía no tiene activada esta función. Actualiza el backend.')
   }
-  if (!response.ok) throw new Error(payload.error || 'No se pudo completar la solicitud.')
+  if (!response.ok) {
+    const error = new Error(payload.error || 'No se pudo completar la solicitud.')
+    error.status = response.status
+    throw error
+  }
   return payload
 }
 
@@ -193,11 +197,53 @@ export function CustomerAuthProvider({ children }) {
     }
 
     let active = true
+    let refreshPromise = null
+    let sessionRenewed = false
     const loadNotifications = async () => {
       try {
         const result = await requestCustomerJson('/customer/notifications', session.access_token)
         if (active) setPendingNotificationCount(Array.isArray(result) ? result.length : 0)
       } catch (error) {
+        if (active && error.status === 401) {
+          if (sessionRenewed) return
+          if (refreshPromise) {
+            await refreshPromise
+            return
+          }
+          refreshPromise = (async () => {
+            if (!session.refresh_token) {
+              clearCustomerSession()
+              setSession(null)
+              setProfile(null)
+              return
+            }
+            try {
+              const refreshed = await requestJson('/auth/customer-refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken: session.refresh_token }),
+              })
+              if (!active) return
+              sessionRenewed = true
+              storeCustomerSession(refreshed.session)
+              setSession(refreshed.session)
+              setProfile(refreshed.profile)
+            } catch (refreshError) {
+              if (!active) return
+              if (refreshError.status === 401) {
+                clearCustomerSession()
+                setSession(null)
+                setProfile(null)
+              } else {
+                console.error('Customer session could not be refreshed', refreshError)
+              }
+            }
+          })().finally(() => {
+            refreshPromise = null
+          })
+          await refreshPromise
+          return
+        }
         console.error('Customer notifications could not be loaded', error)
       }
     }
@@ -208,7 +254,7 @@ export function CustomerAuthProvider({ children }) {
       active = false
       window.clearInterval(intervalId)
     }
-  }, [session?.access_token])
+  }, [session?.access_token, session?.refresh_token])
 
   useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') return undefined

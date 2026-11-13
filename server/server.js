@@ -5687,7 +5687,9 @@ app.post('/translate/products', productTranslationIpRateLimit, async (req, res) 
 })
 
 if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.PRICE_STATUS_BOOTSTRAP_ENABLED !== 'false') {
-  enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue)
+  enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue, undefined, {
+    checkDetails: process.env.PRICE_STATUS_BOOTSTRAP_CHECK_DETAILS === 'true',
+  })
     .catch((error) => console.error('Unable to queue missing or stale current price statuses', error))
 } else if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.info('Skipped initial price status refresh bootstrap (PRICE_STATUS_BOOTSTRAP_ENABLED=false)')
