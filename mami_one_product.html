@@ -1455,19 +1455,74 @@ function getPageCategory(url, mql, e, a){
 
 
 		};
+		function createSafeStoreNode(node) {
+			if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.nodeValue);
+			if (node.nodeType !== Node.ELEMENT_NODE) return null;
+
+			var tagName = node.tagName.toLowerCase();
+			if (["script", "style", "iframe", "object", "embed", "svg", "math", "template"].indexOf(tagName) !== -1) return null;
+
+			var allowedTags = ["table", "caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr", "th", "td", "div", "span", "p", "br", "b", "strong", "em", "small", "input", "label"];
+			var safeNode;
+			if (allowedTags.indexOf(tagName) === -1) {
+				safeNode = document.createDocumentFragment();
+			} else {
+				safeNode = document.createElement(tagName);
+				if (node.hasAttribute("class") && /^[a-zA-Z0-9 _-]+$/.test(node.getAttribute("class"))) safeNode.className = node.getAttribute("class");
+				if (tagName === "table" && node.id === "sucursalesDisponiblesRetiro") safeNode.id = node.id;
+				if (tagName === "td" || tagName === "th") {
+					var span = node.getAttribute("colspan");
+					if (/^[0-9]{1,2}$/.test(span || "")) safeNode.setAttribute("colspan", span);
+					span = node.getAttribute("rowspan");
+					if (/^[0-9]{1,2}$/.test(span || "")) safeNode.setAttribute("rowspan", span);
+					var scope = node.getAttribute("scope");
+					if (["row", "col", "rowgroup", "colgroup"].indexOf(scope) !== -1) safeNode.setAttribute("scope", scope);
+				}
+				if (tagName === "input") {
+					var type = node.getAttribute("type");
+					if (["checkbox", "radio"].indexOf(type) !== -1) {
+						safeNode.type = type;
+						if (node.hasAttribute("name")) safeNode.name = node.getAttribute("name").slice(0, 100);
+						if (node.hasAttribute("value")) safeNode.value = node.getAttribute("value").slice(0, 200);
+						safeNode.checked = node.checked;
+						safeNode.disabled = node.disabled;
+					}
+				}
+			}
+
+			Array.prototype.forEach.call(node.childNodes, function (child) {
+				var safeChild = createSafeStoreNode(child);
+				if (safeChild) safeNode.appendChild(safeChild);
+			});
+			return safeNode;
+		}
+
+		function renderSafeStoreTable(response) {
+			var parsedResponse = new DOMParser().parseFromString(response, "text/html");
+			var storeTable = parsedResponse.getElementById("sucursalesDisponiblesRetiro");
+			if (!storeTable || storeTable.tagName.toLowerCase() !== "table") throw new Error("La respuesta de sucursales no contiene la tabla esperada.");
+			document.getElementById("renderSucursales").replaceChildren(createSafeStoreNode(storeTable));
+		}
+
 		function abrirSucursales(){
 				$.ajax({
 				type : 'GET',
 				url : urlSucursales,
 				success : function(data) {
-						$('#renderSucursales').html(data);
+					try {
+						renderSafeStoreTable(data);
 						var table = document.getElementById('sucursalesDisponiblesRetiro');
 						$("#urlErrorSPSup").val('/super/producto/crema-dental-colgate-triple-accion-extra-blancura-x-90gr/_/A-2850705-2850705-s');
 						$("#urlSuccessSPSup").val('/super/producto/crema-dental-colgate-triple-accion-extra-blancura-x-90gr/_/A-2850705-2850705-s?addToCard=1');
 						for (var i = 1, row; row = table.rows[i]; i++) {
-							document.getElementById('sucursalesDisponiblesRetiro').rows[i].cells[0].children[0].checked = (document.getElementById('sucursalesDisponiblesRetiro').rows[i].cells[1].children[0].innerHTML == 0);
+							if (row.cells[0].children[0] && row.cells[1].children[0]) {
+								row.cells[0].children[0].checked = (row.cells[1].children[0].textContent == 0);
+							}
 						}
 						openPoPupRetiro();
+					} catch (error) {
+						console.error('No se pudo procesar la respuesta de sucursales.', error);
+					}
 				},
 				error : function(a,b,c) {
 					
@@ -5344,14 +5399,20 @@ function getPageCategory(url, mql, e, a){
 				type : 'GET',
 				url : urlSucursales,
 				success : function(data) {
-						$('#renderSucursales').html(data);
+					try {
+						renderSafeStoreTable(data);
 						var table = document.getElementById('sucursalesDisponiblesRetiro');
 						$("#urlErrorSPSup").val('/super/producto/crema-dental-colgate-triple-accion-extra-blancura-x-90gr/_/A-2850705-2850705-s');
 						$("#urlSuccessSPSup").val('/super/producto/crema-dental-colgate-triple-accion-extra-blancura-x-90gr/_/A-2850705-2850705-s?addToCard=1');
 						for (var i = 1, row; row = table.rows[i]; i++) {
-							document.getElementById('sucursalesDisponiblesRetiro').rows[i].cells[0].children[0].checked = (document.getElementById('sucursalesDisponiblesRetiro').rows[i].cells[1].children[0].innerHTML == 0);
+							if (row.cells[0].children[0] && row.cells[1].children[0]) {
+								row.cells[0].children[0].checked = (row.cells[1].children[0].textContent == 0);
+							}
 						}
 						openPoPupRetiro();
+					} catch (error) {
+						console.error('No se pudo procesar la respuesta de sucursales.', error);
+					}
 				},
 				error : function(a,b,c) {
 					
