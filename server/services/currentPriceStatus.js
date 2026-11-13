@@ -170,7 +170,17 @@ function createPriceStatusRefreshQueue({ refreshBatch, batchSize = PRICE_STATUS_
   }
 }
 
-async function enqueueIncompletePriceStatuses(database, queue, batchSize = PRICE_STATUS_BATCH_SIZE) {
+// A full details check downloads analysis_details for every product. Keep it
+// optional for startup scans; enable it after changing the details schema.
+async function enqueueIncompletePriceStatuses(
+  database,
+  queue,
+  batchSize = PRICE_STATUS_BATCH_SIZE,
+  { checkDetails = true } = {},
+) {
+  const statusColumns = checkDetails
+    ? 'product_id, rules_version, analysis_details, data_quality'
+    : 'product_id, rules_version'
   for (let offset = 0; ; offset += batchSize) {
     const { data: products, error: productsError } = await database
       .from('products')
@@ -182,12 +192,12 @@ async function enqueueIncompletePriceStatuses(database, queue, batchSize = PRICE
     if (!productIds.length) break
     const { data: statuses, error: statusesError } = await database
       .from('product_price_status')
-      .select('product_id, rules_version, analysis_details, data_quality')
+      .select(statusColumns)
       .in('product_id', productIds)
     if (statusesError) throw statusesError
     const currentIds = new Set((statuses || [])
       .filter((status) => status.rules_version === PRICE_STATUS_RULES_VERSION
-        && hasCompletePriceStatusDetails(status))
+        && (!checkDetails || hasCompletePriceStatusDetails(status)))
       .map((status) => String(status.product_id)))
     queue.enqueue(productIds.filter((id) => !currentIds.has(String(id))))
     if (productIds.length < batchSize) break

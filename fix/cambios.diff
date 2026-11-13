@@ -1,0 +1,191 @@
+diff --git a/server/server.js b/server/server.js
+index 569ac42..3892f54 100644
+--- a/server/server.js
++++ b/server/server.js
+@@ -5687,7 +5687,11 @@ app.post('/translate/products', productTranslationIpRateLimit, async (req, res)
+ })
+ 
+ if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.PRICE_STATUS_BOOTSTRAP_ENABLED !== 'false') {
+-  enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue)
++  // The full analysis_details check downloads ~30 MB on every startup (and
++  // nodemon restarts the server on every save). Keep it off unless explicitly requested.
++  enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue, undefined, {
++    checkDetails: process.env.PRICE_STATUS_BOOTSTRAP_CHECK_DETAILS === 'true',
++  })
+     .catch((error) => console.error('Unable to queue missing or stale current price statuses', error))
+ } else if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+   console.info('Skipped initial price status refresh bootstrap (PRICE_STATUS_BOOTSTRAP_ENABLED=false)')
+diff --git a/server/services/currentPriceStatus.js b/server/services/currentPriceStatus.js
+index c6ba567..0cfdb32 100644
+--- a/server/services/currentPriceStatus.js
++++ b/server/services/currentPriceStatus.js
+@@ -170,7 +170,20 @@ function createPriceStatusRefreshQueue({ refreshBatch, batchSize = PRICE_STATUS_
+   }
+ }
+ 
+-async function enqueueIncompletePriceStatuses(database, queue, batchSize = PRICE_STATUS_BATCH_SIZE) {
++// checkDetails=true downloads analysis_details for every product (~30 MB of
++// egress for the whole catalog) just to verify it is complete. Only enable it
++// when that verification is actually needed, e.g. after changing how
++// analysis_details is built. With checkDetails=false, only products without a
++// status or with an outdated rules_version are queued, using lightweight columns.
++async function enqueueIncompletePriceStatuses(
++  database,
++  queue,
++  batchSize = PRICE_STATUS_BATCH_SIZE,
++  { checkDetails = true } = {},
++) {
++  const statusColumns = checkDetails
++    ? 'product_id, rules_version, analysis_details, data_quality'
++    : 'product_id, rules_version'
+   for (let offset = 0; ; offset += batchSize) {
+     const { data: products, error: productsError } = await database
+       .from('products')
+@@ -182,12 +195,12 @@ async function enqueueIncompletePriceStatuses(database, queue, batchSize = PRICE
+     if (!productIds.length) break
+     const { data: statuses, error: statusesError } = await database
+       .from('product_price_status')
+-      .select('product_id, rules_version, analysis_details, data_quality')
++      .select(statusColumns)
+       .in('product_id', productIds)
+     if (statusesError) throw statusesError
+     const currentIds = new Set((statuses || [])
+       .filter((status) => status.rules_version === PRICE_STATUS_RULES_VERSION
+-        && hasCompletePriceStatusDetails(status))
++        && (!checkDetails || hasCompletePriceStatusDetails(status)))
+       .map((status) => String(status.product_id)))
+     queue.enqueue(productIds.filter((id) => !currentIds.has(String(id))))
+     if (productIds.length < batchSize) break
+diff --git a/server/services/currentPriceStatus.test.cjs b/server/services/currentPriceStatus.test.cjs
+index 4bc20c6..abc1558 100644
+--- a/server/services/currentPriceStatus.test.cjs
++++ b/server/services/currentPriceStatus.test.cjs
+@@ -154,3 +154,55 @@ test('startup queues current-version statuses with incomplete details', async ()
+ 
+   assert.deepEqual(enqueued, [10])
+ })
++
++test('startup without the details check reads only lightweight columns', async () => {
++  const { enqueueIncompletePriceStatuses } = require('./currentPriceStatus')
++  let productPageRead = false
++  const selectedStatusColumns = []
++  const database = {
++    from(table) {
++      if (table === 'products') {
++        return {
++          select: () => ({
++            order: () => ({
++              range: async () => {
++                if (productPageRead) return { data: [], error: null }
++                productPageRead = true
++                return { data: [{ id: 10 }, { id: 11 }, { id: 12 }], error: null }
++              },
++            }),
++          }),
++        }
++      }
++      return {
++        select: (columns) => {
++          selectedStatusColumns.push(columns)
++          return {
++            in: async () => ({
++              data: [
++                { product_id: 10, rules_version: PRICE_STATUS_RULES_VERSION },
++                { product_id: 11, rules_version: 'old-version' },
++              ],
++              error: null,
++            }),
++            neq: () => ({
++              order: () => ({
++                range: async () => ({ data: [], error: null }),
++              }),
++            }),
++          }
++        },
++      }
++    },
++  }
++  const enqueued = []
++  await enqueueIncompletePriceStatuses(
++    database,
++    { enqueue: (ids) => enqueued.push(...ids) },
++    undefined,
++    { checkDetails: false },
++  )
++
++  assert.deepEqual(enqueued, [11, 12])
++  assert.ok(selectedStatusColumns.every((columns) => !columns.includes('analysis_details')))
++})
+diff --git a/src/contexts/CustomerAuthContext.jsx b/src/contexts/CustomerAuthContext.jsx
+index fcd94f8..ccfbc73 100644
+--- a/src/contexts/CustomerAuthContext.jsx
++++ b/src/contexts/CustomerAuthContext.jsx
+@@ -40,7 +40,11 @@ async function requestCustomerJson(path, accessToken, options = {}) {
+   if (response.status === 404) {
+     throw new Error('El servidor todavía no tiene activada esta función. Actualiza el backend.')
+   }
+-  if (!response.ok) throw new Error(payload.error || 'No se pudo completar la solicitud.')
++  if (!response.ok) {
++    const error = new Error(payload.error || 'No se pudo completar la solicitud.')
++    error.status = response.status
++    throw error
++  }
+   return payload
+ }
+ 
+@@ -193,17 +197,54 @@ export function CustomerAuthProvider({ children }) {
+     }
+ 
+     let active = true
++    let intervalId
++    // The access token expires after ~1 hour. Without this, an open tab keeps
++    // polling with the expired token forever (403 bad_jwt on every request).
++    const renewExpiredSession = async () => {
++      window.clearInterval(intervalId)
++      if (!session.refresh_token) {
++        clearCustomerSession()
++        setSession(null)
++        setProfile(null)
++        return
++      }
++      try {
++        const refreshed = await requestJson('/auth/customer-refresh', {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ refreshToken: session.refresh_token }),
++        })
++        if (!active) return
++        // Changing access_token re-runs this effect and restarts polling.
++        storeCustomerSession(refreshed.session)
++        setSession(refreshed.session)
++        setProfile(refreshed.profile)
++      } catch (refreshError) {
++        if (!active) return
++        if (refreshError.status === 401) {
++          clearCustomerSession()
++          setSession(null)
++          setProfile(null)
++        } else {
++          console.error('Customer session could not be refreshed', refreshError)
++        }
++      }
++    }
+     const loadNotifications = async () => {
+       try {
+         const result = await requestCustomerJson('/customer/notifications', session.access_token)
+         if (active) setPendingNotificationCount(Array.isArray(result) ? result.length : 0)
+       } catch (error) {
++        if (active && error.status === 401) {
++          await renewExpiredSession()
++          return
++        }
+         console.error('Customer notifications could not be loaded', error)
+       }
+     }
+ 
+     loadNotifications()
+-    const intervalId = window.setInterval(loadNotifications, 30000)
++    intervalId = window.setInterval(loadNotifications, 30000)
+     return () => {
+       active = false
+       window.clearInterval(intervalId)
