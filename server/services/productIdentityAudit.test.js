@@ -133,7 +133,86 @@ test('classifies baked goods with dulce de leche in the name as bakery', () => {
 
 test('normalizes the grams abbreviation grs', () => {
   const attributes = extractAttributes({ name: 'Yogur griego 550 Grs' })
-  assert.deepEqual(attributes.measure, { amount: 550, baseUnit: 'kg', normalizedAmount: 0.55 })
+  assert.deepEqual(attributes.measure, {
+    amount: 550,
+    rawAmount: '550',
+    unit: 'Grs',
+    baseUnit: 'kg',
+    normalizedAmount: 0.55,
+  })
+})
+
+test('parses grouped thousands and decimal separators according to the measure unit', () => {
+  const cases = [
+    ['Agua 1.000 cc', 1000, '1.000', 'cc', 'l', 1],
+    ['Agua 1,5 l', 1.5, '1,5', 'l', 'l', 1.5],
+    ['Agua 1.5 l', 1.5, '1.5', 'l', 'l', 1.5],
+    ['Agua 2.250 ml', 2250, '2.250', 'ml', 'l', 2.25],
+    ['Agua 500 ml', 500, '500', 'ml', 'l', 0.5],
+    ['Harina 1.000 g', 1000, '1.000', 'g', 'kg', 1],
+    ['Harina 1,5 kg', 1.5, '1,5', 'kg', 'kg', 1.5],
+    ['Harina 1.5 kg', 1.5, '1.5', 'kg', 'kg', 1.5],
+    ['Agua 1000 cc', 1000, '1000', 'cc', 'l', 1],
+    ['Agua 750 ml', 750, '750', 'ml', 'l', 0.75],
+    ['Harina 1500 g', 1500, '1500', 'g', 'kg', 1.5],
+    ['Harina 500 mg', 500, '500', 'mg', 'kg', 0.0005],
+    ['Agua 25 cl', 25, '25', 'cl', 'l', 0.25],
+    ['Harina 2 kg', 2, '2', 'kg', 'kg', 2],
+    ['Agua 1.234,5 ml', 1234.5, '1.234,5', 'ml', 'l', 1.2345],
+  ]
+
+  for (const [name, amount, rawAmount, unit, baseUnit, normalizedAmount] of cases) {
+    assert.deepEqual(extractAttributes({ name }).measure, {
+      amount,
+      rawAmount,
+      unit,
+      baseUnit,
+      normalizedAmount,
+    }, name)
+  }
+})
+
+test('does not guess ambiguous or malformed measure separators', () => {
+  for (const name of [
+    'Producto 1.000 l',
+    'Producto 1,000 kg',
+    'Producto 1.2345 ml',
+    'Producto 1.2.3 g',
+    'Producto 12,34,567 g',
+  ]) {
+    assert.equal(extractAttributes({ name }).measure, null, name)
+  }
+})
+
+test('keeps individual package content separate from pack count', () => {
+  const pack = extractAttributes({ name: 'Leche Entera Pack x 4 unidades 250 ml' })
+  const single = extractAttributes({ name: 'Leche Entera 1 l' })
+
+  assert.equal(pack.measure.normalizedAmount, 0.25)
+  assert.equal(pack.packCount, 4)
+  assert.equal(single.measure.normalizedAmount, 1)
+  assert.equal(single.packCount, 1)
+
+  const comparison = evaluateIdentityPair(
+    { ...discoMilk, name: 'Leche Entera Pack x 4 unidades 250 ml' },
+    { ...mamiMilk, name: 'Leche Entera 1 l' },
+  )
+  assert.ok(comparison.conflicts.some((conflict) => conflict.field === 'measure'))
+  assert.equal(comparison.decision, 'separate')
+})
+
+test('matches equivalent measures expressed in different volume units', () => {
+  const oneLiterInCc = evaluateIdentityPair(
+    { ...discoMilk, name: 'Leche Entera 1.000 cc La Serenisima' },
+    { ...mamiMilk, name: 'Leche Entera 1 L La Serenisima' },
+  )
+  const twoPointTwoFiveLiters = evaluateIdentityPair(
+    { ...discoMilk, name: 'Leche Entera 2.250 ml La Serenisima' },
+    { ...mamiMilk, name: 'Leche Entera 2,25 l La Serenisima' },
+  )
+
+  assert.ok(oneLiterInCc.matchedSignals.includes('measure'))
+  assert.ok(twoPointTwoFiveLiters.matchedSignals.includes('measure'))
 })
 
 test('detects yerba sold in tea bags', () => {

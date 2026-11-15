@@ -1,8 +1,10 @@
 const database = require('../supabaseAdmin')
 const { fetchDiscoProductById } = require('../services/discoImporter')
 const { isDiscoScaleCorrection } = require('../priceNormalization')
+const { assertCatalogWriteAllowed } = require('../services/catalogMaintenance')
 
 async function main() {
+  assertCatalogWriteAllowed('Disco')
   const { data: products, error } = await database
     .from('products')
     .select('id, name, source_product_id, offers(id, supermarket, cash_price)')
@@ -39,8 +41,10 @@ async function main() {
           console.warn(`Skipped suspicious price change for ${product.name}: ${previousPrice} -> ${normalizedPrice}`)
           continue
         }
+        assertCatalogWriteAllowed('Disco')
         const { error: updateError } = await database.from('offers').update({ cash_price: normalizedPrice }).eq('id', offer.id)
         if (updateError) throw updateError
+        assertCatalogWriteAllowed('Disco')
         const { error: historyError } = await database.from('price_history').insert({
           product_id: product.id,
           offer_id: offer.id,

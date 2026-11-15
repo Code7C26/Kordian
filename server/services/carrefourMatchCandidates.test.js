@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { classifyCarrefourProduct } = require('./carrefourMatchCandidates')
+const { buildCandidate, classifyCarrefourProduct } = require('./carrefourMatchCandidates')
 const { isValidGtin } = require('./productIdentityAudit')
 
 const sourceProduct = {
@@ -66,6 +66,42 @@ test('reports incompatible net content instead of treating the item as a match',
 
   assert.equal(report.classification, 'MATCH_REVISAR')
   assert.ok(report.candidates[0].reasons.includes('PRESENTACION_INCOMPATIBLE'))
+})
+
+test('formats candidate presentation without changing the compared measurement', () => {
+  const cases = [
+    ['250 g', '250 g', true],
+    ['500 g', '500 g', true],
+    ['1 kg', '1 kg', true],
+    ['500 ml', '500 ml', true],
+    ['Pack x6 de 25 g', '6 unidades x 25 g', true],
+    ['Pack x3 de 119 g', '3 unidades x 119 g', true],
+    ['Cápsulas de café Nescafé Dolce Gusto Capuccino x 117.5 gr', '117.5 gr', true],
+    ['Producto x 250 Grs', '250 Grs', true],
+    ['10 unidades', '10 unidades', false],
+  ]
+
+  for (const [label, expectedPresentation, expectedMeasure] of cases) {
+    const product = {
+      ...sourceProduct,
+      name: `Producto Marca ${label}`,
+      presentation: '',
+    }
+    const candidate = buildCandidate(product, {
+      id: 200,
+      source: 'disco',
+      source_product_id: 'disco-200',
+      ean: product.ean,
+      name: product.name,
+      presentation: '',
+      brands: { name: 'La Serenisima' },
+      offers: [{ supermarket: 'Disco', cash_price: 1000 }],
+    })
+
+    assert.ok(candidate, label)
+    assert.equal(candidate.presentation, expectedPresentation, label)
+    assert.equal(candidate._identity.sameMeasure, expectedMeasure, label)
+  }
 })
 
 test('reports incompatible flavors even when brand and package size match', () => {

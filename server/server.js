@@ -7,8 +7,35 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { createClient } = require('@supabase/supabase-js')
 const app = express()
+app.set('trust proxy', 1)
 const { normalizeOptionalReference } = require('./productFields')
 const { normalizeDiscoStoredPrice } = require('./priceNormalization')
+const { createAdminAuth } = require('./adminAuth')
+const {
+  createServiceRoleMiddleware,
+  getAdminAuthDatabase,
+  requireServiceRoleDatabase,
+} = require('./services/serviceRole')
+const { createDiscoSearchImportHandler } = require('./services/discoSearchImportHandler')
+const {
+  createPriceStatusQueueErrorPayload,
+  isPriceStatusQueueError,
+} = require('./services/priceStatusQueueCapacityError')
+const {
+  assertCatalogWriteAllowed,
+  isCatalogWriteBlocked,
+  requireBrandProductWriteAllowed,
+  requireCatalogWriteAllowedFromBody,
+  requireCatalogWritesFor,
+  requireOfferWriteAllowed,
+  requireProductWriteAllowed,
+} = require('./services/catalogMaintenance')
+const {
+  createCategoryIntegrityHandlers,
+  isCatalogUuid,
+  resolveCatalogClassification,
+  validateProductClassification,
+} = require('./services/categoryIntegrity')
 
 app.use(cors({ exposedHeaders: ['X-Catalog-Cache'] }))
 app.use(express.json())
@@ -17,10 +44,13 @@ const supabase = require('./supabase')
 const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
   ? require('./supabaseAdmin')
   : null
+const requireServiceRole = createServiceRoleMiddleware(supabaseAdmin)
 const { analyzeProduct, createAnalysisContext } = require('./services/priceAnalysisService')
 const {
   fetchDiscoPreviewReport,
   fetchDiscoPromotion,
+  buildDiscoProductTaxonomyFields,
+  getDiscoProductClassification,
   InvalidDiscoPromotionRequestError,
   isValidDiscoProduct,
   findPreviewMatches,
@@ -38,6 +68,7 @@ const {
   compareSimulationReport,
 } = require('./services/importerContract')
 const { syncMamiLowPrices } = require('./services/mamiPriceSync')
+const { annotatePriceUpdateReversibility } = require('./services/priceUpdateReversibility')
 const {
   fetchPreview: fetchCarrefourPreview,
   fetchProductById: fetchCarrefourProductById,
@@ -69,6 +100,10 @@ const {
   summarizeReviewDecisions,
   upsertReviewDecision,
 } = require('./services/reviewDecisionStore')
+const {
+  createCrossSourceDecisionReevaluationService,
+  createReevaluationHandler,
+} = require('./services/crossSourceDecisionReevaluation')
 const {
   approvedMatchCompatibilityIssues,
   buildIdentitySnapshot,
@@ -103,9 +138,16 @@ const { createProductTranslationService } = require('./services/productTranslati
 const {
   PRICE_STATUS_RULES_VERSION,
   createPriceStatusRefreshQueue,
+  buildCurrentPriceStatusRows,
   enqueueIncompletePriceStatuses,
   saveCurrentPriceStatuses,
 } = require('./services/currentPriceStatus')
+const { createDurablePriceStatusRefreshQueue } = require('./services/durablePriceStatusQueue')
+const { createDurablePriceStatusQueueMonitor } = require('./services/durablePriceStatusQueueMonitor')
+const {
+  createFreshPriceStatusAnalyzer,
+  readLegacyComparableProducts,
+} = require('./services/freshPriceStatusAnalysis')
 const priceStatusRulesVersion = PRICE_STATUS_RULES_VERSION
 const catalogSortVersion = '2026-10-26-global-sort-v1'
 const catalogPageCache = createCatalogPageCache()
@@ -114,54 +156,66 @@ const productTranslationService = createProductTranslationService({
   apiKey: process.env.TRANSLATION_SERVICE_API_KEY,
 })
 const publicDiscoSearchCache = new Map()
-const publicDiscoSearchInFlight = new Set()
 let catalogTaxonomyReviewCache = null
 const publicDiscoSearchMaxResults = Math.min(500, Math.max(50, Number(process.env.DISCO_PUBLIC_SEARCH_MAX_RESULTS || 500)))
-const analysisWriter = process.env.SUPABASE_SERVICE_ROLE_KEY ? require('./supabaseAdmin') : supabase
-const priceStatusQueue = createPriceStatusRefreshQueue({
-  refreshBatch: refreshCurrentPriceStatuses,
+const analysisReader = supabase
+const analysisWriter = supabaseAdmin
+const requireProductCatalogWrite = requireProductWriteAllowed(analysisWriter)
+const requireOfferCatalogWrite = requireOfferWriteAllowed(analysisWriter)
+const requireBrandCatalogWrite = requireBrandProductWriteAllowed(analysisWriter)
+const categoryIntegrityHandlers = createCategoryIntegrityHandlers({
+  database: supabaseAdmin,
+  logger: console,
 })
-let analysisCatalogPromise
-let priceUpdateLogsPromise
+const reevaluateCrossSourceDecisions = createReevaluationHandler(
+  createCrossSourceDecisionReevaluationService({ database: supabaseAdmin }),
+)
+const durablePriceStatusQueueEnabled = process.env.PRICE_STATUS_DURABLE_QUEUE_ENABLED === 'true'
+if (durablePriceStatusQueueEnabled && !supabaseAdmin) {
+  throw new Error('PRICE_STATUS_DURABLE_QUEUE_ENABLED requires SUPABASE_SERVICE_ROLE_KEY')
+}
+const freshPriceStatusAnalyzer = createFreshPriceStatusAnalyzer({
+  database: supabaseAdmin || supabase,
+  analyzeProduct,
+  createAnalysisContext,
+  loadComparableProducts: durablePriceStatusQueueEnabled
+    ? undefined
+    : readLegacyComparableProducts,
+  loadPriceUpdateLogs: durablePriceStatusQueueEnabled ? undefined : loadFreshPriceUpdateLogs,
+})
+const priceStatusQueue = durablePriceStatusQueueEnabled
+  ? createDurablePriceStatusRefreshQueue({
+    database: supabaseAdmin,
+    refreshBatch: refreshCurrentPriceStatuses,
+  })
+  : createPriceStatusRefreshQueue({
+    refreshBatch: refreshCurrentPriceStatuses,
+  })
+if (durablePriceStatusQueueEnabled) priceStatusQueue.start()
+const durablePriceStatusQueueMonitor = durablePriceStatusQueueEnabled && supabaseAdmin
+  ? createDurablePriceStatusQueueMonitor({ database: supabaseAdmin })
+  : null
+if (durablePriceStatusQueueMonitor) durablePriceStatusQueueMonitor.start()
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || (
   process.env.NODE_ENV === 'production' ? null : 'arprice-local-dev-session-secret'
 )
-
-function encodeTokenPart(value) {
-  return Buffer.from(value).toString('base64url')
-}
-
-function createAdminToken(username) {
-  if (!sessionSecret) return null
-  const payload = encodeTokenPart(JSON.stringify({ username, expiresAt: Date.now() + 8 * 60 * 60 * 1000 }))
-  const signature = crypto.createHmac('sha256', sessionSecret).update(payload).digest('base64url')
-  return `${payload}.${signature}`
-}
-
-function readAdminToken(token) {
-  if (!sessionSecret || !token) return null
-  const [payload, signature] = token.split('.')
-  if (!payload || !signature) return null
-  const expected = crypto.createHmac('sha256', sessionSecret).update(payload).digest('base64url')
-  const providedBuffer = Buffer.from(signature)
-  const expectedBuffer = Buffer.from(expected)
-  if (providedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(providedBuffer, expectedBuffer)) return null
-  try {
-    const session = JSON.parse(Buffer.from(payload, 'base64url').toString())
-    return session.expiresAt > Date.now() ? session : null
-  } catch {
-    return null
-  }
-}
-
+const {
+  createAdminToken,
+  requireAdmin: authenticateAdmin,
+} = createAdminAuth({ sessionSecret })
 function requireAdmin(req, res, next) {
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
-  const session = readAdminToken(token)
-  if (!session) {
-    return res.status(401).json({ error: 'Authentication required' })
-  }
-  req.admin = session.username
-  next()
+  return authenticateAdmin(req, res, () => {
+    const serviceRoleExemptPaths = new Set([
+      '/upload-csv',
+      '/admin/import/carrefour/status',
+      '/admin/import/mami',
+    ])
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
+      && !serviceRoleExemptPaths.has(req.path)) {
+      return requireServiceRole(req, res, next)
+    }
+    return next()
+  })
 }
 
 const { parsePrice, normalizeNumericValue } = require('./priceNormalization')
@@ -233,13 +287,13 @@ async function readCarrefourMatchCandidates(items) {
   const select = 'id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price, list_price, source_product_id, source_sku, source_url)'
   const requests = []
   if (sourceIds.length) {
-    requests.push(analysisWriter.from('products')
+    requests.push(analysisReader.from('products')
       .select(select)
       .eq('source', 'carrefour')
       .in('source_product_id', sourceIds))
   }
   if (eans.length) {
-    requests.push(analysisWriter.from('products').select(select).in('ean', eans))
+    requests.push(analysisReader.from('products').select(select).in('ean', eans))
   }
   const results = await Promise.all(requests)
   const error = results.find((result) => result.error)?.error
@@ -255,7 +309,7 @@ async function readAllRowsForImport(table, select) {
   const rows = []
   const pageSize = 1000
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await analysisWriter.from(table).select(select).range(from, from + pageSize - 1)
+    const { data, error } = await analysisReader.from(table).select(select).range(from, from + pageSize - 1)
     if (error) return { data: null, error }
     rows.push(...(data || []))
     if (!data || data.length < pageSize) break
@@ -266,15 +320,15 @@ async function readAllRowsForImport(table, select) {
 app.get('/taxonomy', async (req, res) => {
   try {
     const [{ data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
-      analysisWriter.from('categories').select('id, name').order('name'),
-      analysisWriter.from('subcategories').select('id, category_id, name').order('name'),
+      supabase.from('categories').select('id, name').order('name'),
+      supabase.from('subcategories').select('id, category_id, name').order('name'),
     ])
     if (categoriesError || subcategoriesError) {
       console.error('Supabase taxonomy error:', categoriesError || subcategoriesError)
       return res.status(500).json({ error: 'Error fetching taxonomy' })
     }
 
-    const { data: taxonomyCounts, error: countsError } = await analysisWriter.rpc('catalog_taxonomy_counts')
+    const { data: taxonomyCounts, error: countsError } = await supabase.rpc('catalog_taxonomy_counts')
     if (countsError) {
       console.error('Supabase taxonomy counts error:', countsError)
       return res.status(500).json({ error: 'Error fetching taxonomy' })
@@ -331,8 +385,8 @@ app.get('/admin/import/mami/preview', requireAdmin, async (req, res) => {
     const [previewReport, localProductsResult, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
       fetchMamiPreview({ query, from, to }),
       readAllProductsForImport('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket, cash_price)'),
-      analysisWriter.from('categories').select('id, name'),
-      analysisWriter.from('subcategories').select('id, name, category_id'),
+      analysisReader.from('categories').select('id, name'),
+      analysisReader.from('subcategories').select('id, name, category_id'),
     ])
     const { data: localProducts, error: productsError } = localProductsResult
     if (productsError || categoriesError || subcategoriesError) {
@@ -414,7 +468,7 @@ app.post('/admin/import/carrefour/sync', requireAdmin, async (req, res) => {
     )
     if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
     const result = await syncCarrefourPrices({
-      database: analysisWriter,
+      database: supabaseAdmin,
       historyRecorder: recordPriceHistory,
       postalCode,
       onCatalogChange: invalidateCatalogPageCache,
@@ -444,6 +498,9 @@ app.post('/admin/import/carrefour/sync', requireAdmin, async (req, res) => {
     })
   } catch (error) {
     console.error('Error synchronizing Carrefour prices', error)
+    if (isPriceStatusQueueError(error)) {
+      return res.status(503).json(createPriceStatusQueueErrorPayload(error, { rolledBack: null }))
+    }
     res.status(502).json({ error: error.message || 'No se pudieron sincronizar los precios de Carrefour' })
   }
 })
@@ -465,8 +522,8 @@ app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
     const previewReport = await fetchCarrefourPreview({ query, postalCode, from, limit })
     const [localProductsResult, { data: categories, error: categoriesError }, { data: subcategories, error: subcategoriesError }] = await Promise.all([
       readCarrefourMatchCandidates(previewReport.products),
-      analysisWriter.from('categories').select('id, name'),
-      analysisWriter.from('subcategories').select('id, name, category_id'),
+      analysisReader.from('categories').select('id, name'),
+      analysisReader.from('subcategories').select('id, name, category_id'),
     ])
     const { data: localProducts, error: productsError } = localProductsResult
     const catalogError = productsError || categoriesError || subcategoriesError
@@ -574,7 +631,7 @@ app.get('/admin/import/carrefour/preview', requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/admin/import/carrefour/status', requireAdmin, async (req, res) => {
+app.post('/admin/import/carrefour/status', requireAdmin, requireServiceRole, async (req, res) => {
   try {
     const requestedProducts = Array.isArray(req.body?.products) ? req.body.products : []
     if (!requestedProducts.length || requestedProducts.length > CARREFOUR_IMPORT_BATCH_LIMIT) {
@@ -595,11 +652,11 @@ app.post('/admin/import/carrefour/status', requireAdmin, async (req, res) => {
     }
 
     const [sourceResult, eanResult] = await Promise.all([
-      analysisWriter.from('products')
+      analysisReader.from('products')
         .select('id, name, source, source_product_id, ean, offers(id, supermarket, cash_price, list_price)')
         .eq('source', 'carrefour')
         .in('source_product_id', products.map((item) => item.sourceProductId)),
-      analysisWriter.from('products')
+      analysisReader.from('products')
         .select('id, name, source, source_product_id, ean, offers(id, supermarket, cash_price, list_price)')
         .in('ean', [...new Set(products.map((item) => item.ean))]),
     ])
@@ -619,7 +676,7 @@ app.post('/admin/import/carrefour/status', requireAdmin, async (req, res) => {
     let historyByOfferId = new Set()
     let summaryByOfferId = new Map()
     if (offerIds.length) {
-      const historyResults = await Promise.all(offerIds.map((offerId) => analysisWriter.from('price_history')
+      const historyResults = await Promise.all(offerIds.map((offerId) => analysisReader.from('price_history')
         .select('offer_id')
         .eq('offer_id', offerId)
         .eq('source', 'carrefour_import')
@@ -632,7 +689,7 @@ app.post('/admin/import/carrefour/status', requireAdmin, async (req, res) => {
       historyByOfferId = new Set(historyResults
         .flatMap((result) => result.data || [])
         .map((row) => String(row.offer_id)))
-      const { data: summaryRows, error: summaryError } = await analysisWriter.from('catalog_offer_price_summary')
+      const { data: summaryRows, error: summaryError } = await analysisReader.from('catalog_offer_price_summary')
         .select('offer_id, normalized_price')
         .in('offer_id', offerIds)
       if (summaryError) {
@@ -801,8 +858,8 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       { data: brands, error: brandsError },
       existingProductsResult,
     ] = await Promise.all([
-      analysisWriter.from('categories').select('id, name'),
-      analysisWriter.from('subcategories').select('id, name, category_id'),
+      analysisReader.from('categories').select('id, name'),
+      analysisReader.from('subcategories').select('id, name, category_id'),
       readAllRowsForImport('brands', 'id, name'),
       readCarrefourMatchCandidates(currentProducts),
     ])
@@ -826,7 +883,7 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
         savedDecisions = await listProductMatchDecisions({
           source: 'carrefour',
           sourceProductIds: approvedDecisionSourceIds,
-          database: analysisWriter,
+          database: supabaseAdmin,
         })
       } catch (error) {
         console.error('Error loading approved Carrefour match decisions', error)
@@ -872,7 +929,7 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       }
       let targetProducts = []
       if (targetIds.length) {
-        const targetResult = await analysisWriter
+        const targetResult = await analysisReader
           .from('products')
           .select('id, name, source, source_product_id, source_sku, ean, brands(name), offers(id, supermarket, cash_price, list_price, source_product_id, source_sku, source_url)')
           .in('id', targetIds)
@@ -1056,16 +1113,6 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
         brand: item.brand,
         source_category: item.sourceCategory,
       })
-      const category = (categories || []).find((candidate) => candidate.name === suggestion?.category)
-      const subcategory = (subcategories || []).find((candidate) => (
-        candidate.name === suggestion?.subcategory
-        && String(candidate.category_id) === String(category?.id)
-      ))
-      if (!match.product && (!category || !subcategory)) {
-        skipped.push({ sourceProductId, reason: 'Falta mapeo de categoría y subcategoría' })
-        continue
-      }
-
       if (match.product) {
         const existingOffer = match.product.offers?.find((offer) => offer.supermarket === 'Carrefour')
         if (existingOffer) {
@@ -1143,6 +1190,20 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
         continue
       }
 
+      const catalogClassification = resolveCatalogClassification({
+        source: 'Carrefour',
+        sourceProductId,
+        proposedCategory: suggestion?.category,
+        proposedSubcategory: suggestion?.subcategory,
+        categories: categories || [],
+        subcategories: subcategories || [],
+        allowWithoutSubcategory: true,
+      })
+      if (!catalogClassification.valid) {
+        skipped.push({ sourceProductId, reason: catalogClassification.reason })
+        continue
+      }
+
       const normalizedBrandName = normalizeBrandName(item.brand)
       let brand = normalizedBrandName ? brandCache.get(normalizedBrandName) : null
       if (!brand && normalizedBrandName) {
@@ -1173,8 +1234,8 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       const productPayload = {
         name: item.name,
         brand_id: brand?.id || null,
-        category_id: category.id,
-        subcategory_id: subcategory.id,
+        category_id: catalogClassification.category.id,
+        subcategory_id: catalogClassification.subcategory?.id || null,
         image: item.image,
         classification_source: 'automatic',
         classification_confidence: suggestion.confidence,
@@ -1193,6 +1254,12 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       if (productError) {
         if (productError.code === '42703' || productError.code === 'PGRST204') {
           failImport('Falta aplicar la migración de metadatos del catálogo externo', productError.message)
+        }
+        if (productError.code === '23503' || productError.code === '23514') {
+          failImport(
+            'Clasificación inválida para el producto Carrefour',
+            `Carrefour product ${sourceProductId}: ${productError.message}`,
+          )
         }
         failImport('No se pudo crear el producto de Carrefour', productError.message)
       }
@@ -1245,7 +1312,6 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
     })
     if (logError) failImport('No se pudo registrar el lote de importación de Carrefour', logError.message)
 
-    invalidateAnalysisCache()
     for (const productId of new Set([...imported, ...updated].map((entry) => String(entry.productId)))) {
       scheduleRelatedPriceStatusRefresh(productId)
     }
@@ -1302,20 +1368,27 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
       const rollbackErrors = rollbackResults.filter((result) => result.error).map((result) => result.error.message)
       if (rollbackErrors.length) {
         console.error('Carrefour import rollback was incomplete', rollbackErrors)
-        return res.status(500).json({
-          error: error.publicMessage || 'No se pudo completar la importación de Carrefour',
+        return res.status(isPriceStatusQueueError(error) ? 503 : 500).json({
+          ...(createPriceStatusQueueErrorPayload(error, { rolledBack: false }) || {
+            error: error.publicMessage || 'No se pudo completar la importación de Carrefour',
+          }),
           detail: error.message,
           rolledBack: false,
           rollbackErrors,
         })
       }
-      return res.status(500).json({
-        error: error.publicMessage || 'No se pudo completar la importación de Carrefour',
+      return res.status(isPriceStatusQueueError(error) ? 503 : 500).json({
+        ...(createPriceStatusQueueErrorPayload(error, { rolledBack: true }) || {
+          error: error.publicMessage || 'No se pudo completar la importación de Carrefour',
+        }),
         detail: error.message,
         rolledBack: true,
       })
     }
     console.error('Error importing Carrefour products', error)
+    if (isPriceStatusQueueError(error)) {
+      return res.status(503).json(createPriceStatusQueueErrorPayload(error, { rolledBack: true }))
+    }
     res.status(502).json({ error: error.message || 'No se pudo importar Carrefour' })
   }
 })
@@ -1360,7 +1433,7 @@ app.get('/admin/import/compare/preview', requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
+app.post('/admin/import/mami/execute', requireAdmin, requireCatalogWritesFor('Mami'), async (req, res) => {
   const createdProductIds = []
   const createdOfferIds = []
   const createdHistoryIds = []
@@ -1392,6 +1465,7 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
       throw error
     }
     for (const item of items) {
+      assertCatalogWriteAllowed('Mami')
       if (!isValidMamiProduct(item)) {
         skipped.push({ sourceProductId: item.sourceProductId, reason: getMamiInvalidReason(item) || 'Producto inválido' })
         continue
@@ -1410,8 +1484,6 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
       const proposedSubcategory = hasManualTaxonomy
         ? item.proposedSubcategory
         : catalogMapping.status === 'determined' ? catalogMapping.subcategory : null
-      const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
-      const subcategory = (subcategories || []).find((candidate) => candidate.name === proposedSubcategory && String(candidate.category_id) === String(category?.id))
       const sourceProductId = String(item.sourceProductId || '').trim()
       if (sourceProductId && seenSourceProductIds.has(sourceProductId)) {
         skipped.push({ sourceProductId, reason: 'Producto repetido en la selección' })
@@ -1431,6 +1503,7 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
         const existingOffer = existing.offers?.find((offer) => offer.supermarket === 'Mami')
         if (existingOffer) {
           if (!sameMoneyValue(existingOffer.cash_price, item.price)) {
+            assertCatalogWriteAllowed('Mami')
             const { error } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
             if (error) failImport('No se pudo actualizar el precio de Mami', error.message)
             updatedOfferPrices.push({ id: existingOffer.id, cashPrice: existingOffer.cash_price })
@@ -1441,6 +1514,7 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
             unchanged.push({ productId: existing.id, sourceProductId })
           }
         } else {
+          assertCatalogWriteAllowed('Mami')
           const { data: offer, error } = await analysisWriter.from('offers').insert({ product_id: existing.id, supermarket: 'Mami', cash_price: item.price }).select('id, supermarket, cash_price').single()
           if (error) failImport('No se pudo crear la oferta de Mami', error.message)
           createdOfferIds.push(offer.id)
@@ -1451,8 +1525,21 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
         }
         continue
       }
-      if (!category || !subcategory || seenSourceProductIds.has(sourceProductId)) {
-        skipped.push({ sourceProductId, reason: !category || !subcategory ? 'Falta mapeo de categoría' : 'Producto repetido en la selección' })
+      if (seenSourceProductIds.has(sourceProductId)) {
+        skipped.push({ sourceProductId, reason: 'Producto repetido en la selección' })
+        continue
+      }
+      const catalogClassification = resolveCatalogClassification({
+        source: 'Mami',
+        sourceProductId,
+        proposedCategory,
+        proposedSubcategory,
+        categories: categories || [],
+        subcategories: subcategories || [],
+        allowWithoutSubcategory: true,
+      })
+      if (!catalogClassification.valid) {
+        skipped.push({ sourceProductId, reason: catalogClassification.reason })
         continue
       }
       seenSourceProductIds.add(sourceProductId)
@@ -1460,6 +1547,7 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
       let brand = normalizedBrandName ? brandCache.get(normalizedBrandName) : null
       if (!brand && normalizedBrandName) brand = (brands || []).find((candidate) => normalizeBrandName(candidate.name) === normalizedBrandName)
       if (!brand && normalizedBrandName) {
+        assertCatalogWriteAllowed('Mami')
         const { data: createdBrand, error: brandError } = await analysisWriter.from('brands').insert({ name: normalizedBrandName }).select('id, name').single()
         if (brandError) {
           if (brandError.code !== '23505') failImport('No se pudo crear la marca', brandError.message)
@@ -1475,8 +1563,8 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
       const productPayload = {
         name: item.name,
         brand_id: brand?.id || null,
-        category_id: category.id,
-        subcategory_id: subcategory.id,
+        category_id: catalogClassification.category.id,
+        subcategory_id: catalogClassification.subcategory?.id || null,
         image: item.image || null,
         classification_source: hasManualTaxonomy ? 'manual' : 'automatic',
         classification_confidence: hasManualTaxonomy ? 'manual' : catalogMapping.confidence,
@@ -1488,12 +1576,22 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
         source_category: item.sourceCategory || null,
         source_subcategory: proposedSubcategory || null,
       }
+      assertCatalogWriteAllowed('Mami')
       let { data: product, error: productError } = await analysisWriter.from('products').insert(productPayload).select().single()
       if (productError?.code === '42703' || productError?.code === 'PGRST204') {
         ({ data: product, error: productError } = await analysisWriter.from('products').insert({ ...productPayload, source: undefined, source_product_id: undefined, source_sku: undefined, ean: undefined, source_url: undefined, source_category: undefined, source_subcategory: undefined }).select().single())
       }
-      if (productError) failImport('No se pudo crear el producto de Mami', productError.message)
+      if (productError) {
+        if (productError.code === '23503' || productError.code === '23514') {
+          failImport(
+            'Clasificación inválida para el producto Mami',
+            `Mami product ${sourceProductId}: ${productError.message}`,
+          )
+        }
+        failImport('No se pudo crear el producto de Mami', productError.message)
+      }
       createdProductIds.push(product.id)
+      assertCatalogWriteAllowed('Mami')
       const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: product.id, supermarket: 'Mami', cash_price: item.price }).select('id, supermarket, cash_price').single()
       if (offerError) failImport('Producto creado, pero no se pudo crear su oferta', offerError.message)
       createdOfferIds.push(offer.id)
@@ -1515,45 +1613,10 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
       ],
     })
 
-    app.post('/admin/import/mami/update-prices', requireAdmin, async (req, res) => {
-      try {
-        const result = await syncMamiLowPrices({
-          database: analysisWriter,
-          historyRecorder: recordPriceHistory,
-        })
-
-        if (result.updated.length) {
-          const firstChange = result.updated[0]
-          const percentage = firstChange.previousCashPrice > 0
-            ? ((firstChange.updatedCashPrice - firstChange.previousCashPrice) / firstChange.previousCashPrice) * 100
-            : 0
-          const { error: logError } = await analysisWriter.from('price_update_log').insert({
-            admin_username: req.admin,
-            filters: { source: 'mami_price_repair' },
-            percentage,
-            products_updated: result.updated.length,
-            changes: result.updated,
-          })
-          if (logError) throw logError
-        }
-
-        invalidateCatalogPageCache()
-        res.json({
-          checked: result.checked,
-          updated: result.updated,
-          unchanged: result.unchanged.length,
-          skipped: result.skipped,
-        })
-      } catch (error) {
-        console.error('Error repairing low Mami prices', error)
-        res.status(502).json({ error: 'No se pudieron verificar los precios bajos de Mami', detail: error.message })
-      }
-    })
-
     if (logError) console.error('Error recording Mami import update', logError)
     res.json({ source: 'mami', imported, updated, unchanged, skipped, dryRun: false, writeSafety: { productWritesAllowed: true, priceHistoryWritesAllowed: true, mutationSurface: 'mami_import' } })
   } catch (error) {
-    if (error.importFailure) {
+    if (error.importFailure || error.code === 'catalog_maintenance') {
       const rollbackErrors = []
       const rollbackStage = async (operations) => {
         const results = await Promise.all(operations.map(async (operation) => {
@@ -1571,19 +1634,68 @@ app.post('/admin/import/mami/execute', requireAdmin, async (req, res) => {
       await rollbackStage(createdProductIds.map((id) => analysisWriter.from('products').delete().eq('id', id)))
       await rollbackStage(createdBrandIds.map((id) => analysisWriter.from('brands').delete().eq('id', id)))
       if (rollbackErrors.length) console.error('Mami import rollback was incomplete', rollbackErrors)
-      return res.status(500).json({
-        error: error.publicMessage || 'No se pudieron importar los productos de Mami',
+      const queueCapacityPayload = createPriceStatusQueueErrorPayload(error, {
+        rolledBack: rollbackErrors.length === 0,
+      })
+      return res.status(error.code === 'catalog_maintenance' || queueCapacityPayload ? 503 : 500).json({
+        ...(error.code === 'catalog_maintenance' ? { code: error.code, blockedSupermarkets: error.blockedSupermarkets } : {}),
+        ...(queueCapacityPayload || {
+          error: error.publicMessage || 'No se pudieron importar los productos de Mami',
+        }),
         detail: error.message,
         rolledBack: rollbackErrors.length === 0,
         rollbackErrors,
       })
     }
     console.error('Error importing Mami products', error)
+    if (isPriceStatusQueueError(error)) {
+      return res.status(503).json(createPriceStatusQueueErrorPayload(error, { rolledBack: true }))
+    }
     return res.status(500).json({ error: 'No se pudieron importar los productos de Mami', detail: error.message })
   }
 })
 
-app.post('/admin/import/mami', requireAdmin, (req, res) => {
+app.post('/admin/import/mami/update-prices', requireAdmin, requireCatalogWritesFor('Mami'), async (req, res) => {
+  if (!supabaseAdmin) {
+    return res.status(503).json({
+      code: 'service_role_required',
+      error: 'La operación requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.',
+    })
+  }
+  try {
+    const result = await syncMamiLowPrices({
+      database: supabaseAdmin,
+      adminUsername: req.admin,
+    })
+    invalidateCatalogPageCache()
+    res.json({
+      checked: result.checked,
+      updated: result.updated,
+      unchanged: result.unchanged.length,
+      skipped: result.skipped,
+    })
+  } catch (error) {
+    console.error('Error repairing low Mami prices', error)
+    const maintenanceError = error.code === 'catalog_maintenance' || error.message === 'catalog_maintenance'
+    const queueCapacityPayload = createPriceStatusQueueErrorPayload(error)
+    const unknownResult = error.resultUnknown === true
+    res.status(maintenanceError || unknownResult || queueCapacityPayload ? 503 : 502).json({
+      ...(maintenanceError ? { code: 'catalog_maintenance', blockedSupermarkets: error.blockedSupermarkets || ['Mami'] } : {}),
+      ...(queueCapacityPayload || {}),
+      ...(unknownResult ? {
+        code: 'price_sync_result_unknown',
+        resultUnknown: true,
+        operationId: error.operationId,
+      } : error.operationId ? { operationId: error.operationId } : {}),
+      error: queueCapacityPayload?.error || (unknownResult
+        ? 'No se pudo confirmar el resultado de la sincronización Mami. Verifica el registro y las ofertas antes de reintentar.'
+        : 'No se pudieron verificar los precios bajos de Mami'),
+      detail: error.message,
+    })
+  }
+})
+
+app.post('/admin/import/mami', requireAdmin, requireCatalogWritesFor('Mami'), (req, res) => {
   res.status(403).json({
     source: mamiSource,
     dryRun: true,
@@ -1597,7 +1709,7 @@ app.post('/admin/import/mami', requireAdmin, (req, res) => {
   })
 })
 
-app.post('/admin/import/disco', requireAdmin, async (req, res) => {
+app.post('/admin/import/disco', requireAdmin, requireCatalogWritesFor('Disco'), async (req, res) => {
   const createdProductIds = []
   const createdOfferIds = []
   const createdHistoryIds = []
@@ -1632,27 +1744,15 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
     const updated = []
     const unchanged = []
     for (const item of items) {
+      assertCatalogWriteAllowed('Disco')
       if (!isValidDiscoProduct(item)) {
         skipped.push({ sourceProductId: item.sourceProductId, reason: 'Producto inválido o sin precio válido' })
         continue
       }
-      const catalogMapping = suggestCatalogMapping({
-        ...item,
-        name: item.name,
-        brand: item.brand,
-        source_category: item.sourceCategory,
-        source_subcategory: item.proposedSubcategory,
-      })
-      const hasManualTaxonomy = ['manual', 'manual_override'].includes(item.mappingStatus)
-      const proposedCategory = hasManualTaxonomy
-        ? item.proposedCategory
-        : catalogMapping.status === 'determined' ? catalogMapping.category : null
-      const proposedSubcategory = hasManualTaxonomy
-        ? item.proposedSubcategory
-        : catalogMapping.status === 'determined' ? catalogMapping.subcategory : null
+      const classification = getDiscoProductClassification(item)
+      const proposedCategory = classification.proposedCategory
+      const proposedSubcategory = classification.proposedSubcategory
       const sourceProductId = String(item.sourceProductId ?? '').trim()
-      const category = (categories || []).find((candidate) => candidate.name === proposedCategory)
-      const subcategory = (subcategories || []).find((candidate) => candidate.name === proposedSubcategory && String(candidate.category_id) === String(category?.id))
       const existingBySourceId = sourceProductId
         ? (existingProducts || []).find((candidate) => (
           String(candidate.source_product_id || '') === sourceProductId
@@ -1673,6 +1773,7 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         const existingOffer = existing.offers?.find((offer) => offer.supermarket === 'Disco')
         if (existingOffer) {
           if (!sameMoneyValue(existingOffer.cash_price, item.price)) {
+            assertCatalogWriteAllowed('Disco')
             const { error: offerUpdateError } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
             if (offerUpdateError) {
               failImport('No se pudo actualizar la oferta de Disco', offerUpdateError.message)
@@ -1685,6 +1786,7 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
             unchanged.push({ productId: existing.id, sourceProductId, offerId: existingOffer.id })
           }
         } else {
+          assertCatalogWriteAllowed('Disco')
           const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: existing.id, supermarket: 'Disco', cash_price: item.price }).select().single()
           if (offerError) {
             failImport('No se pudo crear la oferta de Disco', offerError.message)
@@ -1697,8 +1799,21 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         }
         continue
       }
-      if (!category || !subcategory || seenSourceProductIds.has(sourceProductId)) {
-        skipped.push({ sourceProductId: item.sourceProductId, reason: !category || !subcategory ? 'Falta precio o mapeo de categoría' : 'Producto repetido en la selección' })
+      if (seenSourceProductIds.has(sourceProductId)) {
+        skipped.push({ sourceProductId: item.sourceProductId, reason: 'Producto repetido en la selección' })
+        continue
+      }
+      const catalogClassification = resolveCatalogClassification({
+        source: 'Disco',
+        sourceProductId,
+        proposedCategory,
+        proposedSubcategory,
+        categories: categories || [],
+        subcategories: subcategories || [],
+        allowWithoutSubcategory: true,
+      })
+      if (!catalogClassification.valid) {
+        skipped.push({ sourceProductId: item.sourceProductId, reason: catalogClassification.reason })
         continue
       }
       if (sourceProductId) {
@@ -1711,6 +1826,7 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       }
       if (!brand && normalizedBrandName) {
         try {
+          assertCatalogWriteAllowed('Disco')
           const { data: createdBrand, error: brandError } = await analysisWriter.from('brands').insert({ name: normalizedBrandName }).select('id, name').single()
           if (brandError) {
             if (brandError.code === '23505' || brandError.code === '23503') {
@@ -1740,11 +1856,10 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       const productPayload = {
         name: item.name,
         brand_id: brand?.id || null,
-        category_id: category.id,
-        subcategory_id: subcategory.id,
+        category_id: catalogClassification.category.id,
+        subcategory_id: catalogClassification.subcategory?.id || null,
         image: item.image || null,
-        classification_source: hasManualTaxonomy ? 'manual' : 'automatic',
-        classification_confidence: hasManualTaxonomy ? 'manual' : catalogMapping.confidence,
+        ...buildDiscoProductTaxonomyFields(item, classification),
       }
       const externalProductFields = {
         source: 'disco',
@@ -1752,9 +1867,8 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
         source_sku: item.sourceSku || null,
         ean: item.ean || null,
         source_url: item.sourceUrl || null,
-        source_category: item.sourceCategory || null,
-        source_subcategory: item.proposedSubcategory || null,
       }
+      assertCatalogWriteAllowed('Disco')
       let { data: product, error: productError } = await analysisWriter
         .from('products')
         .insert({ ...productPayload, ...externalProductFields })
@@ -1769,9 +1883,18 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       }
       if (productError) {
         console.error('Error creating imported Disco product', productError)
-        failImport('No se pudo crear el producto', productError.message)
+        const detail = productError.code === '23503' || productError.code === '23514'
+          ? `Disco product ${sourceProductId}: ${productError.message}`
+          : productError.message
+        failImport(
+          productError.code === '23503' || productError.code === '23514'
+            ? 'Clasificación inválida para el producto Disco'
+            : 'No se pudo crear el producto',
+          detail,
+        )
       }
       createdProductIds.push(product.id)
+      assertCatalogWriteAllowed('Disco')
       const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: product.id, supermarket: 'Disco', cash_price: item.price }).select().single()
       if (offerError) {
         console.error('Error creating imported Disco offer', offerError)
@@ -1784,7 +1907,6 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       existingProducts.push({ ...product, offers: [offer] })
     }
     invalidateCatalogPageCache()
-    invalidateAnalysisCache()
     res.json({ imported, updated, unchanged, skipped })
   } catch (error) {
     console.error('Error importing Disco products', error)
@@ -1807,8 +1929,14 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
       await rollbackStage(createdBrandIds.map((id) => analysisWriter.from('brands').delete().eq('id', id)))
     }
     if (rollbackErrors.length) console.error('Disco import rollback was incomplete', rollbackErrors)
-    res.status(500).json({
-      error: error.publicMessage || 'No se pudieron importar los productos seleccionados',
+    const queueCapacityPayload = createPriceStatusQueueErrorPayload(error, {
+      rolledBack: rollbackErrors.length === 0,
+    })
+    res.status(error.code === 'catalog_maintenance' || queueCapacityPayload ? 503 : 500).json({
+      ...(error.code === 'catalog_maintenance' ? { code: error.code, blockedSupermarkets: error.blockedSupermarkets } : {}),
+      ...(queueCapacityPayload || {
+        error: error.publicMessage || 'No se pudieron importar los productos seleccionados',
+      }),
       detail: error.message,
       ...(error.importFailure || createdHistoryIds.length || updatedOfferPrices.length || createdOfferIds.length || createdProductIds.length || createdBrandIds.length
         ? { rolledBack: rollbackErrors.length === 0, rollbackErrors }
@@ -1817,11 +1945,16 @@ app.post('/admin/import/disco', requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/admin/import/disco/update-prices', requireAdmin, async (req, res) => {
+app.post('/admin/import/disco/update-prices', requireAdmin, requireCatalogWritesFor('Disco'), async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({
+        code: 'service_role_required',
+        error: 'La operación requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.',
+      })
+    }
     const result = await syncDiscoPrices({
-      database: analysisWriter,
-      historyRecorder: recordPriceHistory,
+      database: supabaseAdmin,
       onCatalogChange: invalidateCatalogPageCache,
       adminUsername: req.admin,
       maxCurrentPrice: req.body?.onlyLowPrices ? 1000 : null,
@@ -1835,7 +1968,22 @@ app.post('/admin/import/disco/update-prices', requireAdmin, async (req, res) => 
     })
   } catch (error) {
     console.error('Error updating Disco prices', error)
-    res.status(502).json({ error: 'No se pudieron actualizar los precios de Disco', detail: error.message })
+    const maintenanceError = error.code === 'catalog_maintenance' || error.message === 'catalog_maintenance'
+    const queueCapacityPayload = createPriceStatusQueueErrorPayload(error)
+    const unknownResult = error.resultUnknown === true
+    res.status(maintenanceError || unknownResult || queueCapacityPayload ? 503 : 502).json({
+      ...(maintenanceError ? { code: 'catalog_maintenance', blockedSupermarkets: error.blockedSupermarkets || ['Disco'] } : {}),
+      ...(queueCapacityPayload || {}),
+      ...(unknownResult ? {
+        code: 'price_sync_result_unknown',
+        resultUnknown: true,
+        operationId: error.operationId,
+      } : error.operationId ? { operationId: error.operationId } : {}),
+      error: queueCapacityPayload?.error || (unknownResult
+        ? 'No se pudo confirmar el resultado de la sincronización Disco. Verifica el registro y las ofertas antes de reintentar.'
+        : 'No se pudieron actualizar los precios de Disco'),
+      detail: error.message,
+    })
   }
 })
 
@@ -1846,7 +1994,7 @@ app.post('/admin/import/carrefour/sync', requireAdmin, async (req, res) => {
     )
     if (!postalCode) return res.status(400).json({ error: 'Ingresá un código postal argentino válido' })
     const result = await syncCarrefourPrices({
-      database: analysisWriter,
+      database: supabaseAdmin,
       historyRecorder: recordPriceHistory,
       postalCode,
       onCatalogChange: invalidateCatalogPageCache,
@@ -1876,13 +2024,16 @@ app.post('/admin/import/carrefour/sync', requireAdmin, async (req, res) => {
     })
   } catch (error) {
     console.error('Error synchronizing Carrefour prices', error)
+    if (isPriceStatusQueueError(error)) {
+      return res.status(503).json(createPriceStatusQueueErrorPayload(error, { rolledBack: null }))
+    }
     res.status(502).json({ error: error.message || 'No se pudieron sincronizar los precios de Carrefour' })
   }
 })
 
-app.get('/admin/import/disco/sync-status', requireAdmin, async (req, res) => {
+app.get('/admin/import/disco/sync-status', requireAdmin, requireServiceRole, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('price_update_log')
       .select('updated_at, products_updated, changes, filters')
       .eq('filters->>source', 'disco_sync')
@@ -1902,9 +2053,9 @@ app.get('/admin/import/disco/sync-status', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/admin/import/disco/import-status', requireAdmin, async (req, res) => {
+app.get('/admin/import/disco/import-status', requireAdmin, requireServiceRole, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('price_update_log')
       .select('updated_at, products_updated, filters, changes')
       .eq('filters->>source', 'disco_public_search')
@@ -1926,40 +2077,51 @@ app.get('/admin/import/disco/import-status', requireAdmin, async (req, res) => {
   }
 })
 
-app.put('/products/:id/classification', requireAdmin, async (req, res) => {
+app.put('/products/:id/classification', requireAdmin, requireProductCatalogWrite, async (req, res) => {
   try {
     if (!supabaseAdmin) {
       return res.status(503).json({ error: 'La edición de productos requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
     }
     const { id } = req.params
     const { subcategory_id } = req.body || {}
-    const priceHistoryRecorded = req.body?.priceHistoryRecorded === true
     if (!subcategory_id) return res.status(400).json({ error: 'subcategory_id is required' })
-    const { data: previousProduct, error: previousError } = await analysisWriter
+    if (!isCatalogUuid(subcategory_id)) return res.status(400).json({ error: 'Invalid subcategory_id' })
+    const { data: previousProduct, error: previousError } = await supabaseAdmin
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { data, error } = await analysisWriter.from('products').update({
-      subcategory_id,
-      classification_source: 'manual',
-      classification_confidence: 'manual',
-    }).eq('id', id).select().single()
-    if (error) return res.status(500).json({ error: 'Error updating product classification' })
+    if (!previousProduct) return res.status(404).json({ error: 'Product not found' })
+    const { data, error } = await supabaseAdmin.rpc('update_catalog_product_classification', {
+      p_product_id: Number(id),
+      p_subcategory_id: subcategory_id,
+    })
+    if (error) {
+      console.error('Error updating product classification', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
+      if (error.code === '23503' || error.code === '23514') {
+        return res.status(409).json({ error: 'La clasificación cambió durante la operación; volvé a intentarlo.' })
+      }
+      return res.status(500).json({ error: 'Error updating product classification' })
+    }
+    if (data?.status === 'not_found') return res.status(404).json({ error: 'Product not found' })
+    if (data?.status === 'subcategory_not_found') return res.status(400).json({ error: 'Subcategory not found' })
+    if (data?.status !== 'updated' || !data.product) {
+      console.error('Unexpected update_catalog_product_classification response', data)
+      return res.status(500).json({ error: 'Error updating product classification' })
+    }
     invalidateCatalogPageCache()
     scheduleRelatedPriceStatusRefresh(id, true, previousProduct)
-    res.json(data)
+    res.json(data.product)
   } catch (error) {
     console.error('Error updating product classification', error)
+    const capacityError = createPriceStatusQueueErrorPayload(error, { rolledBack: true })
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
-
-function invalidateAnalysisCache() {
-  analysisCatalogPromise = undefined
-  priceUpdateLogsPromise = undefined
-}
 
 function invalidateCatalogPageCache() {
   catalogPageCache.clear()
@@ -1992,17 +2154,18 @@ async function recordPriceHistory({
   const { data, error } = await historyInsert
   if (error) {
     console.error('Error recording price history', error)
-    if (throwOnError) throw error
+    if (throwOnError || isPriceStatusQueueError(error)) throw error
   }
   else {
     invalidateCatalogPageCache()
-    invalidateAnalysisCache()
     if (scheduleStatusRefresh) scheduleRelatedPriceStatusRefresh(productId)
   }
   return data?.id || null
 }
 
-async function importDiscoSearchResults(search) {
+async function importDiscoSearchResults(search, database = supabaseAdmin, adminUsername = 'admin_import') {
+  requireServiceRoleDatabase(database)
+  assertCatalogWriteAllowed('Disco')
   const normalizedSearch = String(search || '').trim().toLowerCase()
   if (!normalizedSearch) return { imported: 0, updated: 0 }
   const cachedAt = publicDiscoSearchCache.get(normalizedSearch)
@@ -2014,10 +2177,10 @@ async function importDiscoSearchResults(search) {
   if (!preview.length && !previewReport.discarded.length) return { imported: 0, updated: 0 }
 
   const [{ data: categories }, { data: subcategories }, { data: brands }, { data: existingProducts }] = await Promise.all([
-    analysisWriter.from('categories').select('id, name'),
-    analysisWriter.from('subcategories').select('id, name, category_id'),
-    analysisWriter.from('brands').select('id, name'),
-    analysisWriter.from('products').select('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket)'),
+    database.from('categories').select('id, name'),
+    database.from('subcategories').select('id, name, category_id'),
+    database.from('brands').select('id, name'),
+    database.from('products').select('id, name, source, source_product_id, ean, brands(name), offers(id, supermarket)'),
   ])
   const productsBySource = new Map((existingProducts || []).map((product) => [String(product.source_product_id || ''), product]))
   const productsByEan = new Map((existingProducts || []).filter((product) => product.ean).map((product) => [String(product.ean), product]))
@@ -2027,7 +2190,7 @@ async function importDiscoSearchResults(search) {
     .filter(Boolean)
   const latestHistoryByOffer = new Map()
   if (existingOfferIds.length) {
-    const { data: latestHistory, error: historyError } = await analysisWriter
+    const { data: latestHistory, error: historyError } = await database
       .from('price_history')
       .select('offer_id, source, observed_at')
       .in('offer_id', existingOfferIds)
@@ -2050,7 +2213,8 @@ async function importDiscoSearchResults(search) {
         const latestHistory = latestHistoryByOffer.get(String(existingOffer.id))
         const hasManualOverride = ['admin', 'admin_edit', 'bulk_admin'].includes(latestHistory?.source)
         if (hasManualOverride) continue
-        const { error } = await analysisWriter.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
+        const { error } = await database.from('offers').update({ cash_price: item.price }).eq('id', existingOffer.id)
+        if (isPriceStatusQueueError(error)) throw error
         if (!error) {
           await recordPriceHistory({ productId: existing.id, offerId: existingOffer.id, cashPrice: item.price, source: 'disco_public_search' })
           updated++
@@ -2059,42 +2223,61 @@ async function importDiscoSearchResults(search) {
       continue
     }
     if (existing && !existingOffer) {
-      const { data: offer, error } = await analysisWriter.from('offers').insert({ product_id: existing.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
+      const { data: offer, error } = await database.from('offers').insert({ product_id: existing.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
+      if (isPriceStatusQueueError(error)) throw error
       if (!error) {
         await recordPriceHistory({ productId: existing.id, offerId: offer.id, cashPrice: item.price, source: 'disco_public_search' })
         updated++
       }
       continue
     }
-    if (!item.proposedCategory || !item.proposedSubcategory) continue
-    const category = (categories || []).find((candidate) => candidate.name === item.proposedCategory)
-    const subcategory = (subcategories || []).find((candidate) => candidate.name === item.proposedSubcategory && String(candidate.category_id) === String(category?.id))
-    if (!category || !subcategory) continue
+    const classification = getDiscoProductClassification(item)
+    if (!classification.proposedCategory) continue
+    const catalogClassification = resolveCatalogClassification({
+      source: 'Disco',
+      sourceProductId: item.sourceProductId,
+      proposedCategory: classification.proposedCategory,
+      proposedSubcategory: classification.proposedSubcategory,
+      categories: categories || [],
+      subcategories: subcategories || [],
+      allowWithoutSubcategory: true,
+    })
+    if (!catalogClassification.valid) {
+      console.error('Skipping invalid Disco product classification:', catalogClassification.reason)
+      continue
+    }
 
     const brandName = normalizeBrandName(item.brand)
     let brand = brandName ? brandCache.get(brandName) : null
     if (!brand && brandName) {
-      const { data: createdBrand, error: brandError } = await analysisWriter.from('brands').insert({ name: String(item.brand).trim() }).select('id, name').single()
-      if (brandError) continue
+      const { data: createdBrand, error: brandError } = await database.from('brands').insert({ name: String(item.brand).trim() }).select('id, name').single()
+      if (brandError) {
+        if (isPriceStatusQueueError(brandError)) throw brandError
+        continue
+      }
       brand = createdBrand
       brandCache.set(brandName, brand)
     }
-    const { data: product, error: productError } = await analysisWriter.from('products').insert({
+    const { data: product, error: productError } = await database.from('products').insert({
       name: item.name,
       brand_id: brand?.id || null,
-      category_id: category.id,
-      subcategory_id: subcategory.id,
+      category_id: catalogClassification.category.id,
+      subcategory_id: catalogClassification.subcategory?.id || null,
       image: item.image || null,
       source: 'disco',
       source_product_id: String(item.sourceProductId),
       source_sku: item.sourceSku || null,
       ean: item.ean || null,
       source_url: item.sourceUrl || null,
-      source_category: item.sourceCategory || null,
-      source_subcategory: item.proposedSubcategory || null,
+      ...buildDiscoProductTaxonomyFields(item, classification),
     }).select('id').single()
-    if (productError) continue
-    const { data: offer, error: offerError } = await analysisWriter.from('offers').insert({ product_id: product.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
+    if (productError) {
+      console.error(`Disco public search could not insert product ${item.sourceProductId}:`, productError)
+      if (isPriceStatusQueueError(productError)) throw productError
+      continue
+    }
+    const { data: offer, error: offerError } = await database.from('offers').insert({ product_id: product.id, supermarket: 'Disco', cash_price: item.price }).select('id').single()
+    if (isPriceStatusQueueError(offerError)) throw offerError
     if (!offerError) {
       await recordPriceHistory({ productId: product.id, offerId: offer.id, cashPrice: item.price, source: 'disco_public_search' })
       imported++
@@ -2104,29 +2287,25 @@ async function importDiscoSearchResults(search) {
     counts[product.reason] = (counts[product.reason] || 0) + 1
     return counts
   }, {})
-  const { error: logError } = await analysisWriter.from('price_update_log').insert({
-    admin_username: 'public_search',
+  const { error: logError } = await database.from('price_update_log').insert({
+    admin_username: adminUsername,
     filters: { source: 'disco_public_search', query: normalizedSearch, discarded: discardedByReason },
     percentage: 0,
     products_updated: imported + updated,
     changes: [{ imported, updated, discarded: previewReport.discarded.length }],
   })
+  if (isPriceStatusQueueError(logError)) throw logError
   if (logError) console.error('Error recording public Disco search', logError.message)
   return { imported, updated, discarded: previewReport.discarded.length }
 }
 
-function scheduleDiscoSearchResults(search) {
-  const normalizedSearch = String(search || '').trim().toLowerCase()
-  const cachedAt = publicDiscoSearchCache.get(normalizedSearch)
-  if (!normalizedSearch || (cachedAt && Date.now() - cachedAt < 5 * 60 * 1000) || publicDiscoSearchInFlight.has(normalizedSearch)) return
+const discoSearchImportHandler = createDiscoSearchImportHandler({
+  database: supabaseAdmin,
+  importSearchResults: (search, adminUsername) => importDiscoSearchResults(search, supabaseAdmin, adminUsername),
+  logger: console,
+})
 
-  publicDiscoSearchInFlight.add(normalizedSearch)
-  setImmediate(() => {
-    importDiscoSearchResults(normalizedSearch)
-      .catch((error) => console.error('Disco search import failed', error.message))
-      .finally(() => publicDiscoSearchInFlight.delete(normalizedSearch))
-  })
-}
+app.post('/admin/import/disco/search', requireAdmin, requireCatalogWritesFor('Disco'), discoSearchImportHandler)
 
 app.get('/products/search', async (req, res) => {
   const search = String(req.query.search || '').trim()
@@ -2139,7 +2318,7 @@ app.get('/products/search', async (req, res) => {
   }
 
   try {
-    const products = await searchCatalogProducts(analysisWriter, search, limit)
+    const products = await searchCatalogProducts(analysisReader, search, limit)
     return res.json({ data: products, total: products.length, page: 1, limit })
   } catch (error) {
     console.error('Catalog product search failed', error)
@@ -2197,7 +2376,7 @@ app.get('/products', async (req, res) => {
       catalogSortVersion,
     })
     const fetchCatalogPage = async (requestedPage, requestedPageLimit) => {
-      const { data: payload, error } = await analysisWriter.rpc('catalog_products_page', {
+      const { data: payload, error } = await supabase.rpc('catalog_products_page', {
         ...queryArgs,
         p_page: requestedPage,
         p_limit: requestedPageLimit,
@@ -2246,132 +2425,49 @@ app.get('/products', async (req, res) => {
   }
 })
 
-async function getProductAnalyses(productIds) {
-  const { products, analysisContext } = await getAnalysisCatalog()
-  const targetIds = productIds ? new Set(productIds.map(String)) : null
-  const targetProducts = (products || []).filter((product) => !targetIds || targetIds.has(String(product.id)))
-  if (!targetProducts.length) return []
-  const targetProductIds = targetProducts.map((product) => product.id)
-  const history = []
+async function loadFreshPriceUpdateLogs(database, productIds) {
+  const targetIds = new Set(productIds.map(String))
+  const logs = []
   const pageSize = 500
-  for (let index = 0; index < targetProductIds.length; index += 100) {
-    const ids = targetProductIds.slice(index, index + 100)
-    for (let offset = 0; ; offset += pageSize) {
-      const { data, error } = await supabase
-        .from('price_history')
-        .select('*')
-        .in('product_id', ids)
-        .order('observed_at', { ascending: true })
-        .range(offset, offset + pageSize - 1)
-      if (error) {
-        const historyError = new Error('Price history query failed', { cause: error })
-        historyError.priceHistoryUnavailable = true
-        throw historyError
-      }
-      history.push(...(data || []))
-      if ((data || []).length < pageSize) break
-    }
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await database
+      .from('price_update_log')
+      .select('updated_at, changes')
+      .order('updated_at', { ascending: true })
+      .range(offset, offset + pageSize - 1)
+    if (error) throw error
+    logs.push(...(data || []))
+    if (!data || data.length < pageSize) break
   }
-
-  const updateLogs = await getPriceUpdateLogs()
-
-  const historyByProduct = new Map()
-  for (const point of history || []) {
-    const points = historyByProduct.get(String(point.product_id)) || []
-    points.push(point)
-    historyByProduct.set(String(point.product_id), points)
-  }
-  for (const update of updateLogs || []) {
-    for (const change of Array.isArray(update.changes) ? update.changes : []) {
-      if (!change.productId || !change.updatedCashPrice
-        || (targetIds && !targetIds.has(String(change.productId)))) continue
-      const points = historyByProduct.get(String(change.productId)) || []
-      const alreadyRecorded = points.some((point) => String(point.offer_id) === String(change.offerId)
-        && Number(point.cash_price) === Number(change.updatedCashPrice))
-      if (!alreadyRecorded) {
-        points.push({
-          product_id: change.productId,
-          offer_id: change.offerId,
-          observed_at: update.updated_at,
-          cash_price: change.updatedCashPrice,
-          source: 'bulk_admin_log',
-        })
-        historyByProduct.set(String(change.productId), points)
-      }
-    }
-  }
-
-  return Promise.all(targetProducts.map((product) => analyzeProduct(
-    product,
-    products,
-    historyByProduct.get(String(product.id)) || [],
-    product.categories?.name || '',
-    analysisContext,
-  )))
-}
-
-async function getAnalysisCatalog() {
-  if (!analysisCatalogPromise) {
-    analysisCatalogPromise = (async () => {
-      const products = []
-      const pageSize = 500
-      for (let offset = 0; ; offset += pageSize) {
-        const { data, error } = await supabase
-          .from('products')
-          .select('*, offers(*), categories(name), subcategories(name), brands(name)')
-          .order('id', { ascending: true })
-          .range(offset, offset + pageSize - 1)
-        if (error) throw error
-        products.push(...(data || []))
-        if ((data || []).length < pageSize) break
-      }
-      return { products, analysisContext: await createAnalysisContext(products) }
-    })().catch((error) => {
-      analysisCatalogPromise = undefined
-      throw error
-    })
-  }
-  return analysisCatalogPromise
-}
-
-async function getPriceUpdateLogs() {
-  if (!priceUpdateLogsPromise) {
-    priceUpdateLogsPromise = (async () => {
-      const logs = []
-      const pageSize = 500
-      for (let offset = 0; ; offset += pageSize) {
-        const { data, error } = await supabase
-          .from('price_update_log')
-          .select('updated_at, changes')
-          .order('updated_at', { ascending: true })
-          .range(offset, offset + pageSize - 1)
-        if (error) {
-          console.error('Error fetching price update history', error)
-          throw error
-        }
-        logs.push(...(data || []))
-        if ((data || []).length < pageSize) break
-      }
-      return logs
-    })().catch((error) => {
-      priceUpdateLogsPromise = undefined
-      throw error
-    })
-  }
-  return priceUpdateLogsPromise
+  return logs.filter((log) => Array.isArray(log.changes)
+    && log.changes.some((change) => targetIds.has(String(change.productId))))
 }
 
 async function refreshCurrentPriceStatuses(productIds) {
-  const analyses = await getProductAnalyses(productIds)
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    await saveCurrentPriceStatuses(analysisWriter, analyses)
+  const analyses = await freshPriceStatusAnalyzer.analyzeProductIds(productIds)
+  const rows = buildCurrentPriceStatusRows(analyses)
+  if (durablePriceStatusQueueEnabled) {
+    return rows
   }
+
+  const expectedIds = new Set(productIds.map(String))
+  const actualIds = new Set(rows.map((row) => row.product_id))
+  if (rows.length !== expectedIds.size
+    || actualIds.size !== expectedIds.size
+    || [...expectedIds].some((productId) => !actualIds.has(productId))) {
+    throw new Error('Fresh price analysis did not produce exactly one persistable status for every product')
+  }
+
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return saveCurrentPriceStatuses(supabaseAdmin, analyses)
+  }
+  return []
 }
 
 async function enqueueRelatedPriceStatuses(productId, includeScope = true, previousProduct = null) {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return
   const ids = new Set([String(productId)])
-  const { data: dependents, error: dependencyError } = await analysisWriter
+  const { data: dependents, error: dependencyError } = await analysisReader
     .from('product_price_status')
     .select('product_id')
     .contains('comparable_product_ids', [productId])
@@ -2401,11 +2497,11 @@ async function enqueueRelatedPriceStatuses(productId, includeScope = true, previ
     }
   }
 
-  priceStatusQueue.enqueue([...ids])
+  await priceStatusQueue.enqueue([...ids])
 }
 
 function scheduleRelatedPriceStatusRefresh(productId, includeScope = true, previousProduct = null) {
-  invalidateAnalysisCache()
+  if (durablePriceStatusQueueEnabled) return
   void enqueueRelatedPriceStatuses(productId, includeScope, previousProduct)
     .catch((error) => console.error('Unable to queue related current price statuses', error))
 }
@@ -2437,7 +2533,7 @@ function serializeCurrentPriceStatus(status) {
 
 app.get('/analysis/products/:productId', async (req, res) => {
   try {
-    const { data, error } = await analysisWriter
+    const { data, error } = await analysisReader
       .from('product_price_status')
       .select('product_id, classification, anomaly_score, offer_score, confidence, confidence_percentage, data_quality, analysis_details, analyzed_at')
       .eq('product_id', req.params.productId)
@@ -2617,7 +2713,7 @@ app.post('/review/catalog-taxonomy-decisions', requireAdmin, async (req, res) =>
     }
 
     if (status === 'pending') {
-      const { error } = await analysisWriter
+      const { error } = await supabaseAdmin
         .from('catalog_taxonomy_review_decisions')
         .delete()
         .eq('product_id', productId)
@@ -2628,23 +2724,23 @@ app.post('/review/catalog-taxonomy-decisions', requireAdmin, async (req, res) =>
 
     if (status === 'resolved') {
       const subcategoryId = String(req.body?.subcategoryId || '').trim()
-      if (!subcategoryId) {
-        return res.status(400).json({ error: 'subcategoryId is required to resolve a product' })
+      if (!isCatalogUuid(subcategoryId)) {
+        return res.status(400).json({ error: 'A valid subcategoryId is required to resolve a product' })
       }
 
       const [
         { data: subcategory, error: subcategoryError },
         { data: previousProduct, error: productError },
       ] = await Promise.all([
-        analysisWriter.from('subcategories').select('id,category_id').eq('id', subcategoryId).maybeSingle(),
-        analysisWriter.from('products').select('id,category_id,subcategory_id').eq('id', productId).maybeSingle(),
+        supabaseAdmin.from('subcategories').select('id,category_id').eq('id', subcategoryId).maybeSingle(),
+        supabaseAdmin.from('products').select('id,category_id,subcategory_id').eq('id', productId).maybeSingle(),
       ])
       if (subcategoryError) throw subcategoryError
       if (productError) throw productError
       if (!subcategory) return res.status(400).json({ error: 'La subcategoría seleccionada no existe' })
       if (!previousProduct) return res.status(404).json({ error: 'No se encontró el producto' })
 
-      const { error: updateError } = await analysisWriter
+      const { error: updateError } = await supabaseAdmin
         .from('products')
         .update({
           category_id: subcategory.category_id,
@@ -2664,7 +2760,7 @@ app.post('/review/catalog-taxonomy-decisions', requireAdmin, async (req, res) =>
       }
     }
 
-    const { data: decision, error: decisionError } = await analysisWriter
+    const { data: decision, error: decisionError } = await supabaseAdmin
       .from('catalog_taxonomy_review_decisions')
       .upsert({
         product_id: Number(productId),
@@ -2680,6 +2776,13 @@ app.post('/review/catalog-taxonomy-decisions', requireAdmin, async (req, res) =>
     res.json({ success: true, decision })
   } catch (error) {
     console.error('Error saving catalog taxonomy review decision', error)
+    const capacityError = createPriceStatusQueueErrorPayload(error, { rolledBack: true })
+    if (capacityError) return res.status(503).json(capacityError)
+    if (error.code === '23503' || error.code === '23514') {
+      return res.status(409).json({
+        error: 'La clasificación cambió durante la operación; volvé a intentarlo.',
+      })
+    }
     res.status(500).json({
       error: 'No se pudo guardar la decisión de revisión',
       detail: error.message || 'Unknown error',
@@ -2687,7 +2790,7 @@ app.post('/review/catalog-taxonomy-decisions', requireAdmin, async (req, res) =>
   }
 })
 
-app.get('/analysis/cross-source-matches', requireAdmin, async (req, res) => {
+app.get('/analysis/cross-source-matches', requireAdmin, requireServiceRole, async (req, res) => {
   try {
     const sourceFilter = String(req.query.source || '').trim().toLowerCase()
     const allowedSources = new Set(['mami', 'disco', 'all'])
@@ -2696,7 +2799,7 @@ app.get('/analysis/cross-source-matches', requireAdmin, async (req, res) => {
     const sourceQueries = []
     if (selectedSources === 'all' || selectedSources === 'mami') {
       sourceQueries.push(
-        analysisWriter
+        analysisReader
           .from('products')
           .select('id,name,image,source,source_product_id,source_sku,ean,category_id,subcategory_id,brands(name),categories(name),subcategories(name),offers(supermarket,cash_price)')
           .eq('source', 'mami')
@@ -2705,7 +2808,7 @@ app.get('/analysis/cross-source-matches', requireAdmin, async (req, res) => {
     }
     if (selectedSources === 'all' || selectedSources === 'disco') {
       sourceQueries.push(
-        analysisWriter
+        analysisReader
           .from('products')
           .select('id,name,image,source,source_product_id,source_sku,ean,category_id,subcategory_id,brands(name),categories(name),subcategories(name),offers(supermarket,cash_price)')
           .eq('source', 'disco')
@@ -2755,7 +2858,7 @@ app.get('/analysis/cross-source-matches', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/review/cross-source-decisions', requireAdmin, async (req, res) => {
+app.get('/review/cross-source-decisions', requireAdmin, requireServiceRole, async (req, res) => {
   const decisions = await listReviewDecisions()
   const productIds = [...new Set(decisions
     .flatMap((decision) => [decision.mamiProductId, decision.discoProductId])
@@ -2788,6 +2891,8 @@ app.get('/review/cross-source-decisions', requireAdmin, async (req, res) => {
   })
 })
 
+app.post('/review/cross-source-decisions/reevaluate', requireAdmin, reevaluateCrossSourceDecisions)
+
 app.post('/review/cross-source-decisions', requireAdmin, async (req, res) => {
   try {
     const { pairKey, mamiProductId, discoProductId, status, reasonCodes = [], confidence, evidence = {} } = req.body || {}
@@ -2813,7 +2918,7 @@ app.post('/review/cross-source-decisions', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/review/product-match-decisions', requireAdmin, async (req, res) => {
+app.get('/review/product-match-decisions', requireAdmin, requireServiceRole, async (req, res) => {
   try {
     const source = String(req.query.source || '').trim().toLowerCase()
     const sourceProductId = String(req.query.sourceProductId || '').trim()
@@ -2961,7 +3066,7 @@ app.post('/upload-csv', requireAdmin, (req, res) => {
 
 app.get('/categories', async (req, res) => {
   try {
-    const { data, error } = await analysisWriter.from('categories').select('id, name')
+    const { data, error } = await supabase.from('categories').select('id, name')
     if (error) return res.status(500).json([])
     res.json(data || [])
   } catch {
@@ -2973,14 +3078,18 @@ app.post('/categories', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body || {}
     if (!name) return res.status(400).json({ error: 'Category name is required' })
-    const { data, error } = await supabase.from('categories').insert({ name }).select().single()
+    const { data, error } = await supabaseAdmin.from('categories').insert({ name }).select().single()
     if (error) {
       console.error('Error creating category', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: 'Error creating category' })
     }
     res.json(data)
   } catch (error) {
     console.error(error)
+    const capacityError = createPriceStatusQueueErrorPayload(error)
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -2990,14 +3099,18 @@ app.put('/categories/:id', requireAdmin, async (req, res) => {
     const { name } = req.body || {}
     const { id } = req.params
     if (!name) return res.status(400).json({ error: 'Category name is required' })
-    const { data, error } = await supabase.from('categories').update({ name }).eq('id', id).select().single()
+    const { data, error } = await supabaseAdmin.from('categories').update({ name }).eq('id', id).select().single()
     if (error) {
       console.error('Error updating category', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: 'Error updating category' })
     }
     res.json(data)
   } catch (error) {
     console.error(error)
+    const capacityError = createPriceStatusQueueErrorPayload(error)
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -3016,14 +3129,18 @@ app.delete('/categories/:id', requireAdmin, async (req, res) => {
     if (productCount > 0) {
       return res.status(409).json({ error: 'No se puede eliminar: la categoría tiene productos asociados' })
     }
-    const { error } = await supabase.from('categories').delete().eq('id', id)
+    const { error } = await supabaseAdmin.from('categories').delete().eq('id', id)
     if (error) {
       console.error('Error deleting category', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: error.message || 'Error deleting category' })
     }
     res.json({ success: true })
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e)
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -3031,52 +3148,50 @@ app.delete('/categories/:id', requireAdmin, async (req, res) => {
 app.post('/subcategories', requireAdmin, async (req, res) => {
   try {
     const { name, category_id } = req.body || {}
-    if (!name?.trim() || !category_id) return res.status(400).json({ error: 'Subcategory name and category are required' })
-    const { data, error } = await supabase.from('subcategories').insert({ name: name.trim(), category_id }).select().single()
+    const categoryId = normalizeOptionalReference(category_id)
+    if (!name?.trim() || !categoryId) {
+      return res.status(400).json({ error: 'Subcategory name and category are required' })
+    }
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Subcategory administration requires SUPABASE_SERVICE_ROLE_KEY' })
+    }
+    const classification = await validateProductClassification(
+      supabaseAdmin,
+      categoryId,
+      null,
+    )
+    if (!classification.valid) {
+      return res.status(classification.status).json({ error: classification.error })
+    }
+    const { data, error } = await supabaseAdmin.from('subcategories')
+      .insert({ name: name.trim(), category_id: classification.categoryId })
+      .select()
+      .single()
     if (error) {
       console.error('Error creating subcategory', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
+      if (error.code === '23503') {
+        return res.status(409).json({ error: 'The selected category changed during the operation.' })
+      }
       return res.status(500).json({ error: 'Error creating subcategory' })
     }
     res.json(data)
   } catch (error) {
     console.error(error)
+    const capacityError = createPriceStatusQueueErrorPayload(error)
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.put('/subcategories/:id', requireAdmin, async (req, res) => {
-  try {
-    const { name, category_id } = req.body || {}
-    if (!name?.trim() || !category_id) return res.status(400).json({ error: 'Subcategory name and category are required' })
-    const { data, error } = await supabase.from('subcategories').update({ name: name.trim(), category_id }).eq('id', req.params.id).select().single()
-    if (error) {
-      console.error('Error updating subcategory', error)
-      return res.status(500).json({ error: 'Error updating subcategory' })
-    }
-    res.json(data)
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+app.put('/subcategories/:id', requireAdmin, categoryIntegrityHandlers.update)
 
-app.delete('/subcategories/:id', requireAdmin, async (req, res) => {
-  try {
-    const { error } = await supabase.from('subcategories').delete().eq('id', req.params.id)
-    if (error) {
-      console.error('Error deleting subcategory', error)
-      return res.status(500).json({ error: 'Error deleting subcategory' })
-    }
-    res.json({ success: true })
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+app.delete('/subcategories/:id', requireAdmin, categoryIntegrityHandlers.remove)
 
 app.get('/brands', async (req, res) => {
   try {
-    const { data, error } = await analysisWriter.from('brands').select('id, name')
+    const { data, error } = await supabase.from('brands').select('id, name')
     if (error) return res.status(500).json([])
     res.json(data || [])
   } catch {
@@ -3101,19 +3216,23 @@ app.post('/brands', requireAdmin, async (req, res) => {
       return res.json(existing)
     }
 
-    const { data, error } = await supabase.from('brands').insert({ name: normalizedName }).select().single()
+    const { data, error } = await supabaseAdmin.from('brands').insert({ name: normalizedName }).select().single()
     if (error) {
       console.error('Error creating brand', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: 'Error creating brand' })
     }
     res.json(data)
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e)
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.put('/brands/:id', requireAdmin, async (req, res) => {
+app.put('/brands/:id', requireAdmin, requireBrandCatalogWrite, async (req, res) => {
   try {
     const { name } = req.body || {}
     const { id } = req.params
@@ -3131,19 +3250,23 @@ app.put('/brands/:id', requireAdmin, async (req, res) => {
       return res.status(409).json({ error: 'Ya existe una marca equivalente', duplicate })
     }
 
-    const { data, error } = await supabase.from('brands').update({ name: normalizedName }).eq('id', id).select().single()
+    const { data, error } = await supabaseAdmin.from('brands').update({ name: normalizedName }).eq('id', id).select().single()
     if (error) {
       console.error('Error updating brand', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: 'Error updating brand' })
     }
     res.json(data)
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e)
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.delete('/brands/:id', requireAdmin, async (req, res) => {
+app.delete('/brands/:id', requireAdmin, requireBrandCatalogWrite, async (req, res) => {
   try {
     const { id } = req.params
 
@@ -3161,29 +3284,35 @@ app.delete('/brands/:id', requireAdmin, async (req, res) => {
 
     const replacementBrand = (otherBrands || []).find((brand) => normalizeBrandName(brand.name) === normalizedTarget)
     if (replacementBrand) {
-      const { error: reassignError } = await supabase.from('products').update({ brand_id: replacementBrand.id }).eq('brand_id', id)
+      const { error: reassignError } = await supabaseAdmin.from('products').update({ brand_id: replacementBrand.id }).eq('brand_id', id)
       if (reassignError) {
         console.error('Error reassigning products before deleting brand', reassignError)
+        const capacityError = createPriceStatusQueueErrorPayload(reassignError)
+        if (capacityError) return res.status(503).json(capacityError)
         return res.status(500).json({ error: 'No se pudo reubicar los productos antes de borrar la marca' })
       }
     }
 
-    const { error } = await supabase.from('brands').delete().eq('id', id)
+    const { error } = await supabaseAdmin.from('brands').delete().eq('id', id)
     if (error) {
       console.error('Error deleting brand', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: 'Error deleting brand' })
     }
 
     res.json({ success: true })
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e)
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
 app.get('/supermarkets', async (req, res) => {
   try {
-    const { data, error } = await analysisWriter.from('supermarkets').select('id, name, image').order('name')
+    const { data, error } = await supabase.from('supermarkets').select('id, name, image').order('name')
     if (error) return res.status(500).json([])
     res.json(data || [])
   } catch {
@@ -3206,7 +3335,7 @@ app.post('/supermarkets', requireAdmin, async (req, res) => {
   try {
     const { name, image } = req.body || {}
     if (!name?.trim()) return res.status(400).json({ error: 'Supermarket name is required' })
-    const { data, error } = await supabase.from('supermarkets').insert({ name: name.trim(), image: image?.trim() || null }).select().single()
+    const { data, error } = await supabaseAdmin.from('supermarkets').insert({ name: name.trim(), image: image?.trim() || null }).select().single()
     if (error) {
       console.error('Error creating supermarket', error)
       return res.status(500).json({ error: 'Error creating supermarket' })
@@ -3222,7 +3351,7 @@ app.put('/supermarkets/:id', requireAdmin, async (req, res) => {
   try {
     const { name, image } = req.body || {}
     if (!name?.trim()) return res.status(400).json({ error: 'Supermarket name is required' })
-    const { data, error } = await supabase.from('supermarkets').update({ name: name.trim(), image: image?.trim() || null }).eq('id', req.params.id).select().single()
+    const { data, error } = await supabaseAdmin.from('supermarkets').update({ name: name.trim(), image: image?.trim() || null }).eq('id', req.params.id).select().single()
     if (error) {
       console.error('Error updating supermarket', error)
       return res.status(500).json({ error: 'Error updating supermarket' })
@@ -3236,7 +3365,7 @@ app.put('/supermarkets/:id', requireAdmin, async (req, res) => {
 
 app.delete('/supermarkets/:id', requireAdmin, async (req, res) => {
   try {
-    const { error } = await supabase.from('supermarkets').delete().eq('id', req.params.id)
+    const { error } = await supabaseAdmin.from('supermarkets').delete().eq('id', req.params.id)
     if (error) {
       console.error('Error deleting supermarket', error)
       return res.status(500).json({ error: 'Error deleting supermarket' })
@@ -3248,8 +3377,11 @@ app.delete('/supermarkets/:id', requireAdmin, async (req, res) => {
   }
 })
 
-app.post('/products', requireAdmin, async (req, res) => {
+app.post('/products', requireAdmin, requireCatalogWriteAllowedFromBody(), async (req, res) => {
   try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'La edición de productos requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
+    }
     const { 
       name,
       category_id,
@@ -3265,15 +3397,24 @@ app.post('/products', requireAdmin, async (req, res) => {
 
     if (!name) return res.status(400).json({ error: 'Product name is required' })
 
-    const { data: product, error: productError } = await analysisWriter
+    const classification = await validateProductClassification(
+      supabaseAdmin,
+      normalizeOptionalReference(category_id),
+      normalizeOptionalReference(subcategory_id),
+    )
+    if (!classification.valid) {
+      return res.status(classification.status).json({ error: classification.error })
+    }
+
+    const { data: product, error: productError } = await supabaseAdmin
       .from('products')
       .insert({
         name,
-        category_id: normalizeOptionalReference(category_id),
+        category_id: classification.categoryId,
         brand_id: normalizeOptionalReference(brand_id),
         rating,
         image,
-        subcategory_id: subcategory_id || null,
+        subcategory_id: classification.subcategoryId,
         classification_source: subcategory_id ? 'manual' : null,
         classification_confidence: subcategory_id ? 'manual' : null,
       })
@@ -3281,6 +3422,11 @@ app.post('/products', requireAdmin, async (req, res) => {
       .single()
     if (productError) {
       console.error('Error creating product', productError)
+      const capacityError = createPriceStatusQueueErrorPayload(productError)
+      if (capacityError) return res.status(503).json(capacityError)
+      if (productError.code === '23503' || productError.code === '23514') {
+        return res.status(409).json({ error: 'La categoría y subcategoría seleccionadas son incompatibles.' })
+      }
       return res.status(500).json({ error: 'Error creating product' })
     }
 
@@ -3290,7 +3436,7 @@ app.post('/products', requireAdmin, async (req, res) => {
       const normalizedInstallmentsQuantity = parsePrice(installmentsQuantity)
       const normalizedInstallmentPrice = parsePrice(installmentPrice)
       if (cashPrice && (!normalizedCashPrice || normalizedCashPrice <= 0)) {
-        await analysisWriter.from('products').delete().eq('id', product.id)
+        await supabaseAdmin.from('products').delete().eq('id', product.id)
         return res.status(400).json({ error: 'El precio contado debe ser un número mayor que cero' })
       }
       const { data: newOffer, error: offerError } = await analysisWriter
@@ -3307,7 +3453,17 @@ app.post('/products', requireAdmin, async (req, res) => {
 
       if (offerError) {
         console.error('Error creating offer', offerError)
-        await analysisWriter.from('products').delete().eq('id', product.id)
+        const { error: rollbackError } = await supabaseAdmin.from('products').delete().eq('id', product.id)
+        const capacityError = createPriceStatusQueueErrorPayload(offerError, {
+          rolledBack: !rollbackError,
+        })
+        if (capacityError) {
+          return res.status(503).json({
+            ...capacityError,
+            rolledBack: !rollbackError,
+            ...(rollbackError ? { rollbackError: rollbackError.message } : {}),
+          })
+        }
         return res.status(500).json({ error: offerError.message || 'Error creating offer' })
       }
       offer = newOffer
@@ -3320,38 +3476,83 @@ app.post('/products', requireAdmin, async (req, res) => {
     res.json(responsePayload)
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e, { rolledBack: true })
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.put('/products/:id', requireAdmin, async (req, res) => {
+app.put('/products/:id', requireAdmin, requireProductCatalogWrite, async (req, res) => {
   try {
     if (!supabaseAdmin) {
       return res.status(503).json({ error: 'La edición de productos requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
     }
-    const { id } = req.params 
-    const { name, category_id, brand_id, rating, image } = req.body || {}
-    const { data: previousProduct, error: previousError } = await analysisWriter
+    const { id } = req.params
+    const { name, category_id, subcategory_id, brand_id, rating, image } = req.body || {}
+    const body = req.body || {}
+    const { data: previousProduct, error: previousError } = await supabaseAdmin
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { data, error } = await analysisWriter
+    if (!previousProduct) return res.status(404).json({ error: 'Product not found' })
+
+    const updatesClassification = Object.hasOwn(body, 'category_id') || Object.hasOwn(body, 'subcategory_id')
+    let classification
+    if (updatesClassification) {
+      const requestedSubcategoryId = Object.hasOwn(body, 'subcategory_id')
+        ? normalizeOptionalReference(subcategory_id)
+        : previousProduct.subcategory_id
+      const requestedCategoryId = Object.hasOwn(body, 'category_id')
+        ? normalizeOptionalReference(category_id)
+        : null
+      const inferCategoryFromSubcategory =
+        !Object.hasOwn(body, 'category_id')
+        && Object.hasOwn(body, 'subcategory_id')
+        && Boolean(requestedSubcategoryId)
+      if (Object.hasOwn(body, 'category_id') && !requestedCategoryId && requestedSubcategoryId) {
+        return res.status(409).json({ error: 'A category is required when a subcategory is selected.' })
+      }
+      classification = await validateProductClassification(
+        supabaseAdmin,
+        Object.hasOwn(body, 'category_id')
+          ? requestedCategoryId
+          : inferCategoryFromSubcategory ? null : previousProduct.category_id,
+        requestedSubcategoryId,
+      )
+      if (!classification.valid) {
+        return res.status(classification.status).json({ error: classification.error })
+      }
+    }
+
+    const changes = {
+      name,
+      brand_id: normalizeOptionalReference(brand_id),
+      rating,
+      image,
+    }
+    if (updatesClassification) {
+      changes.category_id = classification.categoryId
+      changes.subcategory_id = classification.subcategoryId
+      changes.classification_source = classification.subcategoryId ? 'manual' : null
+      changes.classification_confidence = classification.subcategoryId ? 'manual' : null
+    }
+    const { data, error } = await supabaseAdmin
       .from('products')
-      .update({
-        name,
-        category_id: normalizeOptionalReference(category_id),
-        brand_id: normalizeOptionalReference(brand_id),
-        rating,
-        image,
-      })
+      .update(changes)
       .eq('id', id)
       .select()
       .single()
 
     if (error) {
       console.error('Error updating product', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
+      if (error.code === '23503' || error.code === '23514') {
+        return res.status(409).json({ error: 'La categoría y subcategoría seleccionadas son incompatibles.' })
+      }
+      if (error.code === '22P02') return res.status(400).json({ error: 'Invalid category or subcategory identifier' })
       return res.status(500).json({ error: error.message || 'Error updating product' })
     }
 
@@ -3360,24 +3561,33 @@ app.put('/products/:id', requireAdmin, async (req, res) => {
     res.json(data)
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e, { rolledBack: null })
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.delete('/products/:id', requireAdmin, async (req, res) => {
+app.delete('/products/:id', requireAdmin, requireProductCatalogWrite, async (req, res) => {
   try {
-    const { id } = req.params 
+    const { id } = req.params
     const { data: previousProduct, error: previousError } = await analysisWriter
       .from('products')
       .select('category_id, subcategory_id')
       .eq('id', id)
       .maybeSingle()
     if (previousError) throw previousError
-    const { error: offersError } = await analysisWriter.from('offers').delete().eq('product_id', id)
-    if (offersError) throw offersError
-    const { error } = await analysisWriter.from('products').delete().eq('id', id)
+    const { data, error } = await supabaseAdmin.rpc('delete_catalog_product', {
+      p_product_id: Number(id),
+    })
     if (error) {
       console.error('Error deleting product', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error, { rolledBack: true })
+      if (capacityError) return res.status(503).json(capacityError)
+      return res.status(500).json({ error: 'Error deleting product' })
+    }
+    if (data?.status === 'not_found') return res.status(404).json({ error: 'Product not found' })
+    if (data?.status !== 'deleted') {
+      console.error('Unexpected delete_catalog_product response', data)
       return res.status(500).json({ error: 'Error deleting product' })
     }
     invalidateCatalogPageCache()
@@ -3385,11 +3595,13 @@ app.delete('/products/:id', requireAdmin, async (req, res) => {
     res.json({ success: true })
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e, { rolledBack: true })
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.post('/offers', requireAdmin, async (req, res) => {
+app.post('/offers', requireAdmin, requireCatalogWriteAllowedFromBody(), async (req, res) => {
   try {
     if (!supabaseAdmin) {
       return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
@@ -3423,6 +3635,8 @@ app.post('/offers', requireAdmin, async (req, res) => {
 
     if (error) {
       console.error('Error creating offer', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: error.message || 'Error creating offer' })
     }
 
@@ -3434,11 +3648,13 @@ app.post('/offers', requireAdmin, async (req, res) => {
     res.json(data)
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e, { rolledBack: null })
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.put('/offers/:id', requireAdmin, async (req, res) => {
+app.put('/offers/:id', requireAdmin, requireOfferCatalogWrite, async (req, res) => {
   try {
     if (!supabaseAdmin) {
       return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
@@ -3477,6 +3693,8 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
 
     if (error) {
       console.error('Error updating offer', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: error.message || 'Error updating offer' })
     }
 
@@ -3510,11 +3728,13 @@ app.put('/offers/:id', requireAdmin, async (req, res) => {
     res.json(data)
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e, { rolledBack: null })
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.delete('/offers/:id', requireAdmin, async (req, res) => {
+app.delete('/offers/:id', requireAdmin, requireOfferCatalogWrite, async (req, res) => {
   try {
     if (!supabaseAdmin) {
       return res.status(503).json({ error: 'La administración de ofertas requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.' })
@@ -3522,9 +3742,11 @@ app.delete('/offers/:id', requireAdmin, async (req, res) => {
     const { id } = req.params 
     const { data: offer, error: offerError } = await analysisWriter.from('offers').select('product_id').eq('id', id).maybeSingle()
     if (offerError) throw offerError
-    const { error } = await analysisWriter.from('offers').delete().eq('id', id)
+    const { error } = await supabaseAdmin.from('offers').delete().eq('id', id)
     if (error) {
       console.error('Error deleting offer', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error)
+      if (capacityError) return res.status(503).json(capacityError)
       return res.status(500).json({ error: error.message || 'Error deleting offer' })
     }
     invalidateCatalogPageCache()
@@ -3532,13 +3754,15 @@ app.delete('/offers/:id', requireAdmin, async (req, res) => {
     res.json({ success: true })
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e, { rolledBack: true })
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.get('/admins', requireAdmin, async (req, res) => {
+app.get('/admins', requireAdmin, requireServiceRole, async (req, res) => {
   try {
-    const { data, error } = await supabase.from('admins').select('id, username')
+    const { data, error } = await supabaseAdmin.from('admins').select('id, username')
     if (error) {
       console.error('Error fetching admins', error)
       return res.status(500).json([])
@@ -3550,9 +3774,9 @@ app.get('/admins', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/admin/price-history', requireAdmin, async (req, res) => {
+app.get('/admin/price-history', requireAdmin, requireServiceRole, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('price_history')
       .select('id, product_id, offer_id, observed_at, cash_price, source')
       .order('observed_at', { ascending: false })
@@ -3566,8 +3790,8 @@ app.get('/admin/price-history', requireAdmin, async (req, res) => {
     const productIds = [...new Set((data || []).map((entry) => entry.product_id).filter(Boolean))]
     const offerIds = [...new Set((data || []).map((entry) => entry.offer_id).filter(Boolean))]
     const [{ data: products }, { data: offers }] = await Promise.all([
-      productIds.length ? supabase.from('products').select('id, name').in('id', productIds) : { data: [] },
-      offerIds.length ? supabase.from('offers').select('id, supermarket').in('id', offerIds) : { data: [] },
+      productIds.length ? supabaseAdmin.from('products').select('id, name').in('id', productIds) : { data: [] },
+      offerIds.length ? supabaseAdmin.from('offers').select('id, supermarket').in('id', offerIds) : { data: [] },
     ])
     const productsById = new Map((products || []).map((product) => [String(product.id), product]))
     const offersById = new Map((offers || []).map((offer) => [String(offer.id), offer]))
@@ -3583,15 +3807,29 @@ app.get('/admin/price-history', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/admin/price-updates', requireAdmin, async (req, res) => {
+app.get('/admin/price-updates', requireAdmin, requireServiceRole, async (req, res) => {
   try {
     const { data, error } = await analysisWriter
       .from('price_update_log')
-      .select('id, updated_at, admin_username, filters, percentage, products_updated, changes')
+      .select('id, updated_at, admin_username, filters, filters_text:filters::text, percentage, products_updated, changes, changes_text:changes::text')
       .order('updated_at', { ascending: false })
       .limit(200)
     if (error) return res.status(500).json({ error: 'Error fetching price updates' })
-    res.json(data || [])
+    const logs = data || []
+    try {
+      res.json(await annotatePriceUpdateReversibility(supabaseAdmin, logs))
+    } catch (reversibilityError) {
+      console.error('Unable to verify price update reversibility', reversibilityError)
+      res.json(logs.map((log) => {
+        const safeLog = { ...log }
+        delete safeLog.filters_text
+        delete safeLog.changes_text
+        return {
+          ...safeLog,
+          reversibility: { eligible: false, reason: 'No se pudo verificar el estado actual' },
+        }
+      }))
+    }
   } catch (error) {
     console.error('Error fetching price updates', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -3599,59 +3837,140 @@ app.get('/admin/price-updates', requireAdmin, async (req, res) => {
 })
 
 app.delete('/admin/price-updates/:id', requireAdmin, async (req, res) => {
+  const logId = req.params.id
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(logId)) {
+    return res.status(400).json({ code: 'invalid_price_update_id', error: 'El identificador del registro no es valido.' })
+  }
+  if (!supabaseAdmin) {
+    return res.status(503).json({
+      code: 'service_role_required',
+      error: 'La operación requiere SUPABASE_SERVICE_ROLE_KEY configurada en el backend.',
+    })
+  }
+
   try {
-    const { data: update, error: fetchError } = await analysisWriter
-      .from('price_update_log')
-      .select('id, changes')
-      .eq('id', req.params.id)
-      .single()
-    if (fetchError) return res.status(fetchError.code === 'PGRST116' ? 404 : 500).json({ error: 'Error fetching price update' })
-
-    const changes = Array.isArray(update.changes) ? update.changes : []
-    if (!changes.length) {
-      const { error: deleteEmptyError } = await analysisWriter.from('price_update_log').delete().eq('id', req.params.id)
-      if (deleteEmptyError) return res.status(500).json({ error: 'Error deleting price update' })
-      return res.json({ success: true, restored: 0 })
+    const { data: result, error } = await supabaseAdmin.rpc('revert_price_update', { p_log_id: logId })
+    if (error) {
+      console.error('Price update revert RPC failed; outcome may be unknown', error)
+      const capacityError = createPriceStatusQueueErrorPayload(error, { rolledBack: true })
+      if (capacityError) return res.status(503).json(capacityError)
+      return res.status(503).json({
+        code: 'price_update_revert_result_unknown',
+        error: 'No se pudo confirmar el resultado de la reversion. Verifica el registro antes de reintentar.',
+        resultUnknown: true,
+        operationId: logId,
+      })
     }
-
-    for (const change of changes) {
-      const { error: restoreError } = await analysisWriter
-        .from('offers')
-        .update({ cash_price: change.previousCashPrice })
-        .eq('id', change.offerId)
-      if (restoreError) {
-        console.error('Error restoring offer', change.offerId, restoreError)
-        return res.status(500).json({ error: 'The operation could not be fully reverted' })
-      }
-      await recordPriceHistory({
-        productId: change.productId,
-        offerId: change.offerId,
-        cashPrice: change.previousCashPrice,
-        source: 'bulk_admin_revert',
+    if (!result || typeof result.status !== 'string') {
+      console.error('Price update revert RPC returned an invalid result', result)
+      return res.status(502).json({
+        code: 'price_update_revert_result_invalid',
+        error: 'La respuesta de la reversion no tiene un formato reconocido.',
+        resultUnknown: true,
+        operationId: logId,
       })
     }
 
-    const { error } = await analysisWriter.from('price_update_log').delete().eq('id', req.params.id)
-    if (error) return res.status(500).json({ error: 'Prices restored, but the operation could not be deleted' })
-    res.json({ success: true })
+    const hasProgress = Number.isSafeInteger(result.restoredOfferCount)
+      && Number.isSafeInteger(result.pendingOfferCount)
+      && typeof result.partialRevert === 'boolean'
+    const progress = hasProgress ? {
+      partialRevert: result.partialRevert,
+      restoredOfferCount: result.restoredOfferCount,
+      pendingOfferCount: result.pendingOfferCount,
+      ...(Number.isSafeInteger(result.offerId) ? { offerId: result.offerId } : {}),
+    } : {}
+
+    if (['reverted', 'price_update_history_failed', 'price_update_revert_failed'].includes(result.status) && !hasProgress) {
+      console.error('Price update revert RPC omitted required atomic progress fields', result)
+      return res.status(502).json({
+        code: 'price_update_revert_result_invalid',
+        error: 'La respuesta de la reversión no contiene el progreso requerido.',
+        resultUnknown: true,
+        operationId: logId,
+      })
+    }
+
+    if (result.status === 'reverted') {
+      invalidateCatalogPageCache()
+      return res.json({ success: true, ...progress })
+    }
+    if (result.status === 'not_found') {
+      return res.status(404).json({ code: 'price_update_not_found', error: 'No se encontro el registro.' })
+    }
+    if (result.status === 'not_reversible') {
+      return res.status(409).json({ code: 'price_update_not_reversible', error: 'El registro no contiene cambios reversibles validos.' })
+    }
+    if (result.status === 'price_update_stale') {
+      return res.status(409).json({
+        code: 'price_update_stale',
+        error: 'El precio actual ya no coincide con el precio registrado; no se realizo la reversion.',
+        ...progress,
+      })
+    }
+    if (result.status === 'catalog_maintenance') {
+      const blockedSupermarkets = result.blockedSupermarket
+        ? [result.blockedSupermarket]
+        : Array.isArray(result.blockedSupermarkets) ? result.blockedSupermarkets : []
+      return res.status(503).json({
+        code: 'catalog_maintenance',
+        error: 'La reversion afecta supermercados pausados por mantenimiento.',
+        blockedSupermarkets,
+        ...progress,
+      })
+    }
+    if (result.status === 'price_update_history_failed') {
+      console.error('Price history insertion failed during atomic price update revert', {
+        operationId: logId,
+        sqlState: result.sqlState,
+        message: result.message,
+        detail: result.detail,
+        offerId: result.offerId,
+      })
+      return res.status(500).json({
+        code: 'price_update_history_failed',
+        error: 'No se completo la reversion: la transaccion revirtio los cambios y conservo el registro original.',
+        ...progress,
+      })
+    }
+    if (result.status === 'price_update_revert_failed') {
+      console.error('Atomic price update revert failed', result)
+      return res.status(500).json({
+        code: 'price_update_revert_failed',
+        error: 'La transaccion de reversion fallo y no se confirmo ningun cambio parcial.',
+        ...progress,
+      })
+    }
+
+    console.error('Price update revert RPC returned an unknown status', result)
+    return res.status(502).json({
+      code: 'price_update_revert_result_invalid',
+      error: 'La respuesta de la reversion no tiene un estado reconocido.',
+      resultUnknown: true,
+      operationId: logId,
+    })
   } catch (error) {
-    console.error('Error deleting price update', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Error calling atomic price update revert', error)
+    return res.status(503).json({
+      code: 'price_update_revert_result_unknown',
+      error: 'No se pudo confirmar el resultado de la reversion. Verifica el registro antes de reintentar.',
+      resultUnknown: true,
+      operationId: logId,
+    })
   }
 })
-
 app.post('/admins', requireAdmin, async (req, res) => {
   try {
     const { username, password } = req.body || {}
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
-    const existing = await supabase.from('admins').select('id').eq('username', username).single()
+    const existing = await supabaseAdmin.from('admins').select('id').eq('username', username).single()
     if (existing.error && existing.error.code !== 'PGRST116') {
       console.error('Error checking admin', existing.error)
       return res.status(500).json({ error: 'Error checking admin' })
     }
     if (existing.data) return res.status(400).json({ error: 'Admin already exists' })
     const passwordHash = await bcrypt.hash(password, 12)
-    const { data, error } = await supabase.from('admins').insert({ username, password: passwordHash }).select('id, username').single()
+    const { data, error } = await supabaseAdmin.from('admins').insert({ username, password: passwordHash }).select('id, username').single()
     if (error) {
       console.error('Error creating admin', error)
       return res.status(500).json({ error: 'Error creating admin' })
@@ -3667,6 +3986,15 @@ app.post('/login', customerLoginIpRateLimit, async (req, res) => {
   try {
     const { username, password } = req.body || {}
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
+    let adminAuthDatabase
+    try {
+      adminAuthDatabase = getAdminAuthDatabase({
+        serviceRoleDatabase: supabaseAdmin,
+        publicDatabase: supabase,
+      })
+    } catch {
+      return res.status(503).json({ error: 'Admin login requires private server access.' })
+    }
     const normalizedUsername = String(username).trim()
     let adminProfile = null
     if (supabaseAdmin) {
@@ -3696,7 +4024,7 @@ app.post('/login', customerLoginIpRateLimit, async (req, res) => {
       }
       authenticatedAdmin = adminProfile.username
     } else {
-      const { data, error } = await supabase.from('admins').select('username, password').eq('username', normalizedUsername).maybeSingle()
+      const { data, error } = await adminAuthDatabase.from('admins').select('username, password').eq('username', normalizedUsername).maybeSingle()
       if (error) {
         console.error('Error looking up admin during login', error)
         return res.status(500).json({ error: 'Unable to verify admin credentials' })
@@ -3713,8 +4041,8 @@ app.post('/login', customerLoginIpRateLimit, async (req, res) => {
           ? await bcrypt.compare(password, data.password)
           : data.password === password
         if (!validPassword) return res.status(401).json({ error: 'Invalid credentials' })
-        if (!isBcryptHash) {
-          await supabase.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', normalizedUsername)
+        if (!isBcryptHash && supabaseAdmin) {
+          await supabaseAdmin.from('admins').update({ password: await bcrypt.hash(password, 12) }).eq('username', normalizedUsername)
         }
       } else if (!isLocalDefaultLogin) {
         if (!supabaseAdmin) {
@@ -4467,7 +4795,7 @@ app.delete('/customer/favorites/:productId', customerIpWriteRateLimit, requireCu
 
 async function requireBusinessStore(req, res, next) {
   try {
-    const { data: profile, error: profileError } = await analysisWriter
+    const { data: profile, error: profileError } = await analysisReader
       .from('customer_profiles')
       .select('role, supermarket_id')
       .eq('user_id', req.customerUser.id)
@@ -4485,7 +4813,7 @@ async function requireBusinessStore(req, res, next) {
       return res.status(409).json({ error: 'Tu cuenta comercial todavía no tiene un supermercado asignado. Contacta a administración.' })
     }
 
-    const { data: store, error: storeError } = await analysisWriter
+    const { data: store, error: storeError } = await analysisReader
       .from('supermarkets')
       .select('id, name')
       .eq('id', selectedStoreId)
@@ -4503,13 +4831,31 @@ async function requireBusinessStore(req, res, next) {
   }
 }
 
+function requireBusinessCatalogWrite(req, res, next) {
+  const supermarket = req.businessStore?.name
+  if (typeof supermarket !== 'string' || !supermarket.trim()) {
+    return res.status(503).json({
+      code: 'catalog_maintenance_check_failed',
+      error: 'No se pudo determinar de forma segura el supermercado asignado.',
+    })
+  }
+  if (isCatalogWriteBlocked(supermarket)) {
+    return res.status(503).json({
+      code: 'catalog_maintenance',
+      error: `Las escrituras de ${supermarket} están pausadas temporalmente por mantenimiento de catálogo.`,
+      blockedSupermarkets: [supermarket],
+    })
+  }
+  return next()
+}
+
 app.get('/business/stores', customerIpReadRateLimit, requireCustomerAuth, customerReadRateLimit, async (req, res) => {
   try {
     const profile = await getCustomerProfile(req.customerUser)
     if (profile.role !== 'administrator') {
       return res.status(403).json({ error: 'Solo las cuentas administradoras pueden elegir un supermercado.' })
     }
-    const { data, error } = await analysisWriter
+    const { data, error } = await analysisReader
       .from('supermarkets')
       .select('id, name')
       .order('name', { ascending: true })
@@ -4521,7 +4867,7 @@ app.get('/business/stores', customerIpReadRateLimit, requireCustomerAuth, custom
   }
 })
 
-app.get('/admin/business-accounts', requireAdmin, async (req, res) => {
+app.get('/admin/business-accounts', requireAdmin, requireServiceRole, async (req, res) => {
   try {
     const accounts = []
     const batchSize = 1000
@@ -4875,7 +5221,7 @@ app.get('/business/disco-price-history', customerIpReadRateLimit, requireCustome
   }
 })
 
-app.put('/business/catalog/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, async (req, res) => {
+app.put('/business/catalog/:productId', customerIpWriteRateLimit, requireCustomerAuth, customerWriteRateLimit, requireBusinessStore, requireBusinessCatalogWrite, async (req, res) => {
   const productId = Number(req.params.productId)
   const available = req.body?.available
   if (!Number.isSafeInteger(productId) || productId <= 0) {
@@ -5543,6 +5889,13 @@ app.delete('/shared-lists/:listId/items/:itemId', customerIpWriteRateLimit, requ
 app.post('/admin/update-prices', requireAdmin, async (req, res) => {
   try {
     const { categoryId, brandId, supermarket, percentage, updatedAt } = req.body || {}
+    if (isCatalogWriteBlocked(supermarket)) {
+      return res.status(503).json({
+        code: 'catalog_maintenance',
+        error: `Las escrituras de ${supermarket} están pausadas temporalmente por mantenimiento de catálogo.`,
+        blockedSupermarkets: [supermarket],
+      })
+    }
     if ((!categoryId && !brandId && !supermarket) || typeof percentage !== 'number') {
       return res.status(400).json({ error: 'categoryId, brandId or supermarket and numeric percentage required' })
     }
@@ -5593,17 +5946,31 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
       console.error('Error fetching offers', offersErr)
       return res.status(500).json({ error: 'Error fetching offers' })
     }
-    const offers = (allOffers || []).filter((offer) => !supermarket || offer.supermarket === supermarket)
+    const offers = (allOffers || []).filter((offer) => (
+      (!supermarket || offer.supermarket === supermarket)
+      && !isCatalogWriteBlocked(offer.supermarket)
+    ))
     if (!offers.length) return res.json({ updated: 0 })
 
     // update each offer individually with the new price
     let updatedCount = 0
     const changes = []
     for (const offer of offers || []) {
+      if (isCatalogWriteBlocked(offer.supermarket)) continue
       const current = Number(offer.cash_price || 0)
       const newPrice = Math.round(current * (1 + percentage / 100))
       const { error: upErr } = await analysisWriter.from('offers').update({ cash_price: newPrice }).eq('id', offer.id)
-      if (upErr) console.error('Error updating offer', offer.id, upErr)
+      if (upErr) {
+        console.error('Error updating offer', offer.id, upErr)
+        const capacityError = createPriceStatusQueueErrorPayload(upErr, { rolledBack: null })
+        if (capacityError) {
+          return res.status(503).json({
+            ...capacityError,
+            partialWriteState: 'unknown',
+            updated: updatedCount,
+          })
+        }
+      }
       else {
         updatedCount++
         changes.push({
@@ -5631,6 +5998,14 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
     })
     if (logError) {
       console.error('Error recording price update', logError)
+      const capacityError = createPriceStatusQueueErrorPayload(logError, { rolledBack: null })
+      if (capacityError) {
+        return res.status(503).json({
+          ...capacityError,
+          partialWriteState: 'unknown',
+          updated: updatedCount,
+        })
+      }
       return res.status(500).json({ error: 'Prices updated, but the operation could not be recorded' })
     }
 
@@ -5640,6 +6015,8 @@ app.post('/admin/update-prices', requireAdmin, async (req, res) => {
     res.json({ updated: updatedCount })
   } catch (e) {
     console.error(e)
+    const capacityError = createPriceStatusQueueErrorPayload(e, { rolledBack: null })
+    if (capacityError) return res.status(503).json(capacityError)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -5688,22 +6065,25 @@ app.post('/translate/products', productTranslationIpRateLimit, async (req, res) 
 })
 
 if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.PRICE_STATUS_BOOTSTRAP_ENABLED !== 'false') {
+  const checkAnalysisDetails = process.env.PRICE_STATUS_BOOTSTRAP_CHECK_DETAILS === 'true'
+  if (!checkAnalysisDetails) {
+    console.info('Skipped analysis_details validation during price status bootstrap (PRICE_STATUS_BOOTSTRAP_CHECK_DETAILS=false)')
+  }
   enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue, undefined, {
-    checkDetails: process.env.PRICE_STATUS_BOOTSTRAP_CHECK_DETAILS === 'true',
+    checkDetails: checkAnalysisDetails,
   })
     .catch((error) => console.error('Unable to queue missing or stale current price statuses', error))
 } else if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.info('Skipped initial price status refresh bootstrap (PRICE_STATUS_BOOTSTRAP_ENABLED=false)')
 }
 
-if (process.env.DISCO_SYNC_ENABLED === 'true') {
+if (process.env.DISCO_SYNC_ENABLED === 'true' && supabaseAdmin && !isCatalogWriteBlocked('Disco')) {
   setInterval(async () => {
     if (discoSyncRunning) return
     discoSyncRunning = true
     try {
       const result = await syncDiscoPrices({
-        database: analysisWriter,
-        historyRecorder: recordPriceHistory,
+        database: supabaseAdmin,
         onCatalogChange: invalidateCatalogPageCache,
       })
       console.log(`Disco scheduled sync: ${result.updated.length} updated, ${result.unchanged.length} unchanged, ${result.unavailable.length} unavailable, ${result.suspicious.length} suspicious`)
@@ -5714,9 +6094,11 @@ if (process.env.DISCO_SYNC_ENABLED === 'true') {
     }
   }, discoSyncIntervalMs)
   console.log(`Disco scheduled sync enabled every ${discoSyncIntervalMs}ms`)
+} else if (process.env.DISCO_SYNC_ENABLED === 'true' && !supabaseAdmin) {
+  console.error('Disco scheduled sync disabled: SUPABASE_SERVICE_ROLE_KEY is required for catalog price sync')
 }
 
-if (process.env.CARREFOUR_SYNC_ENABLED === 'true') {
+if (process.env.CARREFOUR_SYNC_ENABLED === 'true' && supabaseAdmin) {
   setInterval(async () => {
     if (carrefourSyncRunning) return
     carrefourSyncRunning = true
@@ -5724,7 +6106,7 @@ if (process.env.CARREFOUR_SYNC_ENABLED === 'true') {
       const postalCode = normalizePostalCode(process.env.CARREFOUR_SYNC_POSTAL_CODE || '5186')
       if (!postalCode) throw new Error('CARREFOUR_SYNC_POSTAL_CODE debe ser un código postal válido')
       const result = await syncCarrefourPrices({
-        database: analysisWriter,
+        database: supabaseAdmin,
         historyRecorder: recordPriceHistory,
         postalCode,
         onCatalogChange: invalidateCatalogPageCache,
@@ -5749,6 +6131,8 @@ if (process.env.CARREFOUR_SYNC_ENABLED === 'true') {
     }
   }, carrefourSyncIntervalMs)
   console.log(`Carrefour scheduled sync enabled every ${carrefourSyncIntervalMs}ms`)
+} else if (process.env.CARREFOUR_SYNC_ENABLED === 'true' && !supabaseAdmin) {
+  console.error('Carrefour scheduled sync disabled: SUPABASE_SERVICE_ROLE_KEY is required for catalog price sync')
 }
 
 let server = null

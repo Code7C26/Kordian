@@ -89,6 +89,7 @@ export default function Admin() {
   const [taxonomy, setTaxonomy] = useState([])
 
   const [priceUpdates, setPriceUpdates] = useState([])
+  const [priceUpdatesError, setPriceUpdatesError] = useState('')
   const [priceReports, setPriceReports] = useState([])
   const [priceReportsCount, setPriceReportsCount] = useState(0)
   const [priceReportsLoading, setPriceReportsLoading] = useState(false)
@@ -545,6 +546,7 @@ export default function Admin() {
           body: JSON.stringify({
             name: form.name,
             category_id: form.category_id,
+            subcategory_id: form.subcategory_id || null,
             brand_id: form.brand_id,
             rating: form.rating,
             image: form.image,
@@ -570,45 +572,6 @@ export default function Admin() {
         )
 
         return
-      }
-
-      if (form.subcategory_id) {
-        const classificationResponse =
-          await adminFetch(
-            `/products/${editingProduct.id}/classification`,
-            {
-              method: 'PUT',
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-              body: JSON.stringify({
-                subcategory_id:
-                  form.subcategory_id,
-                priceHistoryRecorded:
-                  !skipPriceChangeRecording &&
-                  Boolean(
-                    editingOfferId ||
-                    form.cashPrice ||
-                    form.installmentsQuantity ||
-                    form.installmentPrice,
-                  ),
-              }),
-            },
-          )
-
-        if (!classificationResponse.ok) {
-          const error =
-            await classificationResponse.json()
-
-          showToast(
-            error.error ||
-              'Error actualizando clasificación',
-            'error',
-          )
-
-          return
-        }
       }
 
       if (editingOfferId) {
@@ -1007,7 +970,7 @@ export default function Admin() {
   const deleteSubcategory = async (id) => {
     if (
       !window.confirm(
-        t('¿Eliminar esta subcategoría? Los productos conservarán su categoría principal.'),
+        t('¿Eliminar esta subcategoría? No se puede eliminar si tiene productos asociados.'),
       )
     ) {
       return
@@ -1244,19 +1207,37 @@ export default function Admin() {
   // =========================================================
 
   const loadPriceUpdates = async () => {
+    setPriceUpdates((updates) => updates.map((update) => ({
+      ...update,
+      reversibility: { eligible: false, reason: 'Verificando el estado actual' },
+    })))
+    setPriceUpdatesError('Verificando el historial; la reversión está deshabilitada hasta completar la consulta.')
     try {
       const response =
         await adminFetch(
           '/admin/price-updates',
         )
 
-      if (!response.ok) return
+      if (!response.ok) {
+        setPriceUpdates((updates) => updates.map((update) => ({
+          ...update,
+          reversibility: { eligible: false, reason: 'No se pudo actualizar la verificación' },
+        })))
+        setPriceUpdatesError('No se pudo actualizar el historial. Se conserva la lista visible y se deshabilitó la reversión hasta verificarla.')
+        return
+      }
 
-      setPriceUpdates(
-        await response.json(),
-      )
+      const updates = await response.json()
+      if (!Array.isArray(updates)) throw new Error('Respuesta inválida del historial')
+      setPriceUpdates(updates)
+      setPriceUpdatesError('')
     } catch (error) {
       console.error(error)
+      setPriceUpdates((updates) => updates.map((update) => ({
+        ...update,
+        reversibility: { eligible: false, reason: 'No se pudo actualizar la verificación' },
+      })))
+      setPriceUpdatesError('No se pudo actualizar el historial. Se conserva la lista visible y se deshabilitó la reversión hasta verificarla.')
     }
   }
 
@@ -1285,7 +1266,7 @@ export default function Admin() {
   ) => {
     if (
       !window.confirm(
-        t('¿Eliminar este registro y restaurar los precios anteriores?'),
+        t('¿Revertir este registro y restaurar los precios anteriores?'),
       )
     ) {
       return
@@ -1302,7 +1283,7 @@ export default function Admin() {
 
       if (!response.ok) {
         showToast(
-          'No se pudo eliminar el registro',
+          'No se pudo revertir el registro',
           'error',
         )
 
@@ -1318,16 +1299,13 @@ export default function Admin() {
       )
 
       showToast(
-        'Registro eliminado y precios restaurados',
+        'Registro revertido y precios restaurados',
         'success',
       )
     } catch (error) {
       console.error(error)
 
-      showToast(
-        'Error de red al eliminar el registro',
-        'error',
-      )
+      showToast('Error de red al revertir el registro', 'error')
     }
   }
 
@@ -1745,6 +1723,27 @@ export default function Admin() {
         setDiscoLoading(false)
       }
     }
+
+  const importDiscoSearchResults = async () => {
+    setDiscoLoading(true)
+    setDiscoError('')
+    try {
+      const response = await adminFetch('/admin/import/disco/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search: discoQuery }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'No se pudieron importar los resultados de Disco')
+      await loadProducts()
+      await loadDiscoImportStatus()
+      showToast(`${result.imported} producto(s) importado(s) y ${result.updated} precio(s) actualizado(s)`, 'success')
+    } catch (error) {
+      setDiscoError(error.message || 'No se pudieron importar los resultados de Disco')
+    } finally {
+      setDiscoLoading(false)
+    }
+  }
 
   const updateDiscoPrices =
     async (onlyLowPrices = false, onlyHighPrices = false) => {
@@ -2270,7 +2269,7 @@ export default function Admin() {
                 {t('Administrador')}
               </th>
               <th className="py-3">
-                {t('Acción')}
+                {t('Reversión')}
               </th>
             </tr>
           </thead>
@@ -2520,17 +2519,26 @@ export default function Admin() {
                   </td>
 
                   <td className="py-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        deletePriceUpdate(
-                          update.id,
-                        )
-                      }
-                      className="text-sm font-semibold text-rose-600 hover:underline"
-                    >
-                      {t('Eliminar')}
-                    </button>
+                    {update.reversibility?.eligible ? (
+                      <div>
+                        <span className="mr-3 text-xs text-emerald-700 dark:text-emerald-400">{t('Reversible')}</span>
+                        <button
+                          type="button"
+                          onClick={() => deletePriceUpdate(update.id)}
+                          className="text-sm font-semibold text-rose-600 hover:underline"
+                        >
+                          {t('Revertir')}
+                        </button>
+                      </div>
+                    ) : (
+                      <span
+                        className="text-xs text-stone-500 dark:text-stone-400"
+                        title={update.reversibility?.reason || 'No se pudo verificar la reversibilidad'}
+                      >
+                        {t('No reversible')}
+                        <span className="block">{update.reversibility?.reason || t('No se pudo verificar la reversibilidad')}</span>
+                      </span>
+                    )}
                   </td>
                 </tr>
               )
@@ -3523,6 +3531,12 @@ export default function Admin() {
                 </button>
               </div>
 
+              {priceUpdatesError && (
+                <p role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                  {priceUpdatesError}
+                </p>
+              )}
+
               <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">
                 {t('Actualizaciones manuales')}
               </h3>
@@ -3666,7 +3680,7 @@ export default function Admin() {
 
                     {discoImportStatus && (
                       <p className="mt-2 text-xs text-stone-500">
-                        {t('Búsquedas públicas')}:{' '}
+                        {t('Búsquedas de Disco')}:{' '}
                         {
                           discoImportStatus.searches
                         }{' '}
@@ -3724,6 +3738,14 @@ export default function Admin() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={importDiscoSearchResults}
+                    disabled={discoLoading || discoQuery.trim().length < 2}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
+                  >
+                    Importar resultados de búsqueda
+                  </button>
                   <button
                     type="button"
                     onClick={() => updateDiscoPrices(true)}

@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { appendUniqueProducts, buildProductsQuery } from './catalogQuery.js';
+import {
+  appendUniqueProducts,
+  buildFavoriteProductsQueries,
+  buildProductsQuery,
+} from './catalogQuery.js';
 
 assert.equal(
   buildProductsQuery({
@@ -53,3 +57,20 @@ assert.deepEqual(
   ).map((product) => product.id),
   [18098, 20000],
 );
+
+const favoriteQueries = buildFavoriteProductsQueries([
+  ...Array.from({ length: 205 }, (_, index) => index + 1),
+  1,
+  'invalid',
+]);
+const favoriteBatches = favoriteQueries.map((query) => query.get('favorites').split(',').map(Number));
+assert.deepEqual(favoriteBatches.map((batch) => batch.length), [100, 100, 5]);
+assert.deepEqual(
+  favoriteBatches.flat().sort((left, right) => left - right),
+  Array.from({ length: 205 }, (_, index) => index + 1),
+);
+assert.ok(favoriteQueries.every((query, index) => (
+  query.get('favoritesOnly') === 'true'
+  && query.get('catalogOnly') === 'true'
+  && Number(query.get('limit')) === favoriteBatches[index].length
+)));

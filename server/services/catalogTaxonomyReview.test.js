@@ -25,6 +25,8 @@ test('returns mismatches and abstentions while preserving saved decisions', () =
     {
       id: 3,
       name: 'Producto sin regla',
+      category_id: 'home',
+      subcategory_id: 'toys',
       categories: { name: 'Hogar y Otros' },
       subcategories: { name: 'Juguetes' },
     },
@@ -48,5 +50,10 @@ test('returns mismatches and abstentions while preserving saved decisions', () =
   assert.equal(result[2].id, 3)
   assert.equal(result[2].suggestionStatus, 'insufficient_evidence')
   assert.equal(result[2].suggestedCategory, null)
+  assert.equal(result[2].suggestedSubcategory, null)
+  assert.equal(result[2].actualCategory, 'Hogar y Otros')
+  assert.equal(result[2].actualSubcategory, 'Juguetes')
   assert.equal(result[2].decision, 'pending')
+  assert.equal(products[2].categories.name, 'Hogar y Otros')
+  assert.equal(products[2].subcategories.name, 'Juguetes')
 })

@@ -37,7 +37,7 @@ async function run() {
     isValidProduct: isValidCommonProduct,
     fetchPreview: async () => ({ products: [], discarded: [] }),
     fetchProductById: async () => null,
-    findMatches: (previewProducts, localProducts = []) => previewProducts.map((product) => ({
+    findMatches: (previewProducts) => previewProducts.map((product) => ({
       ...product,
       possibleDuplicate: false,
     })),
@@ -188,24 +188,40 @@ async function run() {
   assert.equal(Boolean(parsed[0]?.image), true)
   assert.equal(Boolean(parsed[0]?.ean || parsed[0]?.sourceSku), true)
 
+  const homeFixture = `
+    <a href="/super/categoria/supermami-almacen">Almacén</a>
+  `
+  const categoryFixture = `
+    <a href="/super/producto/crema-dental-colgate/_/A-2850705">Crema dental</a>
+    <a href="/super/producto/yogur-bebible/_/A-1234">Yogur</a>
+  `
+  const productFixtures = new Map([
+    ['https://www.supermami.com.ar/super/producto/crema-dental-colgate/_/A-2850705', `
+      <title>CREMA DENTAL COLGATE TRIPLE ACCION X 90GR. | Super MaMi</title>
+      <script>productId = "prod2850705"</script>
+      <script type="application/ld+json">
+        {"@type":"Product","productID":"prod2850705","name":"CREMA DENTAL COLGATE TRIPLE ACCION X 90GR.","brand":{"name":"COLGATE"},"image":"https://example.test/colgate.jpg","category":"Crema dental","url":"http://www.supermami.com.ar/super/producto/crema-dental-colgate/_/A-2850705","offers":{"price":3350,"availability":"https://schema.org/InStock"}}
+      </script>
+    `],
+    ['https://www.supermami.com.ar/super/producto/yogur-bebible/_/A-1234', `
+      <title>Yogur Bebible Frutilla 1L | Super MaMi</title>
+      <script>productId = "prod1234"</script>
+      <script type="application/ld+json">
+        {"@type":"Product","productID":"prod1234","name":"Yogur Bebible Frutilla 1L","brand":{"name":"Marca"},"image":"https://example.test/yogur.jpg","category":"Lácteos","url":"https://www.supermami.com.ar/super/producto/yogur-bebible/_/A-1234","offers":{"price":2400,"availability":"https://schema.org/InStock"}}
+      </script>
+    `],
+  ])
   const originalFetch = global.fetch
-  const productRoutes = [
-    '/super/producto/yogur-bebible/_/A-1234-1234-s',
-    '/super/producto/yogur-firme/_/A-1235-1235-s',
-  ]
-  const homeHtml = `<a href="/super/categoria/supermami-lacteos">Lácteos</a>${productRoutes.map((route) => `<a href="${route}">Yogur</a>`).join('')}`
-  global.fetch = async (url) => {
-    const requestUrl = String(url)
-    const body = requestUrl.includes('/super/home')
-      ? homeHtml
-      : requestUrl.includes('/super/categoria/')
-        ? productRoutes.map((route) => `<a href="${route}">Yogur</a>`).join('')
-        : requestUrl.includes('A-1235')
-          ? htmlFeed
-            .replaceAll('prod1234', 'prod1235')
-            .replaceAll('Yogur Bebible', 'Yogur Firme')
-            .replaceAll('A-1234-1234-s', 'A-1235-1235-s')
-          : htmlFeed
+  const requestedUrls = []
+  global.fetch = async (input) => {
+    const url = String(input)
+    requestedUrls.push(url)
+    const body = url === 'https://www.dinoonline.com.ar/super/home'
+      ? homeFixture
+      : url === 'https://www.supermami.com.ar/super/categoria/supermami-almacen'
+        ? categoryFixture
+        : productFixtures.get(url)
+    if (!body) throw new Error(`Unexpected Mami preview URL in local-fixture test: ${url}`)
     return new Response(body, { status: 200, headers: { 'content-type': 'text/html' } })
   }
   let mamiPreview
@@ -214,6 +230,12 @@ async function run() {
   } finally {
     global.fetch = originalFetch
   }
+  assert.deepEqual(requestedUrls.sort(), [
+    'https://www.dinoonline.com.ar/super/home',
+    'https://www.supermami.com.ar/super/categoria/supermami-almacen',
+    'https://www.supermami.com.ar/super/producto/crema-dental-colgate/_/A-2850705',
+    'https://www.supermami.com.ar/super/producto/yogur-bebible/_/A-1234',
+  ].sort())
   assert.equal(Array.isArray(mamiPreview.products), true)
   assert.equal(Array.isArray(mamiPreview.discarded), true)
   assert.equal(Boolean(mamiPreview.sourceRead), true)

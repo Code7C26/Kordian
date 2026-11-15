@@ -4,6 +4,11 @@ const path = require('node:path')
 const vm = require('node:vm')
 const { test } = require('node:test')
 const { createCatalogPageCache } = require('./services/catalogPageCache')
+const { isCatalogUuid, resolveCatalogClassification } = require('./services/categoryIntegrity')
+const {
+  createPriceStatusQueueCapacityErrorPayload,
+  isPriceStatusQueueCapacityError,
+} = require('./services/priceStatusQueueCapacityError')
 
 const serverSource = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8')
 const paginationMigration = fs.readFileSync(
@@ -51,7 +56,7 @@ function createRouteHarness() {
   const scheduleCalls = []
   const handler = extractRouteHandler(serverSource, 'get', '/products')
   const context = {
-    analysisWriter: {
+    supabase: {
       rpc: async (functionName, args) => {
         rpcCalls.push({ functionName, args })
         assert.equal(functionName, 'catalog_products_page')
@@ -123,6 +128,68 @@ test('public catalog search returns one RPC page and its total without an ordere
   assert.deepEqual(harness.scheduleCalls, [])
   assert.deepEqual(harness.pendingImmediate, [])
   assert.deepEqual(harness.rpcCalls.map((call) => call.functionName), ['catalog_products_page'])
+})
+
+test('product classification RPC receives the INTEGER product identifier', async () => {
+  const rpcCalls = []
+  const handler = extractRouteHandler(serverSource, 'put', '/products/:id/classification')
+  const route = vm.runInNewContext(`(${handler.toString()})`, {
+    supabaseAdmin: {
+      from(table) {
+        assert.equal(table, 'products')
+        return {
+          select(columns) {
+            assert.equal(columns, 'category_id, subcategory_id')
+            return {
+              eq(column, value) {
+                assert.equal(column, 'id')
+                assert.equal(value, '42')
+                return {
+                  maybeSingle: async () => ({
+                    data: { category_id: null, subcategory_id: null },
+                    error: null,
+                  }),
+                }
+              },
+            }
+          },
+        }
+      },
+      async rpc(functionName, args) {
+        rpcCalls.push({ functionName, args })
+        return {
+          data: { status: 'updated', product: { id: 42 } },
+          error: null,
+        }
+      },
+    },
+    isCatalogUuid,
+    invalidateCatalogPageCache() {},
+    scheduleRelatedPriceStatusRefresh() {},
+    console: { error() {} },
+  })
+  const response = {
+    statusCode: 200,
+    json(payload) {
+      this.payload = payload
+      return this
+    },
+    status(code) {
+      this.statusCode = code
+      return this
+    },
+  }
+
+  await route(
+    { params: { id: '42' }, body: { subcategory_id: '00000000-0000-0000-0000-000000000011' } },
+    response,
+  )
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(rpcCalls.length, 1)
+  assert.equal(rpcCalls[0].functionName, 'update_catalog_product_classification')
+  assert.equal(rpcCalls[0].args.p_product_id, 42)
+  assert.equal(typeof rpcCalls[0].args.p_product_id, 'number')
 })
 
 test('catalog endpoint preserves all active filter and ordering arguments', async () => {
@@ -312,13 +379,16 @@ test('admin import route imports selected products using mocked database writes'
     normalizeBrandName: (name) => String(name || '').trim().toLowerCase(),
     findCrossSourceProductMatch: () => null,
     buildDiscoProductTaxonomyFields: () => ({}),
+    resolveCatalogClassification,
     recordPriceHistory: async (entry) => {
       assert.equal(entry.source, 'disco_import')
       return 303
     },
+    assertCatalogWriteAllowed() {},
+    createPriceStatusQueueCapacityErrorPayload,
+    isPriceStatusQueueCapacityError,
     sameMoneyValue: (first, second) => Number(first) === Number(second),
     invalidateCatalogPageCache: () => invalidations.push('catalog'),
-    invalidateAnalysisCache: () => invalidations.push('analysis'),
     console,
   })
   const response = {
@@ -340,5 +410,5 @@ test('admin import route imports selected products using mocked database writes'
     { productId: 101, sourceProductId: 'disco-selected-1' },
   ])
   assert.deepEqual(writes.map((write) => write.table), ['products', 'offers'])
-  assert.deepEqual(invalidations, ['catalog', 'analysis'])
+  assert.deepEqual(invalidations, ['catalog'])
 })

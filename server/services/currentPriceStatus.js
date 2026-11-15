@@ -2,6 +2,7 @@ const crypto = require('node:crypto')
 
 const PRICE_STATUS_RULES_VERSION = '2026-10-10-v2'
 const PRICE_STATUS_BATCH_SIZE = 100
+const PRICE_STATUS_REFRESH_RETRY_DELAY_MS = 60 * 1000
 
 function hasCompletePriceStatusDetails(status) {
   const details = status?.analysis_details
@@ -28,11 +29,27 @@ function hasCompletePriceStatusDetails(status) {
   )
 }
 
+function isPersistablePriceStatusRow(status) {
+  return Boolean(
+    status
+    && /^[1-9]\d*$/.test(String(status.product_id || ''))
+    && typeof status.classification === 'string'
+    && status.classification
+    && typeof status.rules_version === 'string'
+    && status.rules_version
+    && typeof status.price_fingerprint === 'string'
+    && status.price_fingerprint
+    && hasCompletePriceStatusDetails(status)
+  )
+}
+
 function buildPriceFingerprint(product, references = {}, analysis = {}) {
   const offers = (product?.offers || [])
     .map((offer, index) => ({
       offer_id: String(offer.id ?? `${offer.supermarket || ''}:${index}`),
       cash_price: Number(offer.cash_price),
+      previous_price: Number(offer.previous_price) || 0,
+      supermarket: String(offer.supermarket || ''),
     }))
     .filter((offer) => Number.isFinite(offer.cash_price) && offer.cash_price > 0)
     .sort((first, second) => first.offer_id.localeCompare(second.offer_id))
@@ -54,8 +71,14 @@ function buildPriceFingerprint(product, references = {}, analysis = {}) {
       || first.offer_id.localeCompare(second.offer_id))
   const inputs = JSON.stringify({
     rules_version: PRICE_STATUS_RULES_VERSION,
+    product_name: String(product?.name || ''),
+    brand_id: String(product?.brand_id || ''),
+    brand_name: String(product?.brands?.name || ''),
     category_id: String(product?.category_id || ''),
+    category_name: String(product?.categories?.name || ''),
     subcategory_id: String(product?.subcategory_id || ''),
+    subcategory_name: String(product?.subcategories?.name || ''),
+    source: String(product?.source || ''),
     offers,
     comparableReferences,
     referencePrice: Number(references.referencePrice) || 0,
@@ -65,6 +88,9 @@ function buildPriceFingerprint(product, references = {}, analysis = {}) {
     offerScore: Number(analysis.offerScore) || 0,
     confidence: analysis.confidence || '',
     confidencePercentage: Number(analysis.confidencePercentage) || 0,
+    indicators: analysis.indicators || {},
+    dataQuality: analysis.dataQuality || {},
+    taxonomy: analysis.taxonomy || null,
   })
   return crypto.createHash('sha256').update(inputs).digest('hex')
 }
@@ -137,13 +163,29 @@ async function saveCurrentPriceStatuses(database, analyses) {
   return changedRows.length
 }
 
-function createPriceStatusRefreshQueue({ refreshBatch, batchSize = PRICE_STATUS_BATCH_SIZE, logger = console }) {
+function createPriceStatusRefreshQueue({
+  refreshBatch,
+  batchSize = PRICE_STATUS_BATCH_SIZE,
+  retryDelayMs = PRICE_STATUS_REFRESH_RETRY_DELAY_MS,
+  logger = console,
+}) {
   const pending = new Set()
   let running = false
+  let retryTimer = null
+
+  function scheduleRetry() {
+    if (retryTimer || !pending.size) return
+    retryTimer = setTimeout(() => {
+      retryTimer = null
+      void processQueue()
+    }, retryDelayMs)
+    if (typeof retryTimer.unref === 'function') retryTimer.unref()
+  }
 
   async function processQueue() {
     if (running) return
     running = true
+    const retryIds = []
     try {
       while (pending.size) {
         const ids = [...pending].slice(0, batchSize)
@@ -151,12 +193,14 @@ function createPriceStatusRefreshQueue({ refreshBatch, batchSize = PRICE_STATUS_
         try {
           await refreshBatch(ids)
         } catch (error) {
+          retryIds.push(...ids)
           logger.error(`Unable to refresh current price statuses for ${ids.length} products`, error)
         }
       }
     } finally {
+      retryIds.forEach((id) => pending.add(id))
       running = false
-      if (pending.size) void processQueue()
+      scheduleRetry()
     }
   }
 
@@ -165,7 +209,7 @@ function createPriceStatusRefreshQueue({ refreshBatch, batchSize = PRICE_STATUS_
       for (const id of ids || []) {
         if (id !== null && id !== undefined && String(id).trim()) pending.add(String(id))
       }
-      void processQueue()
+      if (!retryTimer) void processQueue()
     },
   }
 }
@@ -199,7 +243,7 @@ async function enqueueIncompletePriceStatuses(
       .filter((status) => status.rules_version === PRICE_STATUS_RULES_VERSION
         && (!checkDetails || hasCompletePriceStatusDetails(status)))
       .map((status) => String(status.product_id)))
-    queue.enqueue(productIds.filter((id) => !currentIds.has(String(id))))
+    await queue.enqueue(productIds.filter((id) => !currentIds.has(String(id))))
     if (productIds.length < batchSize) break
   }
 
@@ -212,7 +256,7 @@ async function enqueueIncompletePriceStatuses(
       .range(offset, offset + batchSize - 1)
     if (error) throw error
     const ids = (statuses || []).map((status) => status.product_id)
-    queue.enqueue(ids)
+    await queue.enqueue(ids)
     if (ids.length < batchSize) break
   }
 }
@@ -221,6 +265,7 @@ module.exports = {
   PRICE_STATUS_RULES_VERSION,
   buildPriceFingerprint,
   buildCurrentPriceStatusRows,
+  isPersistablePriceStatusRow,
   createPriceStatusRefreshQueue,
   enqueueIncompletePriceStatuses,
   saveCurrentPriceStatuses,

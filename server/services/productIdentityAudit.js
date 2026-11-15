@@ -1,4 +1,4 @@
-const MEASURE_PATTERN = /(?:\b|(?<=x))(\d+(?:[.,]\d+)?)\s*(kg|kgs|kilo(?:s)?|g|gr|grs|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl)\b/gi
+const MEASURE_PATTERN = /(?:\b|(?<=x))(\d+(?:[.,]\d+)*)\s*(kgs?|kilos?|gramos?|grs?|g|mg|l|lts?|litros?|ml|cc|cl)\b/gi
 const MILK_PATTERN = /\b(leche|milk)\b/i
 const GENERIC_NAME_TOKENS = new Set([
   'la', 'el', 'de', 'del', 'con', 'x', 'un', 'una', 'lts', 'lt', 'ml', 'gr', 'g', 'kg', 'l', 'litro', 'litros',
@@ -55,19 +55,62 @@ function extractGtin(product) {
   return ''
 }
 
+function parseMeasureAmount(rawAmount, unit) {
+  const value = String(rawAmount || '')
+  const normalizedUnit = unit.toLowerCase()
+  const isSubunit = /^(?:g|gr|grs|gramo(?:s)?|mg|ml|cc|cl)$/.test(normalizedUnit)
+  const hasDot = value.includes('.')
+  const hasComma = value.includes(',')
+
+  if (!hasDot && !hasComma) return Number(value)
+
+  if (hasDot && hasComma) {
+    const decimalSeparator = value.lastIndexOf('.') > value.lastIndexOf(',') ? '.' : ','
+    const groupingSeparator = decimalSeparator === '.' ? ',' : '.'
+    const [integerPart, fractionPart, ...extraParts] = value.split(decimalSeparator)
+    const integerGroups = integerPart.split(groupingSeparator)
+    if (extraParts.length
+      || !/^\d{1,3}$/.test(integerGroups[0])
+      || integerGroups.slice(1).some((group) => !/^\d{3}$/.test(group))
+      || !/^\d{1,6}$/.test(fractionPart)
+      || !integerPart.includes(groupingSeparator)) return null
+    return Number(`${integerGroups.join('')}.${fractionPart}`)
+  }
+
+  const separator = hasDot ? '.' : ','
+  const parts = value.split(separator)
+  if (parts.length > 2) {
+    if (!/^\d{1,3}(?:[.,]\d{3})+$/.test(value)) return null
+    return Number(value.replace(/[.,]/g, ''))
+  }
+
+  const [integerPart, fractionPart] = parts
+  if (!/^\d+$/.test(integerPart) || !/^\d+$/.test(fractionPart)) return null
+  if (fractionPart.length <= 2 || integerPart === '0') {
+    return Number(`${integerPart}.${fractionPart}`)
+  }
+  if (fractionPart.length === 3 && isSubunit && /^\d{1,3}$/.test(integerPart)) {
+    return Number(`${integerPart}${fractionPart}`)
+  }
+  return null
+}
+
 function extractMeasure(product) {
   const text = [product.name, product.description, product.presentation, product.unit].filter(Boolean).join(' ')
   const matches = [...text.matchAll(MEASURE_PATTERN)]
   const match = matches.at(-1)
   if (!match) return null
-  const amount = Number(match[1].replace(',', '.'))
-  const unit = match[2].toLowerCase()
+  const rawAmount = match[1]
+  const unit = match[2]
+  const amount = parseMeasureAmount(rawAmount, unit)
   if (!Number.isFinite(amount) || amount <= 0) return null
-  if (/^(kg|kgs|kilo)/.test(unit)) return { amount, baseUnit: 'kg', normalizedAmount: amount }
-  if (/^(g|gr|gramo)/.test(unit)) return { amount, baseUnit: 'kg', normalizedAmount: amount / 1000 }
-  if (unit === 'mg') return { amount, baseUnit: 'kg', normalizedAmount: amount / 1000000 }
-  if (/^(l|lt|lts|litro)/.test(unit)) return { amount, baseUnit: 'l', normalizedAmount: amount }
-  return { amount, baseUnit: 'l', normalizedAmount: amount / (unit === 'cl' ? 100 : 1000) }
+  const normalizedUnit = unit.toLowerCase()
+  const original = { amount, rawAmount, unit }
+  if (/^(kg|kgs|kilo)/.test(normalizedUnit)) return { ...original, baseUnit: 'kg', normalizedAmount: amount }
+  if (/^(g|gr|gramo)/.test(normalizedUnit)) return { ...original, baseUnit: 'kg', normalizedAmount: amount / 1000 }
+  if (normalizedUnit === 'mg') return { ...original, baseUnit: 'kg', normalizedAmount: amount / 1000000 }
+  if (/^(l|lt|lts|litro)/.test(normalizedUnit)) return { ...original, baseUnit: 'l', normalizedAmount: amount }
+  return { ...original, baseUnit: 'l', normalizedAmount: amount / (normalizedUnit === 'cl' ? 100 : 1000) }
 }
 
 function extractAttributes(product = {}) {

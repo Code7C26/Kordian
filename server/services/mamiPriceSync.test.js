@@ -3,10 +3,10 @@ const { test } = require('node:test')
 const { syncMamiLowPrices } = require('./mamiPriceSync')
 
 function createDatabase(offers) {
-  const updates = []
+  const rpcCalls = []
   return {
-    updates,
-    from(table) {
+    rpcCalls,
+    from() {
       return {
         select() {
           return {
@@ -21,15 +21,11 @@ function createDatabase(offers) {
             },
           }
         },
-        update(values) {
-          return {
-            eq: async (_column, id) => {
-              updates.push({ table, id, values })
-              return { error: null }
-            },
-          }
-        },
       }
+    },
+    async rpc(name, args) {
+      rpcCalls.push({ name, args })
+      return { error: null }
     },
   }
 }
@@ -65,8 +61,10 @@ test('repairs only a visible source price with matching product identity', async
   })
 
   assert.equal(result.updated.length, 1)
-  assert.equal(database.updates[0].values.cash_price, 3490)
-  assert.equal(history[0].cashPrice, 3490)
+  assert.equal(database.rpcCalls[0].name, 'apply_catalog_price_sync')
+  assert.equal(database.rpcCalls[0].args.p_updates[0].updatedCashPrice, 3490)
+  assert.equal(database.rpcCalls[0].args.p_log.changes[0].updatedCashPrice, 3490)
+  assert.equal(history.length, 0)
 })
 
 test('does not alter prices without visible price evidence or matching identity', async () => {
@@ -81,5 +79,12 @@ test('does not alter prices without visible price evidence or matching identity'
 
   assert.equal(result.updated.length, 0)
   assert.equal(result.skipped.length, 2)
-  assert.equal(database.updates.length, 0)
+  assert.equal(database.rpcCalls.length, 0)
+})
+
+test('requires a privileged database before reading or writing prices', async () => {
+  await assert.rejects(syncMamiLowPrices({ database: null }), {
+    code: 'SERVICE_ROLE_NOT_CONFIGURED',
+    status: 503,
+  })
 })

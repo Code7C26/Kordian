@@ -1,14 +1,11 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-if (!process.env.SUPABASE_URL) process.env.SUPABASE_URL = 'http://127.0.0.1:54321'
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key'
-
-const supabaseAdmin = require('../supabaseAdmin')
 const { normalizePairKey, upsertReviewDecision, listReviewDecisions, clearReviewDecisions, deleteReviewDecision, summarizeReviewDecisions, getReviewGroupingPeerIds, applyReviewMatchGrouping } = require('./reviewDecisionStore')
 
 test('review decision store normalizes keys and persists statuses', async () => {
   const rows = new Map()
+  const supabaseAdmin = { from() {} }
   const originalFrom = supabaseAdmin.from
   supabaseAdmin.from = () => {
     const query = { filters: {} }
@@ -59,7 +56,7 @@ test('review decision store normalizes keys and persists statuses', async () => 
   }
 
   try {
-    await clearReviewDecisions()
+    await clearReviewDecisions(supabaseAdmin)
 
     const pairKey = normalizePairKey({ mamiProductId: 10, discoProductId: 20 })
     assert.equal(pairKey, 'cross_source:10:20')
@@ -71,12 +68,12 @@ test('review decision store normalizes keys and persists statuses', async () => 
       reasonCodes: ['exact_valid_gtin'],
       confidence: 'alta',
       admin: 'admin1',
-    })
+    }, supabaseAdmin)
 
     assert.equal(created.status, 'match')
     assert.equal(created.pairKey, pairKey)
 
-    const stored = await listReviewDecisions()
+    const stored = await listReviewDecisions(supabaseAdmin)
     assert.equal(stored.length, 1)
     assert.equal(stored[0].status, 'match')
 
@@ -87,42 +84,65 @@ test('review decision store normalizes keys and persists statuses', async () => 
       reasonCodes: ['brand_missing'],
       confidence: 'media',
       admin: 'admin2',
-    })
+    }, supabaseAdmin)
 
     assert.equal(updated.status, 'revisión')
-    assert.equal((await listReviewDecisions()).length, 1)
+    assert.equal((await listReviewDecisions(supabaseAdmin)).length, 1)
     assert.equal(updated.admin, 'admin2')
 
-    assert.deepEqual(await deleteReviewDecision(pairKey), { deleted: true, grouped: false })
-    assert.deepEqual(await deleteReviewDecision(pairKey), { deleted: false, grouped: false })
-    assert.equal((await listReviewDecisions()).length, 0)
+    assert.deepEqual(await deleteReviewDecision(pairKey, supabaseAdmin), { deleted: true, grouped: false })
+    assert.deepEqual(await deleteReviewDecision(pairKey, supabaseAdmin), { deleted: false, grouped: false })
+    assert.equal((await listReviewDecisions(supabaseAdmin)).length, 0)
 
     await upsertReviewDecision({
       mamiProductId: 10,
       discoProductId: 20,
       status: 'match',
-    })
-    assert.deepEqual(await deleteReviewDecision(pairKey), { deleted: false, grouped: true })
-    assert.equal((await listReviewDecisions()).length, 1)
+    }, supabaseAdmin)
+    assert.deepEqual(await deleteReviewDecision(pairKey, supabaseAdmin), { deleted: false, grouped: true })
+    assert.equal((await listReviewDecisions(supabaseAdmin)).length, 1)
 
     await upsertReviewDecision({
       mamiProductId: 10,
       discoProductId: 20,
       status: 'revisión',
       reasonCodes: ['manual_review'],
-    })
-    assert.deepEqual(await deleteReviewDecision(pairKey), { deleted: false, grouped: true })
+    }, supabaseAdmin)
+    assert.deepEqual(await deleteReviewDecision(pairKey, supabaseAdmin), { deleted: false, grouped: true })
 
-    const summary = summarizeReviewDecisions(await listReviewDecisions())
+    const summary = summarizeReviewDecisions(await listReviewDecisions(supabaseAdmin))
     assert.equal(summary.total, 1)
     assert.equal(summary.byStatus.revisión, 1)
     assert.equal(summary.byAdmin.system, 1)
 
-    await clearReviewDecisions()
-    assert.equal((await listReviewDecisions()).length, 0)
+    await clearReviewDecisions(supabaseAdmin)
+    assert.equal((await listReviewDecisions(supabaseAdmin)).length, 0)
   } finally {
     supabaseAdmin.from = originalFrom
   }
+})
+
+test('review decision persistence errors are surfaced instead of falling back to memory', async () => {
+  const persistenceError = new Error('database unavailable')
+  const database = {
+    from() {
+      return {
+        upsert() { return this },
+        select() { return this },
+        single: async () => ({ data: null, error: persistenceError }),
+        order: async () => ({ data: null, error: persistenceError }),
+        delete() { return this },
+        neq: async () => ({ error: persistenceError }),
+      }
+    },
+  }
+
+  await assert.rejects(upsertReviewDecision({
+    pairKey: 'cross_source:sync-error:1',
+    status: 'match',
+  }, database), persistenceError)
+  await assert.rejects(listReviewDecisions(database), persistenceError)
+  await assert.rejects(clearReviewDecisions(database), persistenceError)
 })
 
 test('review match grouping merges offers for matched pairs without mutating source products', () => {

@@ -116,6 +116,7 @@ function validateCarrefourManifestRow(row = {}) {
       name,
       brand: String(manifestRow.brand || '').trim(),
       category,
+      description: String(manifestRow.product_description || '').trim(),
       netContent: String(manifestRow.net_content || '').trim(),
       netContentUnit: String(manifestRow.net_content_unit || '').trim(),
       netContentValue: Number.isFinite(netContentValue) && netContentValue > 0 ? netContentValue : null,

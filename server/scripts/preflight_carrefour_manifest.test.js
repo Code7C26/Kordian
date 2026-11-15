@@ -8,6 +8,7 @@ if (!process.env.SUPABASE_URL) process.env.SUPABASE_URL = 'http://127.0.0.1:5432
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key'
 
 const supabaseAdmin = require('../supabaseAdmin')
+const { validateCarrefourManifestRow } = require('../services/carrefourManifest')
 const {
   attachCandidateReports,
   createReportRow,
@@ -127,6 +128,29 @@ test('preflight leaves ambiguous taxonomy suggestions unassigned for manual revi
   assert.equal(row.taxonomySuggestionStatus, 'ambiguous')
   assert.equal(row.proposedCategory, null)
   assert.equal(row.proposedSubcategory, null)
+})
+
+test('passes the description to taxonomy without assigning a category from commercial copy alone', () => {
+  const validated = validateCarrefourManifestRow({
+    ...captureRow,
+    name: 'Producto sin tipo identificable',
+    product_description: 'Caldo concentrado de verduras para preparar.',
+  })
+  const row = createReportRow({
+    rowNumber: 2,
+    valid: validated.valid,
+    errors: validated.errors,
+    product: validated.product,
+  }, [], { categories: [], subcategories: [] })
+
+  assert.equal(validated.product.description, 'Caldo concentrado de verduras para preparar.')
+  assert.equal(row.taxonomySuggestionStatus, 'insufficient_evidence')
+  assert.equal(row.proposedSubcategory, null)
+  assert.equal(row.taxonomySuggestionConfidence, 'low')
+  assert.ok(row.taxonomySuggestionAlternatives.some((alternative) => (
+    alternative.rule === 'description_supporting_evidence'
+      && alternative.subcategory === 'Conservas y alimentos preparados'
+  )))
 })
 
 test('does not reuse a no-comparable decision after a comparable catalog candidate appears', () => {

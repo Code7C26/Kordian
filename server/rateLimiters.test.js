@@ -9,7 +9,7 @@ const {
 
 test('IP rate limits are shared across routes and isolated per client IP', async (t) => {
   const app = express()
-  app.set('trust proxy', 'loopback')
+  app.set('trust proxy', 1)
   const limiter = createIpRateLimiter({ windowMs: 60_000, limit: 2 })
 
   app.get('/first', limiter, (_req, res) => res.sendStatus(200))

@@ -17,7 +17,6 @@ const {
   classifyCarrefourProduct,
 } = require('../services/carrefourMatchCandidates')
 const {
-  buildIdentitySnapshot,
   isProductMatchDecisionCurrent,
   listProductMatchDecisions,
 } = require('../services/productMatchDecisionStore')
@@ -342,6 +341,7 @@ function createReportRow(item, products, taxonomy) {
     taxonomySuggestionConfidence: mapping.confidence,
     taxonomySuggestionReason: mapping.reason,
     taxonomySuggestionRule: mapping.rule,
+    taxonomySuggestionAlternatives: mapping.alternatives,
     proposedTaxonomyExists: Boolean(category && subcategory),
     capturedPrice: product.price,
     netContent: product.netContent,
@@ -636,6 +636,5 @@ module.exports = {
   main,
   readCsv,
   runPreflight,
-  attachCandidateReports,
   serializeCandidateReportCsv,
 }

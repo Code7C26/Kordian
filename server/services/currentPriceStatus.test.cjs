@@ -4,6 +4,8 @@ const {
   PRICE_STATUS_RULES_VERSION,
   buildCurrentPriceStatusRows,
   buildPriceFingerprint,
+  createPriceStatusRefreshQueue,
+  isPersistablePriceStatusRow,
   saveCurrentPriceStatuses,
 } = require('./currentPriceStatus')
 
@@ -40,12 +42,35 @@ test('price fingerprint includes the product and comparable prices', () => {
   )
 })
 
+test('price fingerprint includes current taxonomy and analysis inputs', () => {
+  const analysis = createAnalysis()
+  const original = buildPriceFingerprint(analysis.product, analysis.references, analysis)
+  const renamedCategory = {
+    ...analysis.product,
+    categories: { name: 'Otro nombre' },
+  }
+  const changedPreviousPrice = {
+    ...analysis.product,
+    offers: [{ id: 3, cash_price: 100, previous_price: 80 }],
+  }
+
+  assert.notEqual(buildPriceFingerprint(renamedCategory, analysis.references, analysis), original)
+  assert.notEqual(buildPriceFingerprint(changedPreviousPrice, analysis.references, analysis), original)
+})
+
 test('status rows retain comparable ids and analysis details', () => {
   const [row] = buildCurrentPriceStatusRows([createAnalysis()], '2026-10-10T00:00:00.000Z')
   assert.deepEqual(row.comparable_product_ids, ['10', '20'])
   assert.equal(row.classification, 'precio_justo')
   assert.equal(row.confidence_percentage, 85)
   assert.equal(row.analyzed_at, '2026-10-10T00:00:00.000Z')
+  assert.equal(isPersistablePriceStatusRow(row), true)
+})
+
+test('rows without complete analysis details are not persistable', () => {
+  const [row] = buildCurrentPriceStatusRows([createAnalysis()])
+  assert.equal(isPersistablePriceStatusRow({ ...row, analysis_details: {} }), false)
+  assert.equal(isPersistablePriceStatusRow({ ...row, data_quality: {} }), false)
 })
 
 test('statuses are upserted only when the price fingerprint or rules version changes', async () => {
@@ -155,9 +180,10 @@ test('startup queues current-version statuses with incomplete details', async ()
   assert.deepEqual(enqueued, [10])
 })
 
-test('startup without the details check reads only lightweight columns', async () => {
+test('startup without the details check reads lightweight columns and queues stale products', async () => {
   const { enqueueIncompletePriceStatuses } = require('./currentPriceStatus')
   let productPageRead = false
+  let staleStatusPageRead = false
   const selectedStatusColumns = []
   const database = {
     from(table) {
@@ -180,14 +206,23 @@ test('startup without the details check reads only lightweight columns', async (
           return {
             in: async () => ({
               data: [
-                { product_id: 10, rules_version: PRICE_STATUS_RULES_VERSION },
+                {
+                  product_id: 10,
+                  rules_version: PRICE_STATUS_RULES_VERSION,
+                  analysis_details: {},
+                  data_quality: {},
+                },
                 { product_id: 11, rules_version: 'old-version' },
               ],
               error: null,
             }),
             neq: () => ({
               order: () => ({
-                range: async () => ({ data: [], error: null }),
+                range: async () => {
+                  if (staleStatusPageRead) return { data: [], error: null }
+                  staleStatusPageRead = true
+                  return { data: [{ product_id: 11 }], error: null }
+                },
               }),
             }),
           }
@@ -195,14 +230,41 @@ test('startup without the details check reads only lightweight columns', async (
       }
     },
   }
-  const enqueued = []
+  const enqueued = new Set()
   await enqueueIncompletePriceStatuses(
     database,
-    { enqueue: (ids) => enqueued.push(...ids) },
+    { enqueue: (ids) => ids.forEach((id) => enqueued.add(id)) },
     undefined,
     { checkDetails: false },
   )
 
-  assert.deepEqual(enqueued, [11, 12])
-  assert.ok(selectedStatusColumns.every((columns) => !columns.includes('analysis_details')))
+  assert.ok(selectedStatusColumns.includes('product_id, rules_version'))
+  assert.ok(!selectedStatusColumns.some((columns) => columns.includes('analysis_details')))
+  assert.deepEqual([...enqueued].sort((left, right) => left - right), [11, 12])
+})
+
+test('refresh queue retries failed batches without dropping product ids', async () => {
+  let attempts = 0
+  let resolveRetry
+  const retried = new Promise((resolve) => {
+    resolveRetry = resolve
+  })
+  const loggedErrors = []
+  const queue = createPriceStatusRefreshQueue({
+    retryDelayMs: 1,
+    refreshBatch: async (ids) => {
+      attempts += 1
+      assert.deepEqual(ids, ['10', '11'])
+      if (attempts === 1) throw new Error('temporary database failure')
+      resolveRetry()
+    },
+    logger: { error: (...args) => loggedErrors.push(args) },
+  })
+
+  queue.enqueue([10, 11])
+  await retried
+
+  assert.equal(attempts, 2)
+  assert.equal(loggedErrors.length, 1)
+  assert.deepEqual(loggedErrors[0][0], 'Unable to refresh current price statuses for 2 products')
 })
