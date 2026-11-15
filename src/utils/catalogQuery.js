@@ -38,6 +38,27 @@ export function buildProductsQuery({
   return params;
 }
 
+export function buildFavoriteProductsQueries(favoriteIds = []) {
+  const ids = [...new Set(
+    (Array.isArray(favoriteIds) ? favoriteIds : [])
+      .map(Number)
+      .filter((id) => Number.isSafeInteger(id) && id > 0),
+  )].sort((left, right) => left - right);
+  const queries = [];
+
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const batch = ids.slice(offset, offset + 100);
+    queries.push(buildProductsQuery({
+      limit: batch.length,
+      favoritesOnly: true,
+      favoriteIds: batch,
+      catalogOnly: true,
+    }));
+  }
+
+  return queries;
+}
+
 export function appendUniqueProducts(current = [], incoming = []) {
   const existingIds = new Set((Array.isArray(current) ? current : []).map((product) => String(product?.id)))
   const additions = []

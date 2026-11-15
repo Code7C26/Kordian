@@ -1,4 +1,5 @@
-const supabase = require('../supabase')
+const { getServiceRoleDatabase } = require('../services/serviceRole')
+const { isCatalogProductWriteBlocked } = require('../services/catalogMaintenance')
 
 function normalize(s) {
   if (!s) return ''
@@ -10,8 +11,9 @@ function normalize(s) {
 }
 
 async function run() {
+  const supabase = getServiceRoleDatabase()
   console.log('Fetching products...')
-  const { data: products, error } = await supabase.from('products').select('id, name, image, offers(*)')
+  const { data: products, error } = await supabase.from('products').select('id, name, image, source, offers(*)')
   if (error) {
     console.error('Error fetching products:', error)
     process.exit(1)
@@ -32,6 +34,10 @@ async function run() {
 
     for (const other of group) {
       if (other.id === primary.id) continue
+      if (isCatalogProductWriteBlocked(primary) || isCatalogProductWriteBlocked(other)) {
+        console.log(`Skipped duplicate pair touching a paused supermarket: ${primary.id}, ${other.id}`)
+        continue
+      }
 
       // move offers to primary
       try {

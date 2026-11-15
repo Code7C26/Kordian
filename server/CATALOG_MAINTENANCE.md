@@ -1,0 +1,11 @@
+# Pausa temporal de escrituras de Mami y Disco
+
+Los backends principal y móvil consultan `CATALOG_MAINTENANCE_BLOCKED_SUPERMARKETS` antes de permitir escrituras. Para bloquear ambos supermercados, configurar el valor `Mami,Disco` en cada proceso que pueda escribir (cada instancia de backend y cada entorno donde se ejecuten scripts manuales) y reiniciar esos procesos. El valor se lee en tiempo de ejecución, pero los cambios de entorno del proveedor normalmente requieren reinicio para llegar a los procesos.
+
+El gate responde HTTP 503 con `code: "catalog_maintenance"` en las rutas de escritura dirigidas a Mami o Disco. Las consultas de lectura permanecen habilitadas. Las escrituras sobre otros supermercados continúan permitidas. En `/admin/update-prices`, una petición explícita para un supermercado pausado recibe 503; una petición sin supermercado omite solo ofertas Mami y Disco y puede procesar las restantes.
+
+Los scripts `sync-disco`, `sync-disco-token-prices` e `import-mami-batches` también verifican el gate local. Los backfills y herramientas genéricas que pueden modificar productos u ofertas identifican los productos/ofertas afectados y los omiten durante la pausa. El gate no es global a Supabase: cada servicio, proceso batch o máquina que tenga acceso de escritura debe recibir la misma variable. Las llamadas directas a Supabase desde procesos que no usen este repositorio no quedan protegidas.
+
+Para reactivar, quitar la variable o dejarla vacía en esos mismos procesos y reiniciarlos. No se altera `DISCO_SYNC_ENABLED` ni ninguna configuración previa de temporizadores; al retirar la pausa, cada timer conserva su comportamiento anterior y su valor por defecto.
+
+Antes de habilitar el gate, detener nuevas ejecuciones y dejar terminar las importaciones/sincronizaciones que ya estén en curso. El gate detiene nuevas solicitudes y evita las siguientes iteraciones de los procesos protegidos, pero no puede revertir escrituras ya completadas ni cancelar con certeza un proceso antiguo que siga activo. Después de reiniciar, verificar que no queden procesos antiguos, solicitudes en curso ni jobs externos. Para la migración, mantener la pausa hasta terminar las verificaciones posteriores.

@@ -19,6 +19,7 @@ function validRow(overrides = {}) {
     net_content_value: '1',
     brand: 'Cindor',
     category: 'Leches saborizadas',
+    product_description: 'Leche chocolatada Cindor en presentación de 1 litro.',
     price: '8210',
     unit_price: '8210',
     raw_unit_price: '$ 8.210 por litro',
@@ -43,6 +44,7 @@ test('accepts a complete manually captured row without making network or databas
   assert.deepEqual(result.errors, [])
   assert.equal(result.product.sourceProductId, '719377')
   assert.equal(result.product.ean, '7791337007253')
+  assert.equal(result.product.description, 'Leche chocolatada Cindor en presentación de 1 litro.')
   assert.equal(result.product.price, 8210)
   assert.equal(result.product.netContent, '1 l')
   assert.equal(result.product.netContentUnit, 'l')
@@ -63,6 +65,7 @@ test('keeps new measurement fields optional for older manifests', () => {
 
   assert.equal(result.valid, true)
   assert.equal(result.product.netContent, '')
+  assert.equal(result.product.description, 'Leche chocolatada Cindor en presentación de 1 litro.')
   assert.equal(result.product.netContentUnit, '')
   assert.equal(result.product.netContentValue, null)
   assert.equal(result.product.unitPrice, null)

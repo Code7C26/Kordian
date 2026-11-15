@@ -1,4 +1,9 @@
 const supabase = require('../supabaseAdmin')
+const {
+  isCatalogProductWriteBlocked,
+  isCatalogWriteBlocked,
+  isManualCatalogClassification,
+} = require('../services/catalogMaintenance')
 
 const taxonomyModule = import('../../src/data/taxonomy.js')
 
@@ -36,7 +41,7 @@ async function main() {
   const [{ data: products, error: productsError }, { data: categories, error: categoriesError }, { data: offers, error: offersError }] = await Promise.all([
     supabase.from('products').select('*').order('id'),
     supabase.from('categories').select('id,name'),
-    supabase.from('offers').select('id,product_id,cash_price').order('product_id'),
+    supabase.from('offers').select('id,product_id,cash_price,supermarket').order('product_id'),
   ])
   if (productsError) throw productsError
   if (categoriesError) throw categoriesError
@@ -59,6 +64,7 @@ async function main() {
   let historyCandidates = 0
   for (const product of products || []) {
     for (const offer of offersByProduct.get(String(product.id)) || []) {
+      if (isCatalogWriteBlocked(offer.supermarket)) continue
       const cashPrice = Number(offer.cash_price)
       const key = `${offer.id}:${cashPrice}`
       if (!Number.isFinite(cashPrice) || cashPrice <= 0 || historyKeys.has(key)) continue
@@ -78,6 +84,11 @@ async function main() {
   let classified = 0
   let unresolved = 0
   for (const product of products || []) {
+    const productOffers = offersByProduct.get(String(product.id)) || []
+    if (
+      isManualCatalogClassification(product)
+      || isCatalogProductWriteBlocked({ ...product, offers: productOffers })
+    ) continue
     const classification = suggestTaxonomy({
       ...product,
       brand: product.brand || product.brands?.name,
@@ -95,11 +106,14 @@ async function main() {
       { category_id: categoryId, name: classification.subcategoryId },
     )
     const { error: updateError } = await supabase.from('products').update({
+      category_id: categoryId,
       subcategory_id: subcategoryId,
       classification_source: 'automatic',
       classification_confidence: classification.confidence,
     }).eq('id', product.id)
-    if (updateError) throw updateError
+    if (updateError) {
+      throw new Error(`Could not update taxonomy for product ${product.id}: ${updateError.message}`)
+    }
     classified += 1
   }
 

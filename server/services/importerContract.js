@@ -12,12 +12,15 @@ const COMMON_IMPORTER_FIELDS = {
   listPrice: 'listPrice',
   available: 'available',
   stock: 'stock',
+  sourceSubcategory: 'sourceSubcategory',
   sourceCategory: 'sourceCategory',
   sourceCategories: 'sourceCategories',
   sourceUrl: 'sourceUrl',
   proposedCategory: 'proposedCategory',
   proposedSubcategory: 'proposedSubcategory',
   mappingStatus: 'mappingStatus',
+  classificationSource: 'classificationSource',
+  classificationConfidence: 'classificationConfidence',
   onlineOnly: 'onlineOnly',
   seller: 'seller',
 }
@@ -33,7 +36,7 @@ function numeric(value) {
 function normalizeBoolean(value) {
   if (typeof value === 'boolean') return value
   if (value === 1) return true
-  const normalized = String(value ?? '').trim().toLowerCase().split(/[\/#]/).filter(Boolean).pop()
+  const normalized = String(value ?? '').trim().toLowerCase().split(/[/#]/).filter(Boolean).pop()
   return ['true', '1', 'instock', 'limitedavailability', 'onlineonly', 'preorder'].includes(normalized)
 }
 
@@ -52,6 +55,7 @@ function createCommonProduct(raw = {}, source = 'unknown') {
     available: typeof item.available === 'boolean' ? item.available : normalizeBoolean(item.available),
     stock: numeric(item.stock || item.quantity || item.AvailableQuantity),
     sourceCategory: item.sourceCategory || item.category || item.source_categories?.at(-1) || null,
+    sourceSubcategory: item.sourceSubcategory || item.source_subcategory || null,
     sourceCategories: Array.isArray(item.sourceCategories) ? item.sourceCategories : Array.isArray(item.categories) ? item.categories : [],
     sourceUrl: item.sourceUrl || item.link || item.url || null,
     proposedCategory: item.proposedCategory || null,
@@ -60,6 +64,11 @@ function createCommonProduct(raw = {}, source = 'unknown') {
     onlineOnly: Boolean(item.onlineOnly),
     seller: item.seller || item.sellerName || 'unknown',
   }
+
+  const classificationSource = item.classificationSource ?? item.classification_source
+  const classificationConfidence = item.classificationConfidence ?? item.classification_confidence
+  if (classificationSource != null) product.classificationSource = classificationSource
+  if (classificationConfidence != null) product.classificationConfidence = classificationConfidence
 
   if (!product.image && item.imageUrl) product.image = String(item.imageUrl)
   return product

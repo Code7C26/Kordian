@@ -26,6 +26,8 @@ const VARIANT_FIELDS = [
   'additionalFeatures',
 ]
 const HARD_DIFFERENCES = new Set(['brand', 'family', 'measure', ...VARIANT_FIELDS])
+const DISPLAY_MEASURE_PATTERN = /(\d+(?:[.,]\d+)?)\s*(kg|kgs|kilos?|grs?|grams?|gramos?|g|mg|ml|cc|cl|lts?|litros?|l)\b/gi
+const DISPLAY_PACK_COUNT_PATTERN = /\bx\s*(\d+)\b(?![.,]\d)|\b(\d+)\s*(unidades?|un\.?|saquitos?|sobres?)\b/gi
 
 function normalizeText(value) {
   return String(value || '')
@@ -123,6 +125,45 @@ function isComparableOffer(offer) {
     && Number(offer?.cash_price ?? offer?.cashPrice) > 0
 }
 
+function formatCandidatePresentation(candidate, measure) {
+  const explicitPresentation = String(candidate.presentation || '').trim()
+  const sourceText = [
+    explicitPresentation,
+    candidate.name,
+    candidate.description,
+    candidate.unit,
+  ].filter(Boolean).join(' ')
+  const measureMatches = [...sourceText.matchAll(DISPLAY_MEASURE_PATTERN)]
+  const measureLabel = measureMatches.at(-1)?.[0].trim() || ''
+  let packCountMatch = [...sourceText.matchAll(DISPLAY_PACK_COUNT_PATTERN)].at(-1)
+  const measuredAmount = Number(measureLabel.match(/^\s*(\d+(?:[.,]\d+)?)/)?.[1]?.replace(',', '.'))
+  if (packCountMatch?.[1]
+    && Number(packCountMatch[1]) === measuredAmount) {
+    packCountMatch = null
+  }
+  const packCount = packCountMatch
+    ? packCountMatch[1]
+      ? `${packCountMatch[1]} unidades`
+      : `${packCountMatch[2]} ${packCountMatch[3]}`
+    : ''
+
+  if (packCount && measureLabel) {
+    const explicitHasPackCount = explicitPresentation
+      && DISPLAY_PACK_COUNT_PATTERN.test(explicitPresentation)
+    DISPLAY_PACK_COUNT_PATTERN.lastIndex = 0
+    if (!explicitHasPackCount) {
+      return `${packCount} x ${measureLabel}`
+    }
+  }
+  if (explicitPresentation) return explicitPresentation
+  if (measureLabel) return measureLabel
+  if (packCount) return packCount
+  if (!measure) return ''
+
+  const amount = Number(measure.normalizedAmount.toFixed(3))
+  return `${amount} ${measure.baseUnit}`
+}
+
 function buildCandidate(sourceInput, candidateInput, thresholds = {}) {
   const source = normalizeProduct(sourceInput, 'carrefour')
   const candidate = normalizeProduct(candidateInput, candidateInput.source || 'unknown')
@@ -184,10 +225,9 @@ function buildCandidate(sourceInput, candidateInput, thresholds = {}) {
 
   const offers = Array.isArray(candidate.offers) ? candidate.offers : []
   const comparableOffers = offers.filter(isComparableOffer)
-  const presentation = candidate.presentation || (
-    comparison.candidateAttributes.measure
-      ? `${comparison.candidateAttributes.measure.amount} ${comparison.candidateAttributes.measure.baseUnit}`
-      : ''
+  const presentation = formatCandidatePresentation(
+    candidate,
+    comparison.candidateAttributes.measure,
   )
 
   return {

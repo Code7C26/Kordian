@@ -1,4 +1,4 @@
-const analysisWriter = require('../supabaseAdmin')
+const { getServiceRoleDatabase, requireServiceRoleDatabase } = require('./serviceRole')
 const store = new Map()
 
 function normalizePairKey({ pairKey, mamiProductId, discoProductId, source = 'cross_source' }) {
@@ -35,7 +35,8 @@ async function upsertReviewDecision({
   confidence,
   evidence = {},
   admin = 'system',
-}) {
+}, database = getServiceRoleDatabase()) {
+  const analysisWriter = requireServiceRoleDatabase(database)
   const key = normalizePairKey({ pairKey, mamiProductId, discoProductId, source })
   const normalizedStatus = ['match', 'no_match', 'revisión'].includes(status) ? status : 'revisión'
   const payload = {
@@ -51,74 +52,43 @@ async function upsertReviewDecision({
     updated_at: new Date().toISOString(),
   }
 
-  try {
-    const { data, error } = await analysisWriter
-      .from('cross_source_review_decisions')
-      .upsert({ ...payload, pair_key: key }, { onConflict: 'pair_key' })
-      .select()
-      .single()
+  const { data, error } = await analysisWriter
+    .from('cross_source_review_decisions')
+    .upsert({ ...payload, pair_key: key }, { onConflict: 'pair_key' })
+    .select()
+    .single()
+  if (error) throw error
+  if (!data) throw new Error('Review decision was not persisted')
 
-    if (!error && data) {
-      const record = normalizeDecisionRecord(data)
-      store.set(key, record)
-      return record
-    }
-  } catch (error) {
-    console.warn('Falling back to in-memory review decisions store', error.message)
-  }
-
-  const now = new Date().toISOString()
-  const record = {
-    id: key,
-    pairKey: key,
-    source,
-    mamiProductId: mamiProductId ?? null,
-    discoProductId: discoProductId ?? null,
-    status: normalizedStatus,
-    reasonCodes: Array.isArray(reasonCodes) ? reasonCodes : [],
-    confidence: confidence || 'media',
-    evidence: evidence || {},
-    admin: admin || 'system',
-    createdAt: store.get(key)?.createdAt || now,
-    updatedAt: now,
-  }
-
+  const record = normalizeDecisionRecord(data)
   store.set(key, record)
   return record
 }
 
-async function listReviewDecisions() {
-  try {
-    const { data, error } = await analysisWriter
-      .from('cross_source_review_decisions')
-      .select('*')
-      .order('updated_at', { ascending: false })
+async function listReviewDecisions(database = getServiceRoleDatabase()) {
+  const analysisWriter = requireServiceRoleDatabase(database)
+  const { data, error } = await analysisWriter
+    .from('cross_source_review_decisions')
+    .select('*')
+    .order('updated_at', { ascending: false })
+  if (error) throw error
+  if (!Array.isArray(data)) throw new Error('Review decision query returned an invalid result')
 
-    if (!error && Array.isArray(data)) {
-      const records = data.map((item) => normalizeDecisionRecord(item))
-      records.forEach((item) => store.set(item.pairKey, item))
-      return records
-    }
-  } catch (error) {
-    console.warn('Unable to read review decisions from Supabase, using in-memory fallback', error.message)
-  }
-
-  return Array.from(store.values()).sort((left, right) => (left.updatedAt || '').localeCompare(right.updatedAt || ''))
+  const records = data.map((item) => normalizeDecisionRecord(item))
+  records.forEach((item) => store.set(item.pairKey, item))
+  return records
 }
 
-async function clearReviewDecisions() {
-  try {
-    const { error } = await analysisWriter.from('cross_source_review_decisions').delete().neq('pair_key', '')
-    if (!error) return true
-  } catch (error) {
-    console.warn('Unable to clear review decisions from Supabase, using in-memory fallback', error.message)
-  }
-
+async function clearReviewDecisions(database = getServiceRoleDatabase()) {
+  const analysisWriter = requireServiceRoleDatabase(database)
+  const { error } = await analysisWriter.from('cross_source_review_decisions').delete().neq('pair_key', '')
+  if (error) throw error
   store.clear()
   return true
 }
 
-async function deleteReviewDecision(pairKey) {
+async function deleteReviewDecision(pairKey, database = getServiceRoleDatabase()) {
+  const analysisWriter = requireServiceRoleDatabase(database)
   const key = String(pairKey || '').trim()
   if (!key) throw new TypeError('pairKey is required')
 

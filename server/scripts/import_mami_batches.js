@@ -1,5 +1,6 @@
 const fs = require('fs/promises')
 const path = require('path')
+const { assertCatalogWriteAllowed } = require('../services/catalogMaintenance')
 const crypto = require('crypto')
 require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') })
 const { fetchMamiCategoryReport, isValidProduct } = require('../services/mamiImporter')
@@ -247,6 +248,7 @@ async function main() {
     printHelp()
     return
   }
+  assertCatalogWriteAllowed('Mami')
   if (!(process.env.MAMI_IMPORT_USERNAME && process.env.MAMI_IMPORT_PASSWORD) && !process.env.ADMIN_SESSION_SECRET) {
     throw new Error('Falta login de importacion y ADMIN_SESSION_SECRET; no se iniciara el rastreo ni la importacion')
   }

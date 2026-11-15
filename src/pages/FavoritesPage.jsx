@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Heart, Loader2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config/api.js';
-import { buildProductsQuery } from '../utils/catalogQuery.js';
+import { buildFavoriteProductsQueries } from '../utils/catalogQuery.js';
 import { Header } from '../components/Header.jsx';
 import LoginRequiredNotice from '../components/LoginRequiredNotice.jsx'
 import { SupermarketLogo } from '../components/SupermarketLogo.jsx';
@@ -24,8 +24,12 @@ export default function FavoritesPage() {
   const [supermarkets, setSupermarkets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const favoriteIdsKey = favorites.join(',');
+  const favoritesRef = useRef(favorites);
   const translateProductName = useProductNameTranslator(products.map((product) => product.name));
+
+  useEffect(() => {
+    favoritesRef.current = favorites;
+  }, [favorites]);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,7 +63,7 @@ export default function FavoritesPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (authLoading || favoritesLoading || !user || !favoriteIdsKey) {
+    if (authLoading || favoritesLoading || !user || !favoritesRef.current.length) {
       setProducts([]);
       setIsLoading(false);
       return () => {
@@ -67,12 +71,14 @@ export default function FavoritesPage() {
       };
     }
 
-    const query = buildProductsQuery({ limit: 100, favoritesOnly: true, favoriteIds: favoriteIdsKey.split(',') });
-    const productsUrl = apiUrl(`/products?${query.toString()}`);
-    const cachedPayload = readCachedCatalogResponse(productsUrl);
-    const cachedProducts = Array.isArray(cachedPayload) ? cachedPayload : cachedPayload?.data || [];
-    if (cachedPayload !== null) {
-      setProducts(cachedProducts);
+    const productsUrls = buildFavoriteProductsQueries(favoritesRef.current)
+      .map((query) => apiUrl(`/products?${query.toString()}`));
+    const cachedPayloads = productsUrls.map((url) => readCachedCatalogResponse(url));
+    const hasCompleteCache = cachedPayloads.every((payload) => payload !== null);
+    if (hasCompleteCache) {
+      setProducts(cachedPayloads.flatMap((payload) => (
+        Array.isArray(payload) ? payload : payload?.data || []
+      )));
       setIsLoading(false);
     } else {
       setIsLoading(true);
@@ -87,8 +93,12 @@ export default function FavoritesPage() {
 
     async function loadProducts() {
       try {
-        const payload = await fetchCachedCatalogResponse(productsUrl);
-        const catalog = Array.isArray(payload) ? payload : payload?.data || [];
+        const payloads = await Promise.all(
+          productsUrls.map((url) => fetchCachedCatalogResponse(url)),
+        );
+        const catalog = payloads.flatMap((payload) => (
+          Array.isArray(payload) ? payload : payload?.data || []
+        ));
         if (!cancelled) setProducts(catalog);
       } catch (loadError) {
         if (!cancelled) setError(loadError.message || 'No se pudieron cargar los productos');
@@ -105,7 +115,7 @@ export default function FavoritesPage() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [authLoading, favoriteIdsKey, favoritesLoading, user]);
+  }, [authLoading, favoritesLoading, user]);
 
   const favoriteProducts = useMemo(
     () => products.filter((product) => favorites.includes(String(product.id))),

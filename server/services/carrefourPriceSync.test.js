@@ -196,6 +196,17 @@ test('does not create history or write when price and list price are unchanged',
   assert.equal(state.history.length, 0)
 })
 
+test('requires a privileged database before starting Carrefour synchronization', async () => {
+  await assert.rejects(syncCarrefourPrices({
+    database: null,
+    historyRecorder: async () => {},
+    postalCode: '5186',
+  }), {
+    code: 'SERVICE_ROLE_NOT_CONFIGURED',
+    status: 503,
+  })
+})
+
 test('stores official Carrefour identity when prices are unchanged', async () => {
   const state = runSync([
     makeOffer({ cash_price: 110, list_price: 125, source_sku: null, source_url: null }),

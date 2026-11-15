@@ -1,10 +1,15 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const {
+  buildDiscoProductTaxonomyFields,
   createDiscoPromotionFetcher,
+  getDiscoProductClassification,
+  normalizeDiscoHtmlProduct,
   normalizeDiscoProduct,
   parseDiscoPromotionFromHtml,
+  suggestDiscoCatalogMapping,
 } = require('./discoImporter')
+const { suggestCatalogMapping } = require('./catalogTaxonomy')
 
 const promotionHtml = (overrides = {}) => `<script type="application/ld+json">${JSON.stringify({
   '@type': 'Product',
@@ -100,6 +105,540 @@ test('uses the raw price when a product price token is 100 times higher', () => 
   })
 
   assert.equal(product.price, 905.19)
+})
+
+test('distinguishes Disco infusion products from mate and coffee accessories', () => {
+  const cases = [
+    ['Yerba mate', 'Almacén y Alimentos', 'Infusiones'],
+    ['Té en saquitos', 'Almacén y Alimentos', 'Infusiones'],
+    ['Café molido', 'Almacén y Alimentos', 'Infusiones'],
+    ['Café tostado molido 500 Grs Super Cabrales', 'Almacén y Alimentos', 'Infusiones'],
+    ['Café en grano', 'Almacén y Alimentos', 'Infusiones'],
+    ['Café instantáneo', 'Almacén y Alimentos', 'Infusiones'],
+    ['Mate cocido', 'Almacén y Alimentos', 'Infusiones'],
+    ['Mate', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Mate de acero inoxidable', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Bombilla de acero inoxidable', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Yerbera', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Azucarera', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Filtro de café reutilizable', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Canister de cocina', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Recipiente para yerba', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Portayerba', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Filtro De Papel Para Café Nº 2 X 30 U Domestic', 'Hogar y Otros', 'Cocina y bazar'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    const suggestion = suggestDiscoCatalogMapping({
+      name,
+      sourceCategory: '/Hogar y textil/',
+    })
+    assert.equal(suggestion.status, 'determined', JSON.stringify({ name, suggestion }))
+    assert.equal(suggestion.category, category)
+    assert.equal(suggestion.subcategory, subcategory)
+  }
+
+  for (const name of [
+    'Café',
+    'Producto para mate',
+    'Accesorio para café',
+    'Accesorios para preparar café',
+    'Accesorios para servir mate',
+    'Botella Mate Naranja Hydrum',
+  ]) {
+    const suggestion = suggestDiscoCatalogMapping({
+      name,
+      sourceCategory: '/Hogar y textil/',
+      sourceCategories: ['/Hogar y textil/'],
+    })
+    assert.notEqual(suggestion.subcategory, 'Infusiones', JSON.stringify({ name, suggestion }))
+    assert.notEqual(suggestion.subcategory, 'Cocina y bazar', JSON.stringify({ name, suggestion }))
+    assert.ok(
+      ['insufficient_evidence', 'ambiguous'].includes(suggestion.status),
+      JSON.stringify({ name, suggestion }),
+    )
+    assert.equal(suggestion.confidence, 'low')
+  }
+
+  const mixedProduct = suggestDiscoCatalogMapping({
+    name: 'Yerba mate con bombilla',
+    sourceCategory: '/Hogar y textil/',
+  })
+  assert.equal(mixedProduct.status, 'ambiguous')
+  assert.equal(mixedProduct.category, null)
+  assert.equal(mixedProduct.subcategory, null)
+  assert.equal(mixedProduct.confidence, 'low')
+
+  const mixedClassification = getDiscoProductClassification({
+    name: 'Yerba mate con bombilla',
+    sourceCategory: '/Hogar y textil/',
+  })
+  assert.equal(mixedClassification.proposedCategory, null)
+  assert.equal(mixedClassification.proposedSubcategory, null)
+  assert.equal(mixedClassification.classificationConfidence, 'low')
+})
+
+test('classifies Disco lighting separately from mate bombillas', () => {
+  const mateBombilla = suggestDiscoCatalogMapping({
+    name: 'Bombilla de acero inoxidable',
+    sourceCategory: '/Hogar y textil/',
+  })
+  assert.equal(mateBombilla.category, 'Hogar y Otros')
+  assert.equal(mateBombilla.subcategory, 'Cocina y bazar')
+
+  for (const product of [
+    { name: 'Bombilla LED Dicroica 7W Luz Cálida Esmerilada Candela', sourceCategory: '/Hogar y textil/' },
+    {
+      name: 'Bombilla de vidrio',
+      sourceCategories: ['/Hogar y textil/Ferretería/Lámparas/', '/Hogar y textil/Ferretería/'],
+      sourceCategory: '/Hogar y textil/',
+    },
+  ]) {
+    const suggestion = suggestDiscoCatalogMapping(product)
+    assert.equal(suggestion.status, 'determined')
+    assert.equal(suggestion.category, 'Hogar y Otros')
+    assert.equal(suggestion.subcategory, 'Iluminación')
+    assert.equal(suggestion.rule, 'disco_lighting_product')
+  }
+})
+
+test('requires kitchen context for Disco canisters and honors conflicting original categories', () => {
+  const kitchenCanister = suggestDiscoCatalogMapping({
+    name: 'Canister Cocina 1.9l Krea',
+    sourceCategories: ['/Hogar y textil/Cocina/Infusiones/', '/Hogar y textil/Cocina/'],
+    sourceCategory: '/Hogar y textil/',
+  })
+  assert.equal(kitchenCanister.category, 'Hogar y Otros')
+  assert.equal(kitchenCanister.subcategory, 'Cocina y bazar')
+
+  for (const product of [
+    {
+      name: 'Canister Vidrio Blanco Krea',
+      sourceCategories: ['/Hogar y textil/Baño/Accesorios de Baño/', '/Hogar y textil/Baño/'],
+      sourceCategory: '/Hogar y textil/',
+    },
+    { name: 'Canister Vidrio Blanco Krea', sourceCategory: '/Hogar y textil/' },
+    {
+      name: 'Canister de cocina',
+      sourceCategories: ['/Hogar y textil/Baño/Accesorios de Baño/'],
+      sourceCategory: '/Hogar y textil/',
+    },
+  ]) {
+    const suggestion = suggestDiscoCatalogMapping(product)
+    assert.equal(suggestion.category, null)
+    assert.equal(suggestion.subcategory, null)
+    assert.equal(suggestion.confidence, 'low')
+    assert.ok(['ambiguous', 'insufficient_evidence'].includes(suggestion.status))
+  }
+})
+
+test('recognizes coffee filters but abstains for unrelated filters and ambiguous coffee names', () => {
+  const paperFilter = suggestDiscoCatalogMapping({
+    name: 'Filtro De Papel Para Café Nº 2 X 30 U Domestic',
+    sourceCategories: ['/Hogar y textil/Cocina/Infusiones/', '/Hogar y textil/Cocina/'],
+    sourceCategory: '/Hogar y textil/',
+  })
+  assert.equal(paperFilter.category, 'Hogar y Otros')
+  assert.equal(paperFilter.subcategory, 'Cocina y bazar')
+  assert.equal(paperFilter.confidence, 'medium')
+
+  for (const name of ['Filtro de agua', 'Accesorio para café', 'Café']) {
+    const suggestion = suggestDiscoCatalogMapping({ name, sourceCategory: '/Hogar y textil/' })
+    assert.notEqual(suggestion.subcategory, 'Cocina y bazar')
+    assert.notEqual(suggestion.subcategory, 'Infusiones')
+    assert.equal(suggestion.confidence, 'low')
+  }
+})
+
+test('prioritizes the primary Disco product type over secondary words such as cream, milk, or oil', () => {
+  const cases = [
+    ['Pasta Dental Colgate', 'Limpieza e Higiene', 'Cuidado bucal'],
+    ['Crema Dental Oral-B', 'Limpieza e Higiene', 'Cuidado bucal'],
+    ['Cepillo Dental Colgate', 'Limpieza e Higiene', 'Cuidado bucal'],
+    ['Cepillos Dentales Colgate', 'Limpieza e Higiene', 'Cuidado bucal'],
+    ['Crema Nivea Soft', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Crema Facial Garnier', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Crema Corporal Nivea', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Crema para Peinar Elvive', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Shampoo con aceite de argán', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Detergente Lavavajilla Cif', 'Limpieza e Higiene', 'Limpieza de cocina'],
+    ['Cif Crema Lavavajillas', 'Limpieza e Higiene', 'Limpieza de cocina'],
+    ['Limpiador en Crema Cif', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Jabón en Pan para lavar', 'Limpieza e Higiene', 'Lavado de ropa'],
+    ['Jabón de Tocador', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Alimento para Perros con Leche', 'Hogar y Otros', 'Mascotas'],
+    ['Alimento para Gatos con Leche', 'Hogar y Otros', 'Mascotas'],
+    ['Licor Amarula Crema', 'Almacén y Alimentos', 'Bebidas'],
+    ['Baileys Irish Cream', 'Almacén y Alimentos', 'Bebidas'],
+    ['Galletitas Oreo con Crema', 'Almacén y Alimentos', 'Galletitas y productos de panificación'],
+    ['Papas sabor Crema y Cebolla', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Helado sabor Crema', 'Alimentos Frescos y Refrigerados', 'Helados'],
+    ['Bowl Cerámico Color Crema', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Plato Cerámico Color Crema', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Mug Color Crema', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Azucarera Cerámica Color Crema', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Sopa Crema de Calabaza', 'Almacén y Alimentos', 'Conservas y alimentos preparados'],
+    ['Polenta sabor Crema', 'Almacén y Alimentos', 'Pastas y harinas'],
+    ['Aderezo con Crema', 'Almacén y Alimentos', 'Aceites, condimentos y aderezos'],
+    ['Gomitas sabor Crema', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Pastillas sabor Crema', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Agua Micelar Garnier', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Tónico Nivea', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Crema de Leche', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    const suggestion = suggestDiscoCatalogMapping({ name })
+    assert.equal(suggestion.status, 'determined', JSON.stringify({ name, suggestion }))
+    assert.equal(suggestion.category, category, name)
+    assert.equal(suggestion.subcategory, subcategory, name)
+    assert.equal(suggestion.confidence, 'high', name)
+  }
+})
+
+test('classifies specific pet-care brands and Nivea Soft without inferring from incidental ingredients', () => {
+  const cases = [
+    ['Dog Chow sabor leche', 'Hogar y Otros', 'Mascotas'],
+    ['Whiskas sabor carne', 'Hogar y Otros', 'Mascotas'],
+    ['Nivea Soft', 'Limpieza e Higiene', 'Higiene personal'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    const suggestion = suggestDiscoCatalogMapping({ name })
+    assert.equal(suggestion.status, 'determined', name)
+    assert.equal(suggestion.category, category, name)
+    assert.equal(suggestion.subcategory, subcategory, name)
+    assert.equal(suggestion.confidence, 'high', name)
+  }
+
+  for (const name of ['Artículo con leche', 'Artículo con crema', 'Artículo con aceite', 'Crema de almendras']) {
+    const suggestion = suggestDiscoCatalogMapping({ name })
+    assert.equal(suggestion.status, 'insufficient_evidence', name)
+    assert.equal(suggestion.category, null, name)
+    assert.equal(suggestion.subcategory, null, name)
+  }
+
+  const milkFlavor = suggestDiscoCatalogMapping({ name: 'Galletitas sabor leche' })
+  assert.equal(milkFlavor.category, 'Almacén y Alimentos')
+  assert.equal(milkFlavor.subcategory, 'Galletitas y productos de panificación')
+})
+
+test('regresses the thirteen historical Disco classifier cases against their real product names', () => {
+  const cases = [
+    ['1702', 'Licor Crema Sabor Frambuesa, Chocolate Blanco y Baobab 750 Ml Amarula', 'Almacén y Alimentos', 'Bebidas', 'disco_cream_liqueur'],
+    ['11991', 'Yogur Entero Yogurisimo Botella 185gr Frutilla Con Chocolate', 'Alimentos Frescos y Refrigerados', 'Lácteos', 'disco_chocolate_dairy'],
+    ['14958', 'Leche Saborizada Sabor Chocolate Reducida en lactosa 200 Ml Las Tres Niñas', 'Alimentos Frescos y Refrigerados', 'Lácteos', 'disco_chocolate_dairy'],
+    ['8997', 'Galletitas Sin Tacc De Chocolate Con Azúcar 100 Gr Nina', 'Almacén y Alimentos', 'Galletitas y productos de panificación', 'disco_biscuits'],
+    ['1336', 'Chocolate Aireado Leche 80 Grs Suflair®', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_chocolate_product'],
+    ['6591', 'Chocolate Leche Suave Y Cremoso X 45 Grs Nestle', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_chocolate_product'],
+    ['8567', 'Chocolate Guylian Leche - Sin Azucar Agregada', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_chocolate_product'],
+    ['8202', 'Alfajor Dulce De Leche Sin Azúcar 150 Gr  X 3 Un Happy Food', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_alfajor'],
+    ['8961', 'Alfajor Dulce De Leche Sin Azúcar 50 Gr Happy Food', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_alfajor'],
+    ['14586', 'Alfajor Fantoche Triple Leche X 85 Gr', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_alfajor'],
+    ['6399', 'Maiz Frito Mostaza Y Miel 200 Gr', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_maize_snack'],
+    ['7206', 'Kombucha Yerba Mate Bergamota Moringa Booch', 'Almacén y Alimentos', 'Bebidas', 'disco_kombucha'],
+    ['3868', 'Snacks Temptations Salmon Y Queso 48gr', 'Hogar y Otros', 'Mascotas', 'disco_pet_food_brand'],
+  ]
+
+  for (const [productId, name, category, subcategory, rule] of cases) {
+    const suggestion = suggestDiscoCatalogMapping({
+      name,
+      source_category: '',
+      source_subcategory: '',
+    })
+    assert.equal(suggestion.status, 'determined', `${productId}: ${name}`)
+    assert.equal(suggestion.category, category, `${productId}: ${name}`)
+    assert.equal(suggestion.subcategory, subcategory, `${productId}: ${name}`)
+    assert.equal(suggestion.rule, rule, `${productId}: ${name}`)
+  }
+})
+
+test('prioritizes Disco product types over incidental ingredients and flavor words', () => {
+  const cases = [
+    ['Chocolate Aireado Leche 80 Grs Suflair', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_chocolate_product'],
+    ['Chocolate Nestlé Leche Suave y Cremoso', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_chocolate_product'],
+    ['Chocolate Guylian Leche sin azúcar agregada', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_chocolate_product'],
+    ['Chocolate Nestlé en barra', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_chocolate_product'],
+    ['Bombones de chocolate', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_chocolate_product'],
+    ['Alfajor Dulce de Leche', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_alfajor'],
+    ['Licor El Nono Don Te', 'Almacén y Alimentos', 'Bebidas', 'disco_liqueur'],
+    ['Snacks Temptations Salmón y Queso', 'Hogar y Otros', 'Mascotas', 'disco_pet_food_brand'],
+    ['Maíz frito sabor Mostaza y Miel', 'Almacén y Alimentos', 'Golosinas y snacks', 'disco_maize_snack'],
+    ['Kombucha Yerba Mate Bergamota', 'Almacén y Alimentos', 'Bebidas', 'disco_kombucha'],
+  ]
+
+  for (const [name, category, subcategory, rule] of cases) {
+    const suggestion = suggestDiscoCatalogMapping({ name })
+    assert.equal(suggestion.status, 'determined', name)
+    assert.equal(suggestion.category, category, name)
+    assert.equal(suggestion.subcategory, subcategory, name)
+    assert.equal(suggestion.rule, rule, name)
+    assert.equal(suggestion.confidence, 'high', name)
+  }
+
+  const franui = suggestDiscoCatalogMapping({
+    name: 'Bombón de Frambuesa Franui Leche 150 Gr',
+    sourceCategory: '/Congelados/',
+    sourceSubcategory: 'Lácteos',
+  })
+  assert.equal(franui.status, 'ambiguous')
+  assert.equal(franui.category, null)
+  assert.equal(franui.subcategory, null)
+  assert.equal(franui.confidence, 'low')
+  assert.equal(franui.reason, 'brand_product_type_requires_review')
+})
+
+test('keeps core dairy, infusion, cream-liqueur, cleaning, and personal-care rules intact', () => {
+  const cases = [
+    ['Yogur natural', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Leche entera', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Leche chocolatada', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Leche sabor chocolate Nesquik', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Leche chocolatada Serenísima 1L', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Leche chocolatada Serenísima 200ml', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Yogur sabor chocolate', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Yogur Yogurisimo Bebible Frutilla & Chocolate', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Bebida láctea sabor chocolate', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Postre lácteo de chocolate', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Café instantáneo', 'Almacén y Alimentos', 'Infusiones'],
+    ['Té en saquitos', 'Almacén y Alimentos', 'Infusiones'],
+    ['Yerba mate', 'Almacén y Alimentos', 'Infusiones'],
+    ['Licor Amarula Crema', 'Almacén y Alimentos', 'Bebidas'],
+    ['Baileys Irish Cream', 'Almacén y Alimentos', 'Bebidas'],
+    ['Limpiador en Crema Cif', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Desodorante Masculino Axe', 'Limpieza e Higiene', 'Higiene personal'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    const suggestion = suggestDiscoCatalogMapping({ name })
+    assert.equal(suggestion.status, 'determined', name)
+    assert.equal(suggestion.category, category, name)
+    assert.equal(suggestion.subcategory, subcategory, name)
+  }
+})
+
+test('preserves manual HTML and VTEX classifications and metadata through persistence fields', () => {
+  const manualValues = {
+    mappingStatus: 'manual_override',
+    classification_source: 'manual',
+    classification_confidence: 'medium',
+    proposedCategory: 'Limpieza e Higiene',
+    proposedSubcategory: 'Higiene personal',
+  }
+  const htmlProduct = normalizeDiscoHtmlProduct({
+    sourceProductId: 'disco-html-manual',
+    name: 'Pasta Dental Colgate 90 g',
+    sourceCategory: '/Higiene/Cuidado bucal/',
+    price: 1000,
+    image: 'https://example.test/product.png',
+    ...manualValues,
+  })
+
+  assert.equal(htmlProduct.mappingStatus, 'manual_override')
+  assert.equal(htmlProduct.classificationSource, 'manual')
+  assert.equal(htmlProduct.classificationConfidence, 'medium')
+  assert.equal(htmlProduct.proposedCategory, manualValues.proposedCategory)
+  assert.equal(htmlProduct.proposedSubcategory, manualValues.proposedSubcategory)
+  assert.deepEqual(
+    buildDiscoProductTaxonomyFields(htmlProduct, getDiscoProductClassification(htmlProduct)),
+    {
+      classification_source: 'manual',
+      classification_confidence: 'medium',
+      source_category: '/Higiene/Cuidado bucal/',
+      source_subcategory: null,
+    },
+  )
+
+  const vtexProduct = normalizeDiscoProduct({
+    productId: 'disco-vtex-manual',
+    productName: 'Pasta Dental Colgate 90 g',
+    categories: ['/Higiene/Cuidado bucal/'],
+    mappingStatus: manualValues.mappingStatus,
+    classification_source: manualValues.classification_source,
+    classification_confidence: manualValues.classification_confidence,
+    category: manualValues.proposedCategory,
+    subcategory: manualValues.proposedSubcategory,
+    items: [{
+      itemId: 'sku-vtex-manual',
+      sellers: [{ commertialOffer: { IsAvailable: true, Price: 1000, ListPrice: 1000 } }],
+    }],
+  })
+  assert.equal(vtexProduct.mappingStatus, 'manual_override')
+  assert.equal(vtexProduct.classificationSource, 'manual')
+  assert.equal(vtexProduct.classificationConfidence, 'medium')
+  assert.equal(vtexProduct.proposedCategory, manualValues.proposedCategory)
+  assert.equal(vtexProduct.proposedSubcategory, manualValues.proposedSubcategory)
+  assert.deepEqual(
+    buildDiscoProductTaxonomyFields(vtexProduct, getDiscoProductClassification(vtexProduct)),
+    {
+      classification_source: 'manual',
+      classification_confidence: 'medium',
+      source_category: '/Higiene/Cuidado bucal/',
+      source_subcategory: null,
+    },
+  )
+
+  const manualSourceWithoutStatus = normalizeDiscoHtmlProduct({
+    sourceProductId: 'disco-html-manual-source',
+    name: 'Producto con decisión guardada',
+    classificationSource: 'manual',
+    proposedCategory: 'Hogar y Otros',
+    proposedSubcategory: 'Mascotas',
+    price: 1000,
+    image: 'https://example.test/product.png',
+  })
+  assert.equal(manualSourceWithoutStatus.mappingStatus, 'manual')
+  assert.equal(manualSourceWithoutStatus.proposedCategory, 'Hogar y Otros')
+  assert.equal(manualSourceWithoutStatus.proposedSubcategory, 'Mascotas')
+  assert.deepEqual(
+    buildDiscoProductTaxonomyFields(
+      manualSourceWithoutStatus,
+      getDiscoProductClassification(manualSourceWithoutStatus),
+    ),
+    {
+      classification_source: 'manual',
+      classification_confidence: 'manual',
+      source_category: null,
+      source_subcategory: null,
+    },
+  )
+})
+
+test('uses multi-level Disco source paths independent of category order and abstains on missing or contradictory evidence', () => {
+  const orderedPaths = [
+    '/Alimentos y bebidas/Bebidas/Vinos/Tintos/',
+    '/Alimentos y bebidas/Bebidas/',
+  ]
+  const sourceProduct = (sourceCategories) => suggestDiscoCatalogMapping({
+    name: 'Selección Reserva Especial',
+    sourceCategory: '/Alimentos y bebidas/',
+    sourceCategories,
+  })
+
+  const forward = sourceProduct(orderedPaths)
+  const reversed = sourceProduct([...orderedPaths].reverse())
+  assert.equal(forward.status, 'determined')
+  assert.equal(forward.category, 'Almacén y Alimentos')
+  assert.equal(forward.subcategory, 'Bebidas')
+  assert.deepEqual(
+    [reversed.status, reversed.category, reversed.subcategory],
+    [forward.status, forward.category, forward.subcategory],
+  )
+
+  const missingSubcategory = suggestDiscoCatalogMapping({
+    name: 'Producto Especial',
+    sourceCategory: '/Supermercado/',
+  })
+  assert.equal(missingSubcategory.status, 'insufficient_evidence')
+  assert.equal(missingSubcategory.category, null)
+  assert.equal(missingSubcategory.subcategory, null)
+
+  const conflictingSource = suggestDiscoCatalogMapping({
+    name: 'Producto Especial',
+    sourceCategories: ['/Alimentos/Lácteos/', '/Limpieza/Higiene personal/'],
+  })
+  assert.equal(conflictingSource.status, 'ambiguous')
+  assert.equal(conflictingSource.confidence, 'low')
+
+  const explicitTypeWithConflict = suggestDiscoCatalogMapping({
+    name: 'Pasta Dental Colgate',
+    sourceCategory: '/Alimentos/Lácteos/',
+  })
+  assert.equal(explicitTypeWithConflict.category, 'Limpieza e Higiene')
+  assert.equal(explicitTypeWithConflict.subcategory, 'Cuidado bucal')
+  assert.equal(explicitTypeWithConflict.confidence, 'medium')
+})
+
+test('preserves manual classifications and leaves the shared taxonomy available to Mami and Carrefour', () => {
+  const manual = getDiscoProductClassification({
+    name: 'Pasta Dental Colgate',
+    classification_source: 'manual',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Higiene personal',
+  })
+  assert.equal(manual.classificationSource, 'manual')
+  assert.equal(manual.classificationConfidence, 'manual')
+  assert.equal(manual.proposedCategory, 'Limpieza e Higiene')
+  assert.equal(manual.proposedSubcategory, 'Higiene personal')
+
+  const sharedPetFood = suggestCatalogMapping({ name: 'Alimento para perros con leche' })
+  assert.equal(sharedPetFood.category, 'Hogar y Otros')
+  assert.equal(sharedPetFood.subcategory, 'Mascotas')
+  const sharedHairCare = suggestCatalogMapping({ name: 'Shampoo con aceite de argán' })
+  assert.equal(sharedHairCare.category, 'Limpieza e Higiene')
+  assert.equal(sharedHairCare.subcategory, 'Cuidado capilar')
+})
+
+test('preserves Disco source taxonomy separately from ar-price proposals and classification metadata', () => {
+  const rawCategory = '/Hogar y textil/'
+  const item = normalizeDiscoProduct({
+    productId: 'disco-mate-1',
+    productName: 'Mate de acero inoxidable',
+    categories: [rawCategory],
+    items: [{
+      itemId: 'sku-mate-1',
+      sellers: [{ commertialOffer: { IsAvailable: true, Price: 1000, ListPrice: 1000 } }],
+    }],
+  })
+
+  assert.equal(item.sourceCategory, rawCategory)
+  assert.equal(item.sourceSubcategory, null)
+  assert.equal(item.proposedCategory, 'Hogar y Otros')
+  assert.equal(item.proposedSubcategory, 'Cocina y bazar')
+
+  const classification = getDiscoProductClassification(item)
+  assert.equal(classification.proposedCategory, item.proposedCategory)
+  assert.equal(classification.proposedSubcategory, item.proposedSubcategory)
+  assert.deepEqual(buildDiscoProductTaxonomyFields(item, classification), {
+    classification_source: 'automatic',
+    classification_confidence: 'high',
+    source_category: rawCategory,
+    source_subcategory: null,
+  })
+
+  const explicitSourceSubcategory = normalizeDiscoProduct({
+    productId: 'disco-original-subcategory',
+    productName: 'Yerba mate',
+    categories: [rawCategory],
+    sourceSubcategory: 'Infusiones originales Disco',
+    items: [{
+      itemId: 'sku-original-subcategory',
+      sellers: [{ commertialOffer: { IsAvailable: true, Price: 1000, ListPrice: 1000 } }],
+    }],
+  })
+  assert.equal(explicitSourceSubcategory.sourceSubcategory, 'Infusiones originales Disco')
+  assert.equal(explicitSourceSubcategory.proposedSubcategory, 'Infusiones')
+  assert.equal(
+    buildDiscoProductTaxonomyFields(
+      explicitSourceSubcategory,
+      getDiscoProductClassification(explicitSourceSubcategory),
+    ).source_subcategory,
+    'Infusiones originales Disco',
+  )
+})
+
+test('uses the same Disco mapping helper for preview and both import classification paths', () => {
+  const product = {
+    name: 'Bombilla de acero inoxidable',
+    sourceCategory: '/Hogar y textil/',
+    sourceCategories: ['/Hogar y textil/'],
+  }
+  const normalized = normalizeDiscoProduct({
+    productId: 'disco-bombilla-1',
+    productName: product.name,
+    categories: product.sourceCategories,
+    items: [{
+      itemId: 'sku-bombilla-1',
+      sellers: [{ commertialOffer: { IsAvailable: true, Price: 1000, ListPrice: 1000 } }],
+    }],
+  })
+  const classification = getDiscoProductClassification(normalized)
+  const directSuggestion = suggestDiscoCatalogMapping(product)
+
+  assert.equal(normalized.proposedCategory, directSuggestion.category)
+  assert.equal(normalized.proposedSubcategory, directSuggestion.subcategory)
+  assert.equal(classification.proposedCategory, directSuggestion.category)
+  assert.equal(classification.proposedSubcategory, directSuggestion.subcategory)
 })
 
 test('extracts a Disco promotional price and reference price without verifying purchase conditions', () => {

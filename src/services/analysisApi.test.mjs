@@ -5,6 +5,7 @@ import { fetchProductAnalysis } from './analysisApi.js'
 
 const appSource = await readFile(new URL('../App.jsx', import.meta.url), 'utf8')
 const calculatorSource = await readFile(new URL('../pages/PriceInflationPage.jsx', import.meta.url), 'utf8')
+const favoritesPageSource = await readFile(new URL('../pages/FavoritesPage.jsx', import.meta.url), 'utf8')
 
 test('catalog loading and filter effects never request the bulk analysis endpoint', () => {
   assert.doesNotMatch(appSource, /apiUrl\(['"]\/analysis\/products['"]\)/)
@@ -21,6 +22,11 @@ test('inflation calculator requests only the selected product analysis', () => {
   assert.match(calculatorSource, /activeProductId = selectedProduct\?\.id/)
   assert.match(calculatorSource, /fetchProductAnalysis\(\r?\n      apiUrl\(`\/analysis\/products\/\$\{encodeURIComponent\(productId\)\}`\)/)
   assert.doesNotMatch(calculatorSource, /apiUrl\(['"]\/analysis\/products['"]\)/)
+})
+
+test('favorites page requests only favorited products in bounded batches', () => {
+  assert.match(favoritesPageSource, /buildFavoriteProductsQueries\(favoritesRef\.current\)/)
+  assert.doesNotMatch(favoritesPageSource, /\/products\?limit=2000/)
 })
 
 test('returns one product analysis from a successful response', async () => {

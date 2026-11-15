@@ -1,4 +1,5 @@
 const { fetchProductById, isValidGtin } = require('./carrefourImporter')
+const { requireServiceRoleDatabase } = require('./serviceRole')
 
 const SYNC_STATE_KEY = 'daily'
 const DEFAULT_MAX_OFFERS_PER_RUN = 25
@@ -77,7 +78,7 @@ async function runCarrefourPriceSync({
   maxOffersPerRun = DEFAULT_MAX_OFFERS_PER_RUN,
   suspiciousPriceRatio = 3,
 }) {
-  if (!database || typeof database.from !== 'function') throw new TypeError('Se requiere una base de datos para sincronizar Carrefour')
+  requireServiceRoleDatabase(database)
   if (typeof historyRecorder !== 'function') throw new TypeError('Se requiere un registrador de historial de precios')
   if (!/^[A-Z0-9]{4,8}$/i.test(String(postalCode || '').trim())) throw new TypeError('Se requiere un código postal válido')
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 5) throw new TypeError('La concurrencia debe ser un entero entre 1 y 5')

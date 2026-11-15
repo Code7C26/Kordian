@@ -3,36 +3,25 @@ const { test } = require('node:test')
 const { syncDiscoPrices } = require('./discoPriceSync')
 
 function createDatabase(products) {
-  const updates = []
+  const rpcCalls = []
   const logs = []
   const database = {
-    from(table) {
+    from() {
       return {
         select() {
           return {
             eq: async () => ({ data: products, error: null }),
           }
         },
-        update(values) {
-          return {
-            eq: async (_column, id) => {
-              updates.push({ table, id, values })
-              return { error: null }
-            },
-          }
-        },
-        insert(values) {
-          return {
-            then(resolve, reject) {
-              if (table === 'price_update_log') logs.push(values)
-              return Promise.resolve({ error: null }).then(resolve, reject)
-            },
-          }
-        },
       }
     },
+    async rpc(name, args) {
+      rpcCalls.push({ name, args })
+      if (args.p_log) logs.push(args.p_log)
+      return { error: null }
+    },
   }
-  return { database, updates, logs }
+  return { database, rpcCalls, logs }
 }
 
 function productWithPrice(cashPrice) {
@@ -63,7 +52,7 @@ test('rounds to cents before comparing to avoid no-op price updates', async () =
 
   assert.deepEqual(result.updated, [])
   assert.equal(result.unchanged.length, 1)
-  assert.equal(state.updates.length, 0)
+  assert.equal(state.rpcCalls.length, 0)
   assert.equal(state.history.length, 0)
 })
 
@@ -73,7 +62,7 @@ test('skips and reports suspicious upward changes instead of persisting inflated
 
   assert.equal(result.updated.length, 0)
   assert.equal(result.suspicious.length, 1)
-  assert.equal(state.updates.length, 0)
+  assert.equal(state.rpcCalls.length, 1)
   assert.equal(state.history.length, 0)
   assert.equal(state.logs[0].filters.suspicious.length, 1)
   assert.equal(state.logs[0].products_updated, 0)
@@ -85,8 +74,9 @@ test('automatically corrects a prior 100x scale inflation from the authoritative
 
   assert.equal(result.updated.length, 1)
   assert.equal(result.updated[0].updatedCashPrice, 8613)
-  assert.equal(state.updates[0].values.cash_price, 8613)
-  assert.equal(state.history[0].cashPrice, 8613)
+  assert.equal(state.rpcCalls[0].name, 'apply_catalog_price_sync')
+  assert.equal(state.rpcCalls[0].args.p_updates[0].updatedCashPrice, 8613)
+  assert.equal(state.rpcCalls[0].args.p_source, 'disco_sync')
   assert.equal(state.logs[0].percentage, -99)
 })
 
@@ -96,8 +86,7 @@ test('corrects a Disco token-scale price when normal price changes move the rati
 
   assert.equal(result.updated.length, 1)
   assert.equal(result.updated[0].updatedCashPrice, 2700)
-  assert.equal(state.updates[0].values.cash_price, 2700)
-  assert.equal(state.history[0].cashPrice, 2700)
+  assert.equal(state.rpcCalls[0].args.p_updates[0].updatedCashPrice, 2700)
 })
 
 test('shares an active sync so concurrent callers cannot duplicate history writes', async () => {
@@ -108,7 +97,6 @@ test('shares an active sync so concurrent callers cannot duplicate history write
   const state = createDatabase([productWithPrice(100)])
   const options = {
     database: state.database,
-    historyRecorder: async () => {},
     fetchProductById: async () => fetchPromise,
   }
   const first = syncDiscoPrices(options)
@@ -118,7 +106,7 @@ test('shares an active sync so concurrent callers cannot duplicate history write
   releaseFetch({ price: 110, available: true })
   const result = await first
   assert.equal(result.updated.length, 1)
-  assert.equal(state.updates.length, 1)
+  assert.equal(state.rpcCalls.length, 1)
 })
 
 test('does not remove an existing offer when Disco returns an invalid price', async () => {
@@ -126,7 +114,14 @@ test('does not remove an existing offer when Disco returns an invalid price', as
   const result = await state.promise
 
   assert.equal(result.unavailable[0].reason, 'invalid_price')
-  assert.equal(state.updates.length, 0)
+  assert.equal(state.rpcCalls.length, 0)
+})
+
+test('requires a privileged database before reading or writing prices', async () => {
+  await assert.rejects(syncDiscoPrices({ database: null }), {
+    code: 'SERVICE_ROLE_NOT_CONFIGURED',
+    status: 503,
+  })
 })
 
 test('limits low-price verification to positive offers below the configured maximum', async () => {
@@ -148,7 +143,7 @@ test('limits low-price verification to positive offers below the configured maxi
 
   assert.deepEqual(fetchedIds, ['source-1'])
   assert.equal(result.unchanged.length, 1)
-  assert.equal(state.updates.length, 0)
+  assert.equal(state.rpcCalls.length, 0)
 })
 
 test('reports products without source IDs as unavailable instead of throwing', async () => {
@@ -179,6 +174,7 @@ test('limits high-price verification to offers at or above the configured minimu
 
   assert.deepEqual(fetchedIds, ['source-1', 'source-2'])
   assert.equal(result.updated.length, 2)
-  assert.equal(state.updates[0].values.cash_price, 905.19)
-  assert.equal(state.updates[1].values.cash_price, 900)
+  assert.equal(state.rpcCalls[0].args.p_updates.length, 2)
+  assert.equal(state.rpcCalls[0].args.p_updates[0].updatedCashPrice, 905.19)
+  assert.equal(state.rpcCalls[0].args.p_updates[1].updatedCashPrice, 900)
 })

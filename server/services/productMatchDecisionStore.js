@@ -1,4 +1,4 @@
-const supabaseAdmin = require('../supabaseAdmin')
+const { getServiceRoleDatabase, requireServiceRoleDatabase } = require('./serviceRole')
 const { extractAttributes, extractGtin } = require('./productIdentityAudit')
 
 const SNAPSHOT_ATTRIBUTE_FIELDS = [
@@ -161,8 +161,9 @@ function createDecisionKey({ source, sourceProductId, localProductId }) {
 async function listProductMatchDecisions({
   source,
   sourceProductIds = [],
-  database = supabaseAdmin,
+  database = getServiceRoleDatabase(),
 }) {
+  requireServiceRoleDatabase(database)
   const ids = [...new Set(sourceProductIds.map((id) => String(id || '').trim()).filter(Boolean))]
   if (!ids.length) return []
   const results = []
@@ -178,7 +179,8 @@ async function listProductMatchDecisions({
   return results
 }
 
-async function upsertProductMatchDecision(decision, database = supabaseAdmin) {
+async function upsertProductMatchDecision(decision, database = getServiceRoleDatabase()) {
+  requireServiceRoleDatabase(database)
   const decisionKey = createDecisionKey(decision)
   const payload = {
     decision_key: decisionKey,

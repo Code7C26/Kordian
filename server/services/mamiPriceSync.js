@@ -1,4 +1,16 @@
+const { randomUUID } = require('crypto')
 const { fetchMamiProductById } = require('./mamiImporter')
+const { assertCatalogWriteAllowed } = require('./catalogMaintenance')
+const { requireServiceRoleDatabase } = require('./serviceRole')
+
+function wrapPriceSyncRpcError(error, operationId) {
+  const wrapped = new Error(error?.message || 'Price sync RPC failed')
+  wrapped.cause = error
+  wrapped.code = error?.code
+  wrapped.operationId = operationId
+  wrapped.resultUnknown = !/^[0-9A-Z]{5}$/.test(String(error?.code || ''))
+  return wrapped
+}
 
 function normalizeText(value) {
   return String(value || '')
@@ -24,10 +36,12 @@ async function mapWithConcurrency(items, concurrency, callback) {
 
 async function syncMamiLowPrices({
   database,
-  historyRecorder,
+  adminUsername = 'system',
   fetchProductById = fetchMamiProductById,
   concurrency = 4,
 }) {
+  requireServiceRoleDatabase(database)
+  assertCatalogWriteAllowed('Mami')
   const { data: offers, error } = await database
     .from('offers')
     .select('id, product_id, cash_price, supermarket, products!inner(id, name, source, source_product_id, source_url)')
@@ -60,32 +74,50 @@ async function syncMamiLowPrices({
       return { status: 'unchanged', productId: product.id, name: product.name }
     }
 
-    const { error: updateError } = await database
-      .from('offers')
-      .update({ cash_price: price })
-      .eq('id', offer.id)
-    if (updateError) throw updateError
-
-    await historyRecorder({
-      productId: product.id,
-      offerId: offer.id,
-      cashPrice: price,
-      source: 'mami_price_repair',
-      throwOnError: true,
-    })
     return {
       status: 'updated',
       productId: product.id,
       offerId: offer.id,
+      sourceProductId: product.source_product_id,
       name: product.name,
-      previousCashPrice: previousPrice,
+      previousCashPrice: Number(offer.cash_price),
       updatedCashPrice: price,
     }
   })
 
+  const updated = results.filter((result) => result.status === 'updated')
+  if (updated.length) {
+    assertCatalogWriteAllowed('Mami')
+    const operationId = randomUUID()
+    const firstChange = updated[0]
+    const percentage = firstChange.previousCashPrice > 0
+      ? ((firstChange.updatedCashPrice - firstChange.previousCashPrice) / firstChange.previousCashPrice) * 100
+      : 0
+    const { error } = await database.rpc('apply_catalog_price_sync', {
+      p_supermarket: 'Mami',
+      p_source: 'mami_price_repair',
+      p_updates: updated.map((change) => ({
+        offerId: change.offerId,
+        productId: change.productId,
+        sourceProductId: change.sourceProductId,
+        previousCashPrice: change.previousCashPrice,
+        updatedCashPrice: change.updatedCashPrice,
+      })),
+      p_removals: [],
+      p_log: {
+        admin_username: adminUsername,
+        filters: { source: 'mami_price_repair', operationId },
+        percentage,
+        products_updated: updated.length,
+        changes: updated,
+      },
+    })
+    if (error) throw wrapPriceSyncRpcError(error, operationId)
+  }
+
   return {
     checked: candidates.length,
-    updated: results.filter((result) => result.status === 'updated'),
+    updated,
     unchanged: results.filter((result) => result.status === 'unchanged'),
     skipped: results.filter((result) => !['updated', 'unchanged'].includes(result.status)),
   }

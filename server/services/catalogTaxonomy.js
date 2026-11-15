@@ -44,12 +44,12 @@ const rules = [
   { category: 'Almacén y Alimentos', subcategory: 'Galletitas y productos de panificación', terms: ['galletita sin azucar', 'galletitas sin azucar'] },
   { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['alfajor', 'golosina', 'chupetin', 'chicle', 'oblea', 'snack'] },
   { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['chocolate', 'bombon', 'confite'] },
-  { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['nacho', 'papas fritas', 'papa frita', 'palito sabor', 'palitos sabor', 'palito salado', 'palitos salados'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['nacho', 'palito sabor', 'palitos sabor', 'palito salado', 'palitos salados'] },
   { category: 'Almacén y Alimentos', subcategory: 'Pastas y harinas', terms: ['ñoqui'] },
   { category: 'Almacén y Alimentos', subcategory: 'Conservas y alimentos preparados', terms: ['aceituna', 'sopa'] },
   { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Lácteos', terms: ['queso', 'leche', 'yogur', 'yogurt', 'lacteo', 'lactea', 'bebida lactea', 'manteca'] },
   { category: 'Hogar y Otros', subcategory: 'Cocina y bazar', terms: ['extractor de jugos', 'extractor jugos'] },
-  { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['cerveza', 'gaseosa', 'jugo', 'agua mineral', 'vino', 'licor', 'vodka', 'soda', 'bebida', 'isotonico', 'gatorade'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['cerveza', 'gaseosa', 'jugo', 'agua mineral', 'vino', 'licor', 'vodka', 'ron', 'gin', 'ginebra', 'whisky', 'whiskey', 'aperitivo', 'soda', 'bebida', 'isotonico', 'gatorade'] },
   { category: 'Almacén y Alimentos', subcategory: 'Infusiones', terms: ['yerba', 'mate', 'te ', 'cafe', 'infusion'] },
   { category: 'Almacén y Alimentos', subcategory: 'Azúcares y dulces', terms: ['azucar', 'azucares', 'edulcorante'] },
   { category: 'Almacén y Alimentos', subcategory: 'Bebidas', terms: ['energizante', 'energetica', 'energeticas'] },
@@ -60,21 +60,21 @@ const rules = [
   { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Frutas y verduras', terms: ['banana', 'manzana', 'papa', 'cebolla', 'tomate', 'zanahoria', 'lechuga', 'fruta', 'verdura'] },
   { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Huevos', terms: ['huevo', 'huevos'] },
   { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Panadería y pastelería', terms: ['pan ', 'panaderia', 'factura', 'torta', 'budin', 'bizcochuelo', 'medialuna'] },
-  { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Congelados', terms: ['congelado', 'nugget', 'papas fritas'] },
-  { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['alfajor', 'chocolate', 'caramelo', 'chicle', 'chupetin', 'golosina', 'snack', 'oblea', 'papas fritas'] },
+  { category: 'Alimentos Frescos y Refrigerados', subcategory: 'Congelados', terms: ['congelado', 'nugget'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Golosinas y snacks', terms: ['alfajor', 'chocolate', 'caramelo', 'chicle', 'chupetin', 'golosina', 'snack', 'oblea'] },
   { category: 'Almacén y Alimentos', subcategory: 'Granos, cereales y legumbres', terms: ['arroz', 'avena', 'lenteja', 'garbanzo', 'poroto', 'cereal', 'quinoa'] },
   { category: 'Almacén y Alimentos', subcategory: 'Pastas y harinas', terms: ['fideo', 'harina', 'semola', 'premezcla'] },
   { category: 'Almacén y Alimentos', subcategory: 'Aceites, condimentos y aderezos', terms: ['aceite', 'vinagre', 'mayonesa', 'ketchup', 'mostaza', 'sal ', 'pimienta', 'condimento'] },
   { category: 'Almacén y Alimentos', subcategory: 'Conservas y alimentos preparados', terms: ['atun', 'sardina', 'conserva', 'pure de tomate', 'tomate triturado', 'caldo', 'sopa'] },
-  { category: 'Almacén y Alimentos', subcategory: 'Galletitas y productos de panificación', terms: ['galletita', 'galletitas', 'tostada', 'grisines'] },
+  { category: 'Almacén y Alimentos', subcategory: 'Galletitas y productos de panificación', terms: ['galleta', 'galletita', 'tostada', 'bizcocho', 'grisines', 'cracker'] },
   { category: 'Limpieza e Higiene', subcategory: 'Cuidado bucal', terms: ['pasta dental', 'dentifrico', 'cepillo dental', 'enjuague bucal'] },
   { category: 'Limpieza e Higiene', subcategory: 'Cuidado capilar', terms: ['shampoo', 'acondicionador', 'mascara capilar', 'crema para peinar'] },
   { category: 'Limpieza e Higiene', subcategory: 'Higiene infantil', terms: ['pañal', 'panal', 'toallitas bebe', 'talco bebe', 'formula infantil'] },
   { category: 'Limpieza e Higiene', subcategory: 'Higiene personal', terms: ['limpieza facial', 'gel de limpieza facial', 'crema facial', 'perfume', 'desodorante corporal'] },
   { category: 'Limpieza e Higiene', subcategory: 'Higiene personal', terms: ['jabon de tocador', 'desodorante hombre', 'desodorante'] },
   { category: 'Limpieza e Higiene', subcategory: 'Lavado de ropa', terms: ['jabon para ropa', 'detergente para ropa', 'suavizante', 'quitamanchas'] },
-  { category: 'Limpieza e Higiene', subcategory: 'Limpieza de cocina', terms: ['detergente', 'esponja', 'lavavajilla', 'limpieza cocina'] },
-  { category: 'Limpieza e Higiene', subcategory: 'Limpieza del hogar', terms: ['limpiador', 'limpieza', 'ambientador', 'rejilla', 'esponja', 'sahumerio', 'sopapa', 'escoba', 'trapo'] },
+  { category: 'Limpieza e Higiene', subcategory: 'Limpieza de cocina', terms: ['detergente', 'esponja', 'lavavajilla', 'limpieza cocina', 'limpieza de cocina'] },
+  { category: 'Limpieza e Higiene', subcategory: 'Limpieza del hogar', terms: ['limpiador', 'limpieza del hogar', 'limpieza de hogar', 'ambientador', 'rejilla', 'esponja', 'sahumerio', 'sopapa', 'escoba', 'trapo'] },
   { category: 'Electrónica y Electrodomésticos', subcategory: 'Televisores y entretenimiento', terms: ['smart tv', 'televisor', 'televis', 'roku', 'streaming'] },
   { category: 'Electrónica y Electrodomésticos', subcategory: 'Climatización', terms: ['aire acondicionado', 'ventilador', 'caloventor', 'estufa'] },
   { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes', terms: ['microondas', 'horno electrico', 'horno microondas', 'heladera', 'lavarropas', 'lavavajillas'] },
@@ -109,8 +109,27 @@ const PRIMARY_TYPE_RULES = [
     rule: 'laundry_product_type',
     category: 'Limpieza e Higiene',
     subcategory: 'Lavado de ropa',
-    priority: 115,
-    terms: ['jabon para ropa', 'detergente para ropa', 'suavizante', 'quitamanchas'],
+    priority: 120,
+    terms: ['jabon para ropa', 'detergente para ropa', 'detergente en polvo para ropa', 'suavizante', 'quitamanchas'],
+  },
+  {
+    rule: 'dishwasher_detergent_product_type',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Limpieza de cocina',
+    priority: 125,
+    terms: [
+      'detergente en polvo lavavajillas', 'detergente en polvo lavavajilla',
+      'detergente para lavavajillas', 'detergente para lavavajilla',
+      'detergente en polvo para lavavajillas', 'detergente en polvo para lavavajilla',
+      'detergente lavavajillas', 'detergente lavavajilla',
+    ],
+  },
+  {
+    rule: 'hair_care_product_type',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Cuidado capilar',
+    priority: 125,
+    terms: ['shampoo', 'acondicionador', 'mascara capilar', 'crema para peinar'],
   },
   {
     rule: 'preserved_food_type',
@@ -170,7 +189,10 @@ const PRIMARY_TYPE_RULES = [
     category: 'Alimentos Frescos y Refrigerados',
     subcategory: 'Congelados',
     priority: 135,
-    terms: ['congelado', 'nugget', 'papas prefritas', 'papas fritas congeladas', 'papas fritas mccain'],
+    terms: [
+      'congelado', 'nugget', 'papas prefritas', 'papas fritas congeladas',
+      'papas fritas listas para freir',
+    ],
   },
   {
     rule: 'snack_product_type',
@@ -179,13 +201,28 @@ const PRIMARY_TYPE_RULES = [
     priority: 120,
     terms: [
       'snack salado', 'snacks salados', 'nacho', 'nachos', 'palito sabor',
-      'palitos sabor', 'palito salado', 'palitos salados', 'papas fritas',
-      'papas fritas pringles',
+      'palitos sabor', 'palito salado', 'palitos salados', 'papas fritas pringles',
+      'papas fritas lay', 'papas fritas sabor', 'tableta de chocolate', 'oblea',
       'papas fritas snack', 'papas fritas en tubo', 'tostaditas de arroz',
       'mani pelado salado', 'mani frito salado', 'mani pelado y salado',
       'mani con cascara', 'mani pelado tostado y salado', 'chizitos de maiz',
       'chips de batatas', 'maicitos', 'baguetin sabor pizza', 'takis', 'cheetos',
+      'salmas',
     ],
+  },
+  {
+    rule: 'sweet_spread_product_type',
+    category: 'Almacén y Alimentos',
+    subcategory: 'Azúcares y dulces',
+    priority: 110,
+    terms: ['mermelada', 'jalea', 'dulce de leche'],
+  },
+  {
+    rule: 'candy_product_type',
+    category: 'Almacén y Alimentos',
+    subcategory: 'Golosinas y snacks',
+    priority: 120,
+    terms: ['gomita'],
   },
   {
     rule: 'pasta_product_type',
@@ -227,7 +264,18 @@ const PRIMARY_TYPE_RULES = [
     category: 'Electrónica y Electrodomésticos',
     subcategory: 'Electrodomésticos grandes',
     priority: 125,
-    terms: ['horno electrico', 'horno microondas', 'microondas', 'heladera', 'lavarropas', 'lavavajillas'],
+    terms: [
+      'freezer vertical', 'freezer horizontal', 'freezer', 'congelador',
+      'refrigerador', 'frigobar', 'horno electrico', 'horno microondas',
+      'microondas', 'heladera', 'lavarropas', 'secarropas', 'lavavajillas',
+    ],
+  },
+  {
+    rule: 'small_appliance_product_type',
+    category: 'Electrónica y Electrodomésticos',
+    subcategory: 'Electrodomésticos pequeños',
+    priority: 125,
+    terms: ['aspiradora'],
   },
   {
     rule: 'oral_care_product_type',
@@ -235,6 +283,13 @@ const PRIMARY_TYPE_RULES = [
     subcategory: 'Cuidado bucal',
     priority: 125,
     terms: ['pasta dental', 'pasta de dientes', 'dentifrico', 'cepillo dental', 'enjuague bucal'],
+  },
+  {
+    rule: 'feminine_care_product_type',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Higiene personal',
+    priority: 125,
+    terms: ['protector diario', 'protectores diarios', 'toalla femenina', 'toallas femeninas'],
   },
 ]
 
@@ -251,7 +306,7 @@ const sourceMappings = {
   'calefaccion': { category: 'Electrónica y Electrodomésticos', subcategory: 'Climatización' },
   'calefones y termotanques': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
   'cocinas': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
-  'freezer': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
+  'freezer': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos grandes' },
   'balanza de cocina': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
   'corta cabello': { category: 'Limpieza e Higiene', subcategory: 'Higiene personal' },
   'balanzas de bano': { category: 'Electrónica y Electrodomésticos', subcategory: 'Electrodomésticos pequeños' },
@@ -269,24 +324,94 @@ function matches(text, term) {
   return match ? match.index : -1
 }
 
-const SECONDARY_DESCRIPTOR_PREFIX = /(?:^|\s)(?:(?:sabor(?:es)?|aroma)(?:\s+\w+){0,3}|con|al|a la|a los|a las|relleno de)\s+$/
+const SECONDARY_DESCRIPTOR_PREFIX = /(?:^|\s)(?:(?:sabor(?:es)?|aroma)(?:\s+\w+){0,3}|con|sin|al|a la|a los|a las|relleno de)\s+$/
+const SECONDARY_AFTER_DE_TERMS = new Set([
+  'arroz', 'avena', 'carne', 'chocolate', 'garbanzo', 'leche', 'maiz', 'tomate',
+  'dulce de leche', 'verdura', 'verduras', 'vino',
+])
+const SECONDARY_AFTER_PARA_TERMS = new Set([
+  'horno electrico', 'horno microondas', 'microondas', 'heladera', 'lavarropas', 'lavavajillas',
+])
 const PRESERVED_PRODUCE_PATTERN = /\b(?:verduras?|vegetales?|frutas?|tomates?|papas?|cebollas?|zanahorias?|arvejas?|choclos?|maiz)\b.*\b(?:en conserva|conserva|en lata|lata|salmuera|encurtid[oa]s?|en vinagre|al natural|escabeche)\b|\b(?:en conserva|conserva|en lata|lata|salmuera|encurtid[oa]s?|en vinagre|al natural|escabeche)\b.*\b(?:verduras?|vegetales?|frutas?|tomates?|papas?|cebollas?|zanahorias?|arvejas?|choclos?|maiz)\b/
 const MINIMUM_CONFIDENCE_SCORE = 60
 const HIGH_CONFIDENCE_SCORE = 90
 const AMBIGUITY_SCORE_MARGIN = 10
+const DESCRIPTION_MAX_SCORE = 65
+const PRODUCT_TYPE_CONTEXT_RULES = [...PRIMARY_TYPE_RULES, ...rules]
+
+function hasProductTypeBeforeSecondaryDescriptor(text, index) {
+  const prefix = text.slice(0, index)
+  const clauseStart = Math.max(
+    prefix.lastIndexOf(';'),
+    prefix.lastIndexOf('.'),
+    prefix.lastIndexOf('!'),
+    prefix.lastIndexOf('?'),
+  ) + 1
+  const clause = prefix.slice(clauseStart)
+  const descriptorMatches = [...clause.matchAll(/\b(?:sabor(?:es)?|aroma)\b/g)]
+  const descriptor = descriptorMatches[descriptorMatches.length - 1]
+  if (!descriptor) return false
+
+  const productTypePrefix = clause.slice(0, descriptor.index)
+  return PRODUCT_TYPE_CONTEXT_RULES.some((rule) => (
+    rule.terms.some((candidateTerm) => matches(productTypePrefix, candidateTerm) >= 0)
+  ))
+}
+
+function isFreezerAccessory(text, index = null) {
+  if (index === null) {
+    return /\b(?:bolsas?|organizad(?:or|ores)|accesorios?)\s+para\s+freezer\b/.test(text)
+  }
+
+  const accessoryPrefix = text.slice(0, index)
+  return /(?:^|\s)(?:bolsas?|organizad(?:or|ores)|accesorios?)\s+para\s+$/.test(accessoryPrefix)
+    && text.slice(index).startsWith('freezer')
+}
 
 function isSecondaryOccurrence(text, index, term) {
   const prefix = text.slice(0, index)
+  const normalizedTerm = normalize(term).trim()
+  const suffix = text.slice(index + normalizedTerm.length).replace(/^(?:s|es)(?=\s|$)/, '')
   return SECONDARY_DESCRIPTOR_PREFIX.test(prefix)
-    || (['aceite', 'aceites'].includes(normalize(term).trim())
+    || hasProductTypeBeforeSecondaryDescriptor(text, index)
+    || (normalizedTerm === 'papa' && /\bpapas?\s+(?:pre)?fritas?\b/.test(text))
+    || (normalizedTerm === 'freezer' && isFreezerAccessory(text, index))
+    || (SECONDARY_AFTER_DE_TERMS.has(normalizedTerm)
+      && /(?:^|\s)de\s+$/.test(prefix))
+    || (['aceite', 'aceites'].includes(normalizedTerm)
       && /(?:^|\s)en\s+$/.test(prefix))
+    || (SECONDARY_AFTER_PARA_TERMS.has(normalizedTerm)
+      && /(?:^|\s)para\s+$/.test(prefix))
+    || (normalizedTerm === 'nacho' && /(?:^|\s)tio\s+$/.test(prefix))
+    || (normalizedTerm === 'gomita' && (
+      /\b(?:vitaminas?|suplementos?)\b(?:\s+\w+){0,3}\s+$/.test(prefix)
+      || /^s?\s+(?:(?:de|para)\s+)?(?:las?\s+)?(?:vitaminas?|suplementos?)\b/.test(suffix)
+    ))
+    || (normalizedTerm === 'jalea' && /^\s+real\b/.test(suffix))
+    || (normalizedTerm === 'detergente' && /^\s+en\s+polvo\b/.test(suffix))
+    || (['lavavajilla', 'lavavajillas'].includes(normalizedTerm)
+      && /(?:^|\s)detergente(?:\s+en\s+polvo)?(?:\s+para)?\s+$/.test(prefix))
+    || (['lavavajilla', 'lavavajillas'].includes(normalizedTerm)
+      && /^\s+finish\s+(?:en\s+)?polvo\b/.test(suffix))
 }
 
-function createCandidate(rule, score, matchedTerm) {
+function isSupersededByMoreSpecificTerm(text, candidateRules, term, index) {
+  const normalizedTerm = normalize(term).trim()
+  return candidateRules.some((rule) => rule.terms.some((candidateTerm) => {
+    const normalizedCandidateTerm = normalize(candidateTerm).trim()
+    return normalizedCandidateTerm.length > normalizedTerm.length
+      && normalizedCandidateTerm.startsWith(`${normalizedTerm} `)
+      && matches(text, candidateTerm) === index
+  }))
+}
+
+function createCandidate(rule, score, matchedTerm, evidenceTier, index) {
   return {
     category: rule.category,
     subcategory: rule.subcategory,
     score,
+    evidenceTier,
+    index,
     rule: rule.rule || 'product_name_rule',
     reason: rule.reason || 'product_type_match',
     matchedTerm,
@@ -296,21 +421,46 @@ function createCandidate(rule, score, matchedTerm) {
 function addBestCandidate(candidates, candidate) {
   const key = `${candidate.category}:${candidate.subcategory}`
   const previous = candidates.get(key)
-  if (!previous || candidate.score > previous.score
-    || (candidate.score === previous.score && candidate.matchedTerm.length > previous.matchedTerm.length)) {
-    candidates.set(key, candidate)
+  if (!previous) {
+    candidates.set(key, {
+      ...candidate,
+      matchedTerms: [{ index: candidate.index, term: candidate.matchedTerm }],
+    })
+    return
   }
+
+  const isBetter = candidate.score > previous.score
+    || (candidate.score === previous.score && candidate.matchedTerm.length > previous.matchedTerm.length)
+  const best = isBetter ? candidate : previous
+  candidates.set(key, {
+    ...best,
+    matchedTerms: [
+      ...(previous.matchedTerms || [{ index: previous.index, term: previous.matchedTerm }]),
+      { index: candidate.index, term: candidate.matchedTerm },
+    ],
+  })
 }
 
-function getRuleCandidates(text, candidateRules, candidates, fieldAdjustment = 0) {
+function getRuleCandidates(
+  text,
+  candidateRules,
+  candidates,
+  evidenceTier,
+  fieldAdjustment = 0,
+  maximumScore = Infinity,
+) {
   for (const rule of candidateRules) {
     for (const term of rule.terms) {
       const index = matches(text, term)
-      if (index < 0 || isSecondaryOccurrence(text, index, term)) continue
+      if (index < 0
+        || isSecondaryOccurrence(text, index, term)
+        || isSupersededByMoreSpecificTerm(text, candidateRules, term, index)) continue
       addBestCandidate(candidates, createCandidate(
         rule,
-        (rule.priority ?? 70) + fieldAdjustment,
+        Math.min((rule.priority ?? 70) + fieldAdjustment, maximumScore),
         term,
+        evidenceTier,
+        index,
       ))
     }
   }
@@ -333,49 +483,116 @@ function makeUndeterminedSuggestion(status, reason, candidates = []) {
   }
 }
 
+function areCoordinatedProductTypes(text, first, second) {
+  if (first.category === second.category && first.subcategory === second.subcategory) return false
+  const firstMatches = first.matchedTerms || [{ index: first.index, term: first.matchedTerm }]
+  const secondMatches = second.matchedTerms || [{ index: second.index, term: second.matchedTerm }]
+  return firstMatches.some((firstMatch) => secondMatches.some((secondMatch) => {
+    const [left, right] = firstMatch.index <= secondMatch.index
+      ? [firstMatch, secondMatch]
+      : [secondMatch, firstMatch]
+    const connector = text.slice(left.index + normalize(left.term).length, right.index)
+    return /^\s*(?:y|e)\s*$|^\s*[+/&]\s*$/.test(connector)
+  }))
+}
+
 function suggestCatalogMapping(product) {
-  const candidates = new Map()
+  const nameTypeCandidates = new Map()
+  const nameFallbackCandidates = new Map()
+  const presentationCandidates = new Map()
+  const sourceCandidates = new Map()
+  const descriptionCandidates = new Map()
   const nameText = normalize(product.name)
   const presentationText = normalize([product.presentation, product.netContent, product.unit].filter(Boolean).join(' '))
   const descriptionText = normalize(product.description)
 
-  getRuleCandidates(nameText, PRIMARY_TYPE_RULES, candidates)
-  getRuleCandidates(nameText, rules, candidates)
-  getRuleCandidates(presentationText, PRIMARY_TYPE_RULES, candidates, -15)
-  getRuleCandidates(descriptionText, PRIMARY_TYPE_RULES, candidates, -25)
+  getRuleCandidates(nameText, PRIMARY_TYPE_RULES, nameTypeCandidates, 3)
+  getRuleCandidates(nameText, rules, nameFallbackCandidates, 2)
+  getRuleCandidates(presentationText, PRIMARY_TYPE_RULES, presentationCandidates, 1, -15)
+  getRuleCandidates(
+    descriptionText,
+    PRIMARY_TYPE_RULES,
+    descriptionCandidates,
+    0,
+    -25,
+    DESCRIPTION_MAX_SCORE,
+  )
 
-  if (PRESERVED_PRODUCE_PATTERN.test(nameText)) {
-    const rule = PRIMARY_TYPE_RULES.find((entry) => entry.rule === 'preserved_produce')
-    addBestCandidate(candidates, createCandidate(rule, rule.priority, 'produce_in_preserve'))
+  const frozenFriesMatch = /\bpapas?\s+(?:pre)?fritas?\b(?:\s+\w+){0,4}\s+congelad[oa]s?\b|\bcongelad[oa]s?\b(?:\s+\w+){0,4}\s+\bpapas?\s+(?:pre)?fritas?\b/.exec(nameText)
+  if (frozenFriesMatch) {
+    const rule = PRIMARY_TYPE_RULES.find((entry) => entry.rule === 'frozen_food_state')
+    addBestCandidate(nameTypeCandidates, createCandidate(
+      rule,
+      rule.priority,
+      'frozen_fries_with_explicit_state',
+      3,
+      frozenFriesMatch.index,
+    ))
   }
 
-  const sourceText = normalize([product.source_subcategory, product.source_category].filter(Boolean).join(' ')).trim()
+  const preservedProduceMatch = PRESERVED_PRODUCE_PATTERN.exec(nameText)
+  if (preservedProduceMatch) {
+    const rule = PRIMARY_TYPE_RULES.find((entry) => entry.rule === 'preserved_produce')
+    addBestCandidate(nameTypeCandidates, createCandidate(
+      rule,
+      rule.priority,
+      'produce_in_preserve',
+      3,
+      preservedProduceMatch.index,
+    ))
+  }
+
   const sourceSubcategory = normalize(product.source_subcategory || product.source_category).trim()
   const sourceMapping = Object.hasOwn(sourceMappings, sourceSubcategory)
+    && !(sourceSubcategory === 'freezer' && isFreezerAccessory(nameText))
     ? sourceMappings[sourceSubcategory]
     : null
   if (sourceMapping) {
-    addBestCandidate(candidates, createCandidate({
+    addBestCandidate(sourceCandidates, createCandidate({
       ...sourceMapping,
       rule: 'source_taxonomy_mapping',
       reason: 'source_taxonomy_evidence',
-    }, 65, sourceSubcategory))
+    }, 65, sourceSubcategory, 0))
   }
 
-  getRuleCandidates(sourceText, rules, candidates, -10)
-
-  const rankedCandidates = [...candidates.values()].sort((left, right) => right.score - left.score)
+  const candidateTiers = [
+    nameTypeCandidates,
+    nameFallbackCandidates,
+    presentationCandidates,
+    sourceCandidates,
+  ]
+  const activeTierIndex = candidateTiers.findIndex((tier) => (
+    [...tier.values()].some((candidate) => candidate.score >= MINIMUM_CONFIDENCE_SCORE)
+  ))
+  const activeCandidates = candidateTiers[activeTierIndex]
+  const rankedCandidates = [...(activeCandidates?.values() || [])]
+    .sort((left, right) => right.score - left.score)
   const best = rankedCandidates[0]
   if (!best || best.score < MINIMUM_CONFIDENCE_SCORE) {
-    return makeUndeterminedSuggestion('insufficient_evidence', 'no_reliable_product_type', rankedCandidates)
+    const descriptionAlternatives = [...descriptionCandidates.values()].map((candidate) => ({
+      ...candidate,
+      rule: 'description_supporting_evidence',
+    }))
+    return makeUndeterminedSuggestion(
+      'insufficient_evidence',
+      'no_reliable_product_type',
+      [...rankedCandidates, ...descriptionAlternatives],
+    )
   }
 
   const competingCandidates = rankedCandidates.filter((candidate) => (
     candidate.category !== best.category
     || candidate.subcategory !== best.subcategory
   )).filter((candidate) => best.score - candidate.score <= AMBIGUITY_SCORE_MARGIN)
-  if (competingCandidates.length) {
-    return makeUndeterminedSuggestion('ambiguous', 'conflicting_product_types', [best, ...competingCandidates])
+  const coordinatedCandidates = (activeTierIndex === 0 ? [...nameFallbackCandidates.values()] : [])
+    .filter((candidate) => candidate.score >= MINIMUM_CONFIDENCE_SCORE
+      && areCoordinatedProductTypes(nameText, best, candidate))
+  if (competingCandidates.length || coordinatedCandidates.length) {
+    return makeUndeterminedSuggestion(
+      'ambiguous',
+      'conflicting_product_types',
+      [best, ...competingCandidates, ...coordinatedCandidates],
+    )
   }
 
   return {

@@ -16,11 +16,13 @@ function assertMapping(product, category, subcategory, confidence = null) {
 test('classifies by the main product type instead of incidental ingredients or descriptors', () => {
   const cases = [
     ['Atún al aceite de girasol 170 g', 'Almacén y Alimentos', 'Conservas y alimentos preparados'],
+    ['Atún   en   aceite de girasol 170 g', 'Almacén y Alimentos', 'Conservas y alimentos preparados'],
     ['Lomito de atún en aceite Carrefour Classic 170 grs', 'Almacén y Alimentos', 'Conservas y alimentos preparados'],
     ['Caldo de verduras 12 cubos', 'Almacén y Alimentos', 'Conservas y alimentos preparados'],
     ['Caldo de carne 12 cubos', 'Almacén y Alimentos', 'Conservas y alimentos preparados'],
     ['Mayonesa con jugo de limón 250 g', 'Almacén y Alimentos', 'Aceites, condimentos y aderezos'],
     ['Bolsa para horno 8 unidades', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Bolsa para horno eléctrico 8 unidades', 'Hogar y Otros', 'Cocina y bazar'],
     ['Aceite de girasol 1.5 l', 'Almacén y Alimentos', 'Aceites, condimentos y aderezos'],
     ['Aceite de oliva extra virgen 500 ml', 'Almacén y Alimentos', 'Aceites, condimentos y aderezos'],
     ['Verduras frescas surtidas 500 g', 'Alimentos Frescos y Refrigerados', 'Frutas y verduras'],
@@ -30,13 +32,178 @@ test('classifies by the main product type instead of incidental ingredients or d
     ['En conserva mezcla de verduras 300 g', 'Almacén y Alimentos', 'Conservas y alimentos preparados'],
     ['Papas fritas congeladas 1 kg', 'Alimentos Frescos y Refrigerados', 'Congelados'],
     ['Papas fritas Pringles crema y cebolla 109 g', 'Almacén y Alimentos', 'Golosinas y snacks'],
-    ['Papas fritas McCain sabor provenzal 700 g', 'Alimentos Frescos y Refrigerados', 'Congelados'],
+    ['Papas fritas congeladas McCain sabor provenzal 700 g', 'Alimentos Frescos y Refrigerados', 'Congelados'],
     ['Helado congelado de frutilla 1 l', 'Alimentos Frescos y Refrigerados', 'Helados'],
   ]
 
   for (const [name, category, subcategory] of cases) {
     assertMapping({ name }, category, subcategory)
   }
+})
+
+test('distinguishes packaged fries snacks from frozen fries and abstains on generic fries', () => {
+  const cases = [
+    ['Papas fritas Pringles', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['papas fritas pringles', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ["Papas fritas Lay's", 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Papas fritas sabor queso', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Papas fritas congeladas McCain', 'Alimentos Frescos y Refrigerados', 'Congelados'],
+    ['Papas prefritas congeladas', 'Alimentos Frescos y Refrigerados', 'Congelados'],
+    ['Papas fritas listas para freír', 'Alimentos Frescos y Refrigerados', 'Congelados'],
+    ['Papas fritas listas para freir', 'Alimentos Frescos y Refrigerados', 'Congelados'],
+    ['Papas fritas congeladas sabor queso', 'Alimentos Frescos y Refrigerados', 'Congelados'],
+    ['Papas fritas Pringles congeladas', 'Alimentos Frescos y Refrigerados', 'Congelados'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    assertMapping({ name }, category, subcategory)
+  }
+
+  const generic = suggestCatalogMapping({ name: 'Papas fritas' })
+  assert.equal(generic.status, 'insufficient_evidence')
+  assert.equal(generic.category, null)
+  assert.equal(generic.subcategory, null)
+})
+
+test('prefers explicit product-type rules over conflicting generic ingredient rules', () => {
+  assertMapping(
+    { name: 'Atún tomate en aceite' },
+    'Almacén y Alimentos',
+    'Conservas y alimentos preparados',
+  )
+  assertMapping(
+    { name: 'Vinagre de vino 500 ml' },
+    'Almacén y Alimentos',
+    'Aceites, condimentos y aderezos',
+  )
+  assertMapping(
+    { name: 'Jugo de tomate natural' },
+    'Almacén y Alimentos',
+    'Bebidas',
+  )
+  assertMapping(
+    { name: 'Bebida láctea sabor caramelo 200 ml' },
+    'Alimentos Frescos y Refrigerados',
+    'Lácteos',
+  )
+  assertMapping(
+    { name: 'Oblea de chocolate y leche 40 g' },
+    'Almacén y Alimentos',
+    'Golosinas y snacks',
+  )
+  assertMapping(
+    { name: 'Shampoo limpieza profunda 400 ml' },
+    'Limpieza e Higiene',
+    'Cuidado capilar',
+  )
+  assertMapping(
+    { name: 'Detergente en polvo para ropa limpieza profunda 800 g' },
+    'Limpieza e Higiene',
+    'Lavado de ropa',
+  )
+})
+
+test('does not let a primary-tier ingredient override the actual product type', () => {
+  assertMapping(
+    { name: 'Alfajor relleno de dulce de leche' },
+    'Almacén y Alimentos',
+    'Golosinas y snacks',
+  )
+
+  const supplement = suggestCatalogMapping({ name: 'Vitamina C en gomitas' })
+  assert.equal(supplement.status, 'insufficient_evidence')
+  assert.equal(supplement.category, null)
+  assert.equal(supplement.subcategory, null)
+})
+
+test('reports coordinated product types even when they come from different candidate tiers', () => {
+  const suggestion = suggestCatalogMapping({
+    name: 'Kit shampoo y detergente lavavajilla',
+  })
+  assert.equal(suggestion.status, 'ambiguous')
+  assert.equal(suggestion.category, null)
+  assert.equal(suggestion.subcategory, null)
+  assert.ok(suggestion.alternatives.some((item) => item.subcategory === 'Cuidado capilar'))
+  assert.ok(suggestion.alternatives.some((item) => item.subcategory === 'Limpieza de cocina'))
+})
+
+test('distinguishes laundry powder, dishwasher detergent, and unspecified powder detergent', () => {
+  assertMapping(
+    { name: 'Detergente en polvo para ropa' },
+    'Limpieza e Higiene',
+    'Lavado de ropa',
+  )
+  assertMapping(
+    { name: 'Detergente en polvo para lavavajillas' },
+    'Limpieza e Higiene',
+    'Limpieza de cocina',
+  )
+
+  const unspecified = suggestCatalogMapping({ name: 'Detergente en polvo' })
+  assert.equal(unspecified.status, 'insufficient_evidence')
+  assert.equal(unspecified.category, null)
+  assert.equal(unspecified.subcategory, null)
+})
+
+test('recognizes explicit drink and feminine-care types without inferring from brands', () => {
+  for (const name of [
+    'Ron Havana Club Añejo',
+    'Gin Beefeater',
+    'Gin Tanqueray',
+    'Gin Bombay Sapphire',
+    'Aperitivo Hesperidina',
+    'Aperitivo Campari',
+  ]) {
+    assertMapping(
+      { name },
+      'Almacén y Alimentos',
+      'Bebidas',
+    )
+  }
+
+  assertMapping(
+    { name: 'Protectores diarios Carefree' },
+    'Limpieza e Higiene',
+    'Higiene personal',
+  )
+  assertMapping(
+    { name: 'Jabón de tocador neutro' },
+    'Limpieza e Higiene',
+    'Higiene personal',
+  )
+
+  const brandOnly = suggestCatalogMapping({ name: 'Johnnie Walker Black Label' })
+  assert.equal(brandOnly.status, 'insufficient_evidence')
+  assert.equal(brandOnly.category, null)
+  assert.equal(brandOnly.subcategory, null)
+})
+
+test('classifies crackers as bakery while keeping ambiguous sponge products in review', () => {
+  assertMapping(
+    { name: 'Crackers de arroz' },
+    'Almacén y Alimentos',
+    'Galletitas y productos de panificación',
+  )
+
+  for (const name of ['Esponja Scotch Brite', 'Esponja abrasiva Esfrebom']) {
+    const suggestion = suggestCatalogMapping({ name })
+    assert.equal(suggestion.status, 'ambiguous')
+    assert.equal(suggestion.category, null)
+    assert.equal(suggestion.subcategory, null)
+  }
+})
+
+test('keeps long flavor lists and brand names from creating false product-type conflicts', () => {
+  assertMapping(
+    { name: 'Alimento para perros sabor carne, pollo, verdura y leche' },
+    'Hogar y Otros',
+    'Mascotas',
+  )
+  assertMapping(
+    { name: 'Shampoo engrosador Tío Nacho' },
+    'Limpieza e Higiene',
+    'Cuidado capilar',
+  )
 })
 
 test('keeps existing classifications for representative catalog families', () => {
@@ -71,6 +238,134 @@ test('keeps existing classifications for representative catalog families', () =>
   }
 })
 
+test('classifies appliance variants by name and source taxonomy', () => {
+  const cases = [
+    ['Freezer', 'Electrodomésticos grandes'],
+    ['FREEZER VERTICAL Samsung Twin Cooling', 'Electrodomésticos grandes'],
+    ['Freezer horizontal Patrick F400', 'Electrodomésticos grandes'],
+    ['Congelador Gafa 300 litros', 'Electrodomésticos grandes'],
+    ['Heladera No Frost 360 l', 'Electrodomésticos grandes'],
+    ['Refrigerador Samsung 400 l', 'Electrodomésticos grandes'],
+    ['Frigobar bajo mesada 90 l', 'Electrodomésticos grandes'],
+    ['Secarropas por calor 8 kg', 'Electrodomésticos grandes'],
+    ['Lavarropas automático 8 kg', 'Electrodomésticos grandes'],
+    ['Lavavajillas acero inoxidable', 'Electrodomésticos grandes'],
+    ['Microondas digital 30 l', 'Electrodomésticos grandes'],
+    ['Horno eléctrico 45 l', 'Electrodomésticos grandes'],
+    ['Aspiradora ciclónica 2000 W', 'Electrodomésticos pequeños'],
+    ['Licuadora 1.5 l', 'Electrodomésticos pequeños'],
+    ['Batidora planetaria', 'Electrodomésticos pequeños'],
+    ['Cafetera espresso', 'Electrodomésticos pequeños'],
+    ['Tostadora eléctrica', 'Electrodomésticos pequeños'],
+    ['Aire acondicionado split 3000 frigorías', 'Climatización'],
+  ]
+
+  for (const [name, subcategory] of cases) {
+    assertMapping(
+      { name },
+      'Electrónica y Electrodomésticos',
+      subcategory,
+    )
+  }
+
+  assertMapping(
+    { name: 'Producto de frío modelo X', source_subcategory: 'freezer' },
+    'Electrónica y Electrodomésticos',
+    'Electrodomésticos grandes',
+  )
+  assertMapping(
+    { name: 'Aspiradora modelo X', source_subcategory: 'aspiradoras y lustradoras' },
+    'Electrónica y Electrodomésticos',
+    'Electrodomésticos pequeños',
+  )
+
+  for (const name of ['freezer vertical gafa', 'FREEZER HORIZONTAL GAFA']) {
+    assertMapping(
+      { name },
+      'Electrónica y Electrodomésticos',
+      'Electrodomésticos grandes',
+    )
+  }
+})
+
+test('does not classify freezer accessories as large appliances', () => {
+  for (const name of [
+    'Bolsas para freezer 25 unidades',
+    'Organizador para freezer',
+    'Accesorios para freezer',
+  ]) {
+    const suggestion = suggestCatalogMapping({ name })
+    assert.equal(suggestion.status, 'insufficient_evidence', JSON.stringify({ name, suggestion }))
+    assert.equal(suggestion.category, null)
+    assert.equal(suggestion.subcategory, null)
+  }
+
+  const accessoryWithSourceMapping = suggestCatalogMapping({
+    name: 'Organizador para freezer',
+    source_subcategory: 'freezer',
+  })
+  assert.equal(accessoryWithSourceMapping.status, 'insufficient_evidence')
+  assert.equal(accessoryWithSourceMapping.category, null)
+  assert.equal(accessoryWithSourceMapping.subcategory, null)
+
+  assertMapping(
+    { name: 'Freezer vertical Gafa' },
+    'Electrónica y Electrodomésticos',
+    'Electrodomésticos grandes',
+  )
+  assertMapping(
+    { name: 'Freezer horizontal Patrick' },
+    'Electrónica y Electrodomésticos',
+    'Electrodomésticos grandes',
+  )
+  assertMapping(
+    { name: 'Freezer vertical Gafa con bolsas para freezer' },
+    'Electrónica y Electrodomésticos',
+    'Electrodomésticos grandes',
+  )
+})
+
+test('distinguishes dishwasher appliances from dishwasher detergents', () => {
+  assertMapping(
+    { name: 'Lavavajillas acero inoxidable' },
+    'Electrónica y Electrodomésticos',
+    'Electrodomésticos grandes',
+  )
+  assertMapping(
+    { name: 'Detergente lavavajillas Finish' },
+    'Limpieza e Higiene',
+    'Limpieza de cocina',
+  )
+  assertMapping(
+    { name: 'Lavavajillas acero inoxidable Finish' },
+    'Electrónica y Electrodomésticos',
+    'Electrodomésticos grandes',
+  )
+
+  const finishPowder = suggestCatalogMapping({ name: 'Lavavajillas Finish polvo' })
+  assert.equal(finishPowder.status, 'insufficient_evidence')
+  assert.equal(finishPowder.category, null)
+  assert.equal(finishPowder.subcategory, null)
+
+  for (const name of [
+    'Detergente para lavavajillas',
+    'Detergente lavavajillas',
+    'Detergente lavavajilla',
+    'Detergente en polvo para lavavajillas',
+  ]) {
+    assertMapping(
+      { name },
+      'Limpieza e Higiene',
+      'Limpieza de cocina',
+    )
+  }
+
+  const unspecifiedPowder = suggestCatalogMapping({ name: 'Detergente en polvo' })
+  assert.equal(unspecifiedPowder.status, 'insufficient_evidence')
+  assert.equal(unspecifiedPowder.category, null)
+  assert.equal(unspecifiedPowder.subcategory, null)
+})
+
 test('does not classify secondary flavors, ingredients, or aromas as the product type', () => {
   const cases = [
     ['Tostaditas de arroz sabor cuatro quesos 95 g', 'Almacén y Alimentos', 'Golosinas y snacks'],
@@ -84,6 +379,75 @@ test('does not classify secondary flavors, ingredients, or aromas as the product
   for (const [name, category, subcategory] of cases) {
     assertMapping({ name }, category, subcategory)
   }
+})
+
+test('keeps secondary descriptors local to the product type they describe', () => {
+  const cases = [
+    ['Galletitas sabor chocolate', 'Almacén y Alimentos', 'Galletitas y productos de panificación'],
+    ['Yogur sabor vainilla', 'Alimentos Frescos y Refrigerados', 'Lácteos'],
+    ['Caramelos de miel', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Chocolate con almendras', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Alfajor relleno de dulce de leche', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Papas fritas sabor queso', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Producto sabor vainilla, café molido', 'Almacén y Alimentos', 'Infusiones'],
+    ['Producto con aroma floral, café molido', 'Almacén y Alimentos', 'Infusiones'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    assertMapping({ name }, category, subcategory)
+  }
+
+  for (const name of ['Gomitas de vitaminas', 'Vitaminas en gomitas']) {
+    const suggestion = suggestCatalogMapping({ name })
+    assert.equal(suggestion.status, 'insufficient_evidence', JSON.stringify({ name, suggestion }))
+    assert.equal(suggestion.category, null)
+    assert.equal(suggestion.subcategory, null)
+  }
+
+  for (const name of ['Jalea real', 'Jalea real de miel']) {
+    const suggestion = suggestCatalogMapping({ name })
+    assert.equal(suggestion.status, 'insufficient_evidence', JSON.stringify({ name, suggestion }))
+    assert.equal(suggestion.category, null)
+    assert.equal(suggestion.subcategory, null)
+  }
+
+  const unspecifiedDetergent = suggestCatalogMapping({ name: 'Detergente en polvo' })
+  assert.equal(unspecifiedDetergent.status, 'insufficient_evidence')
+  assert.equal(unspecifiedDetergent.category, null)
+  assert.equal(unspecifiedDetergent.subcategory, null)
+})
+
+test('resolves product-type and ingredient conflicts while covering common Carrefour families', () => {
+  const cases = [
+    ['Galletitas Chocolina de chocolate 250 g', 'Almacén y Alimentos', 'Galletitas y productos de panificación'],
+    ['Tostadas de arroz Molinos Ala clásicas 150 g', 'Almacén y Alimentos', 'Galletitas y productos de panificación'],
+    ['Galletas de arroz Dos Hermanos sin sal 100 g', 'Almacén y Alimentos', 'Galletitas y productos de panificación'],
+    ['Café Cabrales molido 250 g', 'Almacén y Alimentos', 'Infusiones'],
+    ['Mermelada de durazno 390 g', 'Almacén y Alimentos', 'Azúcares y dulces'],
+    ['Dulce de leche clásico La Serenísima 400 g', 'Almacén y Alimentos', 'Azúcares y dulces'],
+    ['Dulce de leche repostero 400 g', 'Almacén y Alimentos', 'Azúcares y dulces'],
+    ['Jalea de membrillo 400 g', 'Almacén y Alimentos', 'Azúcares y dulces'],
+    ['Gomitas Mogul 35 g', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Tableta de chocolate Shot con leche y maní 90 g', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Bizcochos 9 de Oro 200 g', 'Almacén y Alimentos', 'Galletitas y productos de panificación'],
+    ['Salmas horneadas 90 g', 'Almacén y Alimentos', 'Golosinas y snacks'],
+    ['Yerba mate Amanda tradicional 1 kg', 'Almacén y Alimentos', 'Infusiones'],
+    ['Té negro 25 saquitos', 'Almacén y Alimentos', 'Infusiones'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    assertMapping({ name }, category, subcategory)
+  }
+
+  const cacao = suggestCatalogMapping({ name: 'Cacao en polvo Toddy 180 g' })
+  assert.equal(cacao.status, 'insufficient_evidence')
+  assert.equal(cacao.category, null)
+  assert.equal(cacao.subcategory, null)
+
+  const royalJelly = suggestCatalogMapping({ name: 'Jalea real en cápsulas' })
+  assert.equal(royalJelly.status, 'insufficient_evidence')
+  assert.equal(royalJelly.category, null)
+  assert.equal(royalJelly.subcategory, null)
 })
 
 test('uses source taxonomy as supporting evidence when the product name is not decisive', () => {
@@ -106,21 +470,43 @@ test('uses source taxonomy as supporting evidence when the product name is not d
     'Almacén y Alimentos',
     'Aceites, condimentos y aderezos',
   )
+
+  const broadSourceCategory = suggestCatalogMapping({
+    name: 'Crema Nivea Soft 200 ml',
+    source_category: 'Limpieza e Higiene',
+    source_subcategory: 'Limpieza del hogar',
+  })
+  assert.equal(broadSourceCategory.status, 'insufficient_evidence')
+  assert.equal(broadSourceCategory.category, null)
+  assert.equal(broadSourceCategory.subcategory, null)
 })
 
-test('uses presentation and description without allowing them to override a clearer name', () => {
+test('uses presentation and keeps description-only evidence as a manual-review alternative', () => {
   assertMapping(
     { name: 'Producto surtido', presentation: 'Verduras en conserva 300 g' },
     'Almacén y Alimentos',
     'Conservas y alimentos preparados',
   )
 
-  assertMapping(
-    { name: 'Producto listo para preparar', description: 'Caldo concentrado de verduras' },
-    'Almacén y Alimentos',
-    'Conservas y alimentos preparados',
-    'medium',
-  )
+  const descriptionOnly = suggestCatalogMapping({
+    name: 'Producto listo para preparar',
+    description: 'Caldo concentrado de verduras',
+  })
+  assert.equal(descriptionOnly.status, 'insufficient_evidence')
+  assert.equal(descriptionOnly.category, null)
+  assert.equal(descriptionOnly.subcategory, null)
+  assert.ok(descriptionOnly.alternatives.some((alternative) => (
+    alternative.rule === 'description_supporting_evidence'
+      && alternative.subcategory === 'Conservas y alimentos preparados'
+  )))
+
+  const commercialDescription = suggestCatalogMapping({
+    name: 'Cacao en polvo Toddy 360 g',
+    description: 'Producto en polvo para preparar con leche. Disfrutá un desayuno con café, té y yerba mate.',
+  })
+  assert.equal(commercialDescription.status, 'insufficient_evidence')
+  assert.equal(commercialDescription.subcategory, null)
+  assert.equal(commercialDescription.confidence, 'low')
 
   assertMapping(
     { name: 'Atún al aceite', presentation: 'Conserva de pescado 170 g' },
