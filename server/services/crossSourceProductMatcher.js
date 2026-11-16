@@ -275,9 +275,7 @@ function auditCrossSourceProducts(mamiProducts = [], discoProducts = []) {
       mamiProductsWithoutBrand += 1
       continue
     }
-    const mamiAttributes = product.attributes || require('./productIdentityAudit').extractAttributes(product)
     for (const discoProduct of discoByBrand.get(brand) || []) {
-      const discoAttributes = discoProduct.attributes || require('./productIdentityAudit').extractAttributes(discoProduct)
       const sharedIdentifier = hasCorroboratedIdentifier(product, discoProduct)
       const sharedNameTokens = getSharedNameTokenCount(product, discoProduct)
       const nameSimilarity = calculateNameSimilarity(product, discoProduct)

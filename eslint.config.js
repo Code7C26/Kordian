@@ -10,6 +10,7 @@ export default defineConfig([
     '**/build/**',
     'android/**/src/main/assets/**',
     'archive/**',
+    'fix/**',
   ]),
   {
     files: ['**/*.{js,jsx}'],

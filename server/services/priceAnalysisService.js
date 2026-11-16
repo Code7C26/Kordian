@@ -7,7 +7,6 @@ const modulesPromise = Promise.all([
 
 const numeric = (value) => Number.isFinite(Number(value)) ? Number(value) : 0
 const { normalizeDiscoStoredPrice } = require('../priceNormalization')
-const classificationCache = new WeakMap()
 
 function filterKnownPriceScaleArtifacts(history, product) {
   const discoPrices = new Map((product.offers || [])
