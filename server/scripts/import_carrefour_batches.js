@@ -887,6 +887,5 @@ module.exports = {
   setBatchResult,
   summarizeCheckpoint,
   writeManualReviewCsv,
-  setBatchResult,
   writeCheckpoint,
 }

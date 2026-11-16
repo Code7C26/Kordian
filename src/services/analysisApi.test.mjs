@@ -25,7 +25,8 @@ test('inflation calculator requests only the selected product analysis', () => {
 })
 
 test('favorites page requests only favorited products in bounded batches', () => {
-  assert.match(favoritesPageSource, /buildFavoriteProductsQueries\(favoritesRef\.current\)/)
+  assert.match(favoritesPageSource, /buildFavoriteProductsQueries\(favorites\)/)
+  assert.match(favoritesPageSource, /\}, \[authLoading, favorites, favoritesLoading, user\]\)/)
   assert.doesNotMatch(favoritesPageSource, /\/products\?limit=2000/)
 })
 

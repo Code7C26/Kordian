@@ -50,11 +50,11 @@ test('creates a derived manifest and audit report without modifying source files
     const report = path.join(dir, 'report.json')
     fs.writeFileSync(capture, [
       '"source_product_id","source_sku","gtin","name","validation_status","validation_errors"',
-      '122140,9547,,\"Lomito de atún 170 grs\",needs_review,\"No se pudo leer un GTIN\"',
+      '122140,9547,,"Lomito de atún 170 grs",needs_review,"No se pudo leer un GTIN"',
     ].join('\r\n'))
     fs.writeFileSync(history, [
       '"enrichment_status","enriched_source_product_id","enriched_source_sku","enriched_gtin","enriched_name","capture_timestamp"',
-      'validated,122140,9547,7798033333907,\"Lomito de atún 170 grs\",2026-10-29T17:02:31.540Z',
+      'validated,122140,9547,7798033333907,"Lomito de atún 170 grs",2026-10-29T17:02:31.540Z',
     ].join('\r\n'))
     const originalCapture = fs.readFileSync(capture, 'utf8')
     const originalHistory = fs.readFileSync(history, 'utf8')

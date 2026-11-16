@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Heart, Loader2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config/api.js';
@@ -24,12 +24,7 @@ export default function FavoritesPage() {
   const [supermarkets, setSupermarkets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const favoritesRef = useRef(favorites);
   const translateProductName = useProductNameTranslator(products.map((product) => product.name));
-
-  useEffect(() => {
-    favoritesRef.current = favorites;
-  }, [favorites]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +58,7 @@ export default function FavoritesPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (authLoading || favoritesLoading || !user || !favoritesRef.current.length) {
+    if (authLoading || favoritesLoading || !user || !favorites.length) {
       setProducts([]);
       setIsLoading(false);
       return () => {
@@ -71,7 +66,7 @@ export default function FavoritesPage() {
       };
     }
 
-    const productsUrls = buildFavoriteProductsQueries(favoritesRef.current)
+    const productsUrls = buildFavoriteProductsQueries(favorites)
       .map((query) => apiUrl(`/products?${query.toString()}`));
     const cachedPayloads = productsUrls.map((url) => readCachedCatalogResponse(url));
     const hasCompleteCache = cachedPayloads.every((payload) => payload !== null);
@@ -115,7 +110,7 @@ export default function FavoritesPage() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [authLoading, favoritesLoading, user]);
+  }, [authLoading, favorites, favoritesLoading, user]);
 
   const favoriteProducts = useMemo(
     () => products.filter((product) => favorites.includes(String(product.id))),
