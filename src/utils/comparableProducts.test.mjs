@@ -26,7 +26,8 @@ const expandedProducts = products.slice(0, 4).concat(products[4]);
 const expandedIndex = createComparableProductIndex(expandedProducts, classifications);
 const indexedReferences = findComparableReferences(products[0], expandedProducts, classifications, expandedIndex);
 assert.deepEqual(indexedReferences, findComparableReferences(products[0], expandedProducts, classifications));
-assert.equal(indexedReferences.references.length, 4);
+assert.equal(indexedReferences.references.length, 3);
+assert.equal(indexedReferences.references.some(({ id }) => id === '6'), false);
 const catalogProducts = [
   { id: 'catalog-1', name: 'Producto principal', category: 'Alimentos', subcategory: 'Golosinas y snacks', offers: [{ cash_price: 1000 }] },
   { id: 'catalog-2', name: 'Otro producto', category: 'Alimentos', subcategory: 'Golosinas y snacks', offers: [{ cash_price: 1100 }] },
@@ -51,6 +52,33 @@ const nameOnlySubcategory = [
 ];
 assert.equal(findComparableReferences(nameOnlySubcategory[0], nameOnlySubcategory).level, 'inflacion_general');
 assert.equal(findComparableReferences(products[0], [products[0], products[5]], classifications).references.length, 0);
+const incompatibleUnits = [
+  { id: 'target', name: 'Alfajor Jorgito Chocolate 55g', category_id: 'food', subcategory_id: 'sweets', offers: [{ cash_price: 1000 }] },
+  { id: 'different-unit', name: 'Alfajor Jorgito Chocolate 500ml', category_id: 'food', subcategory_id: 'sweets', offers: [{ cash_price: 1000 }] },
+];
+const incompatibleUnitClassifications = new Map([
+  ['target', { type: 'Alfajor' }],
+  ['different-unit', { type: 'Alfajor' }],
+]);
+assert.equal(findComparableReferences(
+  incompatibleUnits[0],
+  incompatibleUnits,
+  incompatibleUnitClassifications,
+).references.length, 0);
+const sameProductGroup = [
+  { id: 'target-grouped', name: 'Alfajor Jorgito Chocolate 55g', category_id: 'food', subcategory_id: 'sweets', comparable_group_id: 'same-item', offers: [{ cash_price: 1000 }] },
+  { id: 'same-item', name: 'Alfajor Jorgito Chocolate 55 g', category_id: 'food', subcategory_id: 'sweets', comparable_group_id: 'same-item', offers: [{ cash_price: 1100 }] },
+  { id: 'peer', name: 'Alfajor Terrabusi Chocolate 55g', category_id: 'food', subcategory_id: 'sweets', offers: [{ cash_price: 1200 }] },
+];
+const identityReferences = findComparableReferences(
+  sameProductGroup[0],
+  sameProductGroup,
+  new Map(),
+  createComparableProductIndex(sameProductGroup),
+);
+assert.equal(identityReferences.referenceGroup, 'same_product');
+assert.deepEqual(identityReferences.references.map(({ id }) => id), ['same-item']);
+assert.equal(identityReferences.references[0].identityMatch, true);
 assert.equal(normalizePrice({ name: 'Arroz 1kg' }, 2000).unitPrice, 2000);
 assert.equal(extractMeasure({ name: 'Lavandina 25g 4lt' }).baseUnit, 'l');
 assert.equal(extractMeasure({ name: 'Jugo en polvo 15 grs' }).normalizedAmount, 0.015);

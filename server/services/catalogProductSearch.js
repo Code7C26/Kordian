@@ -51,11 +51,26 @@ function rankCatalogSearchResults(products, query, limit) {
     .slice(0, limit)
 }
 
+function filterCatalogVisibleOffers(products) {
+  return products
+    .map((product) => {
+      if (!Array.isArray(product?.offers)) return product
+
+      const visibleOffers = product.offers.filter((offer) => offer?.is_catalog_visible !== false)
+      if (product.offers.some((offer) => offer?.is_catalog_visible === false) && !visibleOffers.length) {
+        return null
+      }
+
+      return { ...product, offers: visibleOffers }
+    })
+    .filter(Boolean)
+}
+
 async function searchCatalogProducts(client, query, limit = 20) {
   const terms = getSearchTerms(query).slice(0, 6)
   if (!terms.length) return []
 
-  const productSelect = 'id, name, image, brand_id, category_id, subcategory_id, offers(id, product_id, supermarket, cash_price, list_price), brands(name), categories(name), subcategories(name)'
+  const productSelect = 'id, name, image, brand_id, category_id, subcategory_id, offers(id, product_id, supermarket, cash_price, list_price, is_catalog_visible), brands(name), categories(name), subcategories(name)'
   const perTermLimit = Math.min(Math.max(limit * 10, 100), 500)
   const productQueries = terms.map(async (term) => {
     const { data, error } = await client
@@ -95,13 +110,14 @@ async function searchCatalogProducts(client, query, limit = 20) {
   }
 
   return rankCatalogSearchResults(
-    [...productsByName.flat(), ...productsByBrand],
+    filterCatalogVisibleOffers([...productsByName.flat(), ...productsByBrand]),
     query,
     limit,
   )
 }
 
 module.exports = {
+  filterCatalogVisibleOffers,
   getSearchTerms,
   rankCatalogSearchResults,
   searchCatalogProducts,

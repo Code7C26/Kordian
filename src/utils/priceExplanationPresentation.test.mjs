@@ -23,6 +23,7 @@ test('distinguishes loading, failed, and absent analysis', () => {
   assert.match(getAnalysisLoadMessage(null, 'error'), /No se pudo cargar/)
   assert.match(getAnalysisLoadMessage(null, 'loaded'), /No hay un análisis disponible/)
   assert.equal(getAnalysisLoadMessage({ analysis: {} }, 'loaded'), null)
+  assert.match(getAnalysisLoadMessage({ priceStatusPending: true }, 'loaded'), /No mostramos un diagnóstico/)
 })
 
 test('hydrates a selected detail product when the analysis request finishes', () => {
@@ -38,4 +39,21 @@ test('hydrates a selected detail product when the analysis request finishes', ()
   assert.equal(resolved.analysis, analysis)
   assert.deepEqual(resolved.priceHistory, [])
   assert.equal(resolveSelectedAnalysisProduct(selected, []).analysis, undefined)
+})
+
+test('clears a previously loaded diagnosis when the catalog marks its status stale', () => {
+  const resolved = resolveSelectedAnalysisProduct({
+    id: 10,
+    status: 'INFLADO',
+    analysis: { classification: 'INFLADO' },
+    priceHistory: [{ avgPrice: 100 }],
+  }, [{
+    id: 10,
+    status: 'INFLADO',
+    priceStatusPending: true,
+  }])
+
+  assert.equal(resolved.priceStatusPending, true)
+  assert.equal(resolved.analysis, null)
+  assert.deepEqual(resolved.priceHistory, [])
 })

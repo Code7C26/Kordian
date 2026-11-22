@@ -3,13 +3,17 @@ const { test } = require('node:test')
 const {
   buildDiscoProductTaxonomyFields,
   createDiscoPromotionFetcher,
+  fetchDiscoPreviewReport,
   getDiscoProductClassification,
   normalizeDiscoHtmlProduct,
   normalizeDiscoProduct,
   parseDiscoPromotionFromHtml,
   suggestDiscoCatalogMapping,
 } = require('./discoImporter')
-const { suggestCatalogMapping } = require('./catalogTaxonomy')
+const {
+  buildCatalogTaxonomyExamples,
+  suggestCatalogMapping,
+} = require('./catalogTaxonomy')
 
 const promotionHtml = (overrides = {}) => `<script type="application/ld+json">${JSON.stringify({
   '@type': 'Product',
@@ -77,14 +81,24 @@ test('uses the raw Disco price when PriceToken stores the value at 100x scale', 
   assert.equal(product.price, 2700)
 })
 
-test('uses the token to corroborate a 100x scale correction only for a low raw price', () => {
+test('uses the raw VTEX price when the token is expressed in a different unit', () => {
   const product = productWithPrice({
     name: 'Gaseosa Cola 1.25 L',
     price: 86.13,
     tokenPrice: 8613,
   })
 
-  assert.equal(product.price, 8613)
+  assert.equal(product.price, 86.13)
+})
+
+test('does not convert a fractional VTEX price using the integer PriceToken', () => {
+  const product = productWithPrice({
+    name: 'Detergente Lavavajilla Querubin X 750 Ml.',
+    price: 0.72,
+    tokenPrice: 72,
+  })
+
+  assert.equal(product.price, 0.72)
 })
 
 test('does not apply the durable-product multiplier to ordinary raw prices', () => {
@@ -94,7 +108,89 @@ test('does not apply the durable-product multiplier to ordinary raw prices', () 
     tokenPrice: 86130,
   })
 
+  test('checks a shared Disco image once when previewing multiple products', async () => {
+    const originalFetch = global.fetch
+    const image = 'https://example.com/yogur-product.jpg'
+    const products = ['disco-1', 'disco-2'].map((productId) => ({
+      productId,
+      productName: 'Yogur natural 500 g',
+      brand: 'Marca',
+      categories: ['/Almacén/'],
+      items: [{
+        itemId: `${productId}-sku`,
+        ean: '7790000000001',
+        images: [{ imageUrl: image }],
+        sellers: [{
+          sellerName: 'Disco',
+          commertialOffer: { IsAvailable: true, Price: 100, ListPrice: 100, AvailableQuantity: 1 },
+        }],
+      }],
+    }))
+    let imageChecks = 0
+    global.fetch = async (url, options = {}) => {
+      if (options.method === 'HEAD') {
+        imageChecks += 1
+        return new Response(null, { status: 200, headers: { 'content-length': '200' } })
+      }
+      return new Response(JSON.stringify(products), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    try {
+      const report = await fetchDiscoPreviewReport({ from: 0, to: 1 })
+      assert.equal(report.products.length, 2)
+      assert.equal(report.products[0].image, image)
+      assert.equal(imageChecks, 1)
+    } finally {
+      global.fetch = originalFetch
+    }
+  })
+
   assert.equal(product.price, 861.3)
+})
+
+test('bounds concurrent Disco image checks while preserving every result', async () => {
+  const originalFetch = global.fetch
+  let activeImageChecks = 0
+  let maxActiveImageChecks = 0
+  const products = Array.from({ length: 9 }, (_, index) => ({
+    productId: `disco-${index + 1}`,
+    productName: 'Yogur natural 500 g',
+    brand: 'Marca',
+    categories: ['/Almacén/'],
+    items: [{
+      itemId: `disco-${index + 1}-sku`,
+      ean: '7790000000001',
+      images: [{ imageUrl: `https://example.com/yogur-${index + 1}.jpg` }],
+      sellers: [{
+        sellerName: 'Disco',
+        commertialOffer: { IsAvailable: true, Price: 100, ListPrice: 100, AvailableQuantity: 1 },
+      }],
+    }],
+  }))
+  global.fetch = async (_url, options = {}) => {
+    if (options.method === 'HEAD') {
+      activeImageChecks += 1
+      maxActiveImageChecks = Math.max(maxActiveImageChecks, activeImageChecks)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      activeImageChecks -= 1
+      return new Response(null, { status: 200, headers: { 'content-length': '200' } })
+    }
+    return new Response(JSON.stringify(products), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  try {
+    const report = await fetchDiscoPreviewReport({ from: 0, to: products.length - 1 })
+    assert.equal(report.products.length, products.length)
+    assert.equal(maxActiveImageChecks, 8)
+  } finally {
+    global.fetch = originalFetch
+  }
 })
 
 test('uses the raw price when a product price token is 100 times higher', () => {
@@ -567,6 +663,41 @@ test('preserves manual classifications and leaves the shared taxonomy available 
   const sharedHairCare = suggestCatalogMapping({ name: 'Shampoo con aceite de argán' })
   assert.equal(sharedHairCare.category, 'Limpieza e Higiene')
   assert.equal(sharedHairCare.subcategory, 'Cuidado capilar')
+})
+
+test('uses reviewed catalog identities for new Disco products without overriding manual input', () => {
+  const examples = buildCatalogTaxonomyExamples([{
+    id: 17,
+    name: 'Producto especial Marca Uno 500 g',
+    ean: '7791234567898',
+    category_id: 'category-food',
+    subcategory_id: 'subcategory-snacks',
+    classification_source: 'automatic',
+    categories: { name: 'Almacén y Alimentos' },
+    subcategories: { name: 'Golosinas y snacks', category_id: 'category-food' },
+  }], [{ product_id: 17, status: 'resolved' }])
+
+  const fromExample = getDiscoProductClassification({
+    name: 'Producto especial Marca Uno 500 g',
+    ean: '7791234567898',
+    brand: 'Marca Uno',
+    price: 1000,
+  }, examples)
+  assert.equal(fromExample.proposedCategory, 'Almacén y Alimentos')
+  assert.equal(fromExample.proposedSubcategory, 'Golosinas y snacks')
+  assert.equal(fromExample.classificationConfidence, 'high')
+  assert.equal(fromExample.suggestion.rule, 'reviewed_product_identity_match')
+
+  const manual = getDiscoProductClassification({
+    name: 'Producto especial Marca Uno 500 g',
+    ean: '7791234567898',
+    proposedCategory: 'Hogar y Otros',
+    proposedSubcategory: 'Cocina y bazar',
+    mappingStatus: 'manual',
+  }, examples)
+  assert.equal(manual.proposedCategory, 'Hogar y Otros')
+  assert.equal(manual.proposedSubcategory, 'Cocina y bazar')
+  assert.equal(manual.classificationSource, 'manual')
 })
 
 test('preserves Disco source taxonomy separately from ar-price proposals and classification metadata', () => {

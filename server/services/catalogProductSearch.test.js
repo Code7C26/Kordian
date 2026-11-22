@@ -27,6 +27,23 @@ test('database search fetches products by name and matching brand', async () => 
     { id: 1, name: 'Coca Cola Zero 2.25 L', brand_id: 'brand-coca', brands: { name: 'Coca Cola' } },
     { id: 2, name: 'Gaseosa Cola 1.5 L', brand_id: 'brand-coca', brands: { name: 'Coca Cola' } },
     { id: 3, name: 'Agua mineral 2 L', brand_id: 'brand-water', brands: { name: 'Agua' } },
+    {
+      id: 4,
+      name: 'Coca Cola Agotada',
+      brand_id: 'brand-coca',
+      brands: { name: 'Coca Cola' },
+      offers: [{ id: 40, is_catalog_visible: false }],
+    },
+    {
+      id: 5,
+      name: 'Coca Cola Con Otra Oferta',
+      brand_id: 'brand-coca',
+      brands: { name: 'Coca Cola' },
+      offers: [
+        { id: 50, is_catalog_visible: false },
+        { id: 51, is_catalog_visible: true },
+      ],
+    },
   ]
   const brands = [
     { id: 'brand-coca', name: 'Coca Cola' },
@@ -57,5 +74,6 @@ test('database search fetches products by name and matching brand', async () => 
   }
 
   const results = await searchCatalogProducts(client, 'coca', 20)
-  assert.deepEqual(results.map((product) => product.id), [1, 2])
+  assert.deepEqual(results.map((product) => product.id), [5, 1, 2])
+  assert.deepEqual(results[0].offers, [{ id: 51, is_catalog_visible: true }])
 })

@@ -1,3 +1,4 @@
+const { randomUUID } = require('crypto')
 const { fetchProductById, isValidGtin } = require('./carrefourImporter')
 const { requireServiceRoleDatabase } = require('./serviceRole')
 
@@ -69,7 +70,6 @@ function syncCarrefourPrices(options) {
 
 async function runCarrefourPriceSync({
   database,
-  historyRecorder,
   postalCode,
   onCatalogChange = () => {},
   adminUsername = 'system',
@@ -79,7 +79,6 @@ async function runCarrefourPriceSync({
   suspiciousPriceRatio = 3,
 }) {
   requireServiceRoleDatabase(database)
-  if (typeof historyRecorder !== 'function') throw new TypeError('Se requiere un registrador de historial de precios')
   if (!/^[A-Z0-9]{4,8}$/i.test(String(postalCode || '').trim())) throw new TypeError('Se requiere un código postal válido')
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 5) throw new TypeError('La concurrencia debe ser un entero entre 1 y 5')
   if (!Number.isInteger(maxOffersPerRun) || maxOffersPerRun < 1 || maxOffersPerRun > MAX_OFFERS_PER_RUN) {
@@ -172,43 +171,51 @@ async function runCarrefourPriceSync({
       return { status: 'unchanged', productId: product?.id || offer.product_id, sourceProductId }
     }
 
-    const { error: updateError } = await database
-      .from('offers')
-      .update({
-        cash_price: currentPrice,
-        list_price: listPrice,
-        source_product_id: sourceProductId,
-        source_sku: sourceSku,
-        source_url: sourceUrl,
-      })
-      .eq('id', offer.id)
-    if (updateError) throw updateError
-
-    if (priceChanged) {
-      await historyRecorder({
-        productId: product?.id || offer.product_id,
-        offerId: offer.id,
-        cashPrice: currentPrice,
-        source: 'carrefour_sync',
-        scheduleStatusRefresh: false,
-        throwOnError: true,
-      })
-    }
-    onCatalogChange()
+    const previousCashPrice = Number(offer.cash_price)
+    const previousListPrice = offer.list_price == null ? null : Number(offer.list_price)
+    const updatedCashPrice = priceChanged ? currentPrice : previousCashPrice
+    const updatedListPrice = listPriceChanged
+      ? listPrice
+      : (offer.list_price == null ? null : Number(offer.list_price))
+    const updatedSourceUrl = identityChanged ? sourceUrl : (offer.source_url ?? null)
     return {
       status: 'updated',
       productId: product?.id || offer.product_id,
       offerId: offer.id,
       sourceProductId,
-      previousCashPrice: previousPrice,
-      updatedCashPrice: currentPrice,
+      previousCashPrice,
+      updatedCashPrice,
       listPriceChanged,
       priceChanged,
       identityChanged,
+      syncUpdate: {
+        offerId: offer.id,
+        productId: product?.id || offer.product_id,
+        sourceProductId,
+        productSource: product?.source ?? null,
+        productSourceProductId: product?.source_product_id ?? null,
+        productEan: product?.ean ?? null,
+        previousCashPrice,
+        updatedCashPrice,
+        previousListPrice,
+        updatedListPrice,
+        previousSourceProductId: offer.source_product_id ?? null,
+        previousSourceSku: offer.source_sku ?? null,
+        previousSourceUrl: offer.source_url ?? null,
+        sourceSku,
+        sourceUrl: updatedSourceUrl,
+        priceChanged,
+      },
     }
   })
 
-  const updated = results.filter((result) => result.status === 'updated')
+  const updatedResults = results.filter((result) => result.status === 'updated')
+  const updates = updatedResults.map((result) => result.syncUpdate)
+  const updated = updatedResults.map((result) => {
+    const publicResult = { ...result }
+    delete publicResult.syncUpdate
+    return publicResult
+  })
   const unchanged = results.filter((result) => result.status === 'unchanged')
   const unavailable = results.filter((result) => result.status === 'unavailable')
   const suspicious = results.filter((result) => result.status === 'suspicious')
@@ -221,29 +228,47 @@ async function runCarrefourPriceSync({
     const firstErrorIndex = results.findIndex((result) => result.status === 'error')
     if (firstErrorIndex > 0) nextOfferId = offers[firstErrorIndex - 1].id
     else if (firstErrorIndex < 0) nextOfferId = offers[offers.length - 1].id
-    const { error: stateUpdateError } = await database
-      .from('carrefour_sync_state')
-      .upsert({
-        sync_key: SYNC_STATE_KEY,
-        last_offer_id: nextOfferId,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'sync_key' })
-    if (stateUpdateError) throw stateUpdateError
-  }
-
-  if (offers.length) {
-    const firstChange = updated.find((result) => result.previousCashPrice && result.updatedCashPrice)
+    const firstChange = updated.find((result) => result.priceChanged)
     const percentage = firstChange
       ? ((firstChange.updatedCashPrice - firstChange.previousCashPrice) / firstChange.previousCashPrice) * 100
       : 0
-    const { error: logError } = await database.from('price_update_log').insert({
-      admin_username: adminUsername,
-      filters: { source: 'carrefour_sync', postal_code: postalCode, suspicious, unavailable, identityMismatch, needsReview, errors },
-      percentage,
-      products_updated: updated.filter((result) => result.previousCashPrice !== result.updatedCashPrice).length,
-      changes: updated,
-    })
-    if (logError) throw logError
+    const operationId = randomUUID()
+    let syncError
+    try {
+      const response = await database.rpc('apply_catalog_carrefour_price_sync', {
+        p_updates: updates,
+        p_next_offer_id: nextOfferId == null ? null : Number(nextOfferId),
+        p_log: {
+          admin_username: adminUsername,
+          filters: {
+            source: 'carrefour_sync',
+            postal_code: postalCode,
+            operationId,
+            suspicious,
+            unavailable,
+            identityMismatch,
+            needsReview,
+            errors,
+          },
+          percentage,
+          products_updated: updated.filter((result) => result.priceChanged).length,
+          changes: updated,
+        },
+      })
+      syncError = response.error
+    } catch (error) {
+      syncError = error
+    }
+    if (syncError) {
+      const wrapped = new Error(syncError.message || 'Carrefour price sync RPC failed')
+      wrapped.cause = syncError
+      wrapped.code = syncError.code
+      wrapped.operationId = operationId
+      wrapped.resultUnknown = !/^[0-9A-Z]{5}$/.test(String(syncError.code || ''))
+      if (wrapped.resultUnknown) onCatalogChange()
+      throw wrapped
+    }
+    if (updated.length) onCatalogChange()
   }
 
   return {

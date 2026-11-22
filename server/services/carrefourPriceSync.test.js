@@ -2,12 +2,23 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 const { syncCarrefourPrices } = require('./carrefourPriceSync')
 
-function createDatabase(offers) {
+function createDatabase(offers, { rpcError, rpcThrows = false } = {}) {
   const updates = []
   const logs = []
   const state = { last_offer_id: null }
   const queries = []
   const database = {
+    async rpc(name, parameters) {
+      queries.push({ rpc: name, parameters })
+      if (rpcError) {
+        if (rpcThrows) throw rpcError
+        return { error: rpcError }
+      }
+      updates.push(...parameters.p_updates)
+      logs.push(parameters.p_log)
+      state.last_offer_id = parameters.p_next_offer_id
+      return { data: { updated: parameters.p_updates.length }, error: null }
+    },
     from(table) {
       return {
         select() {
@@ -37,24 +48,6 @@ function createDatabase(offers) {
           }
           return { eq: () => query }
         },
-        update(values) {
-          return {
-            eq: async (_column, id) => {
-              updates.push({ table, id, values })
-              return { error: null }
-            },
-          }
-        },
-        insert(values) {
-          return Promise.resolve().then(() => {
-            if (table === 'price_update_log') logs.push(values)
-            return { error: null }
-          })
-        },
-        upsert(values) {
-          Object.assign(state, values)
-          return Promise.resolve({ error: null })
-        },
       }
     },
   }
@@ -68,7 +61,7 @@ function compareIds(left, right) {
 function makeOffer(overrides = {}) {
   return {
     id: 1,
-    product_id: 'product-1',
+    product_id: 1,
     supermarket: 'Carrefour',
     source_product_id: '122140',
     source_sku: '9547',
@@ -76,7 +69,7 @@ function makeOffer(overrides = {}) {
     cash_price: 100,
     list_price: 120,
     products: {
-      id: 'product-1',
+      id: 1,
       name: 'Producto Carrefour',
       source: 'carrefour',
       source_product_id: '122140',
@@ -103,32 +96,32 @@ function makeCurrent(overrides = {}) {
 }
 
 function runSync(offers, current, additions = {}) {
-  const state = createDatabase(offers)
-  const history = []
+  const { rpcError, rpcThrows, ...syncOptions } = additions
+  const state = createDatabase(offers, { rpcError, rpcThrows })
   let catalogChanges = 0
   const promise = syncCarrefourPrices({
     database: state.database,
-    historyRecorder: async (entry) => history.push(entry),
     postalCode: '5186',
     fetchProductById: async () => current,
     onCatalogChange: () => { catalogChanges += 1 },
-    ...additions,
+    ...syncOptions,
   })
-  return { ...state, history, get catalogChanges() { return catalogChanges }, promise }
+  return { ...state, get catalogChanges() { return catalogChanges }, promise }
 }
 
-test('refreshes current regional prices and records price history', async () => {
+test('refreshes prices through the atomic offer-and-history RPC', async () => {
   const state = runSync([makeOffer()], makeCurrent())
   const result = await state.promise
 
   assert.equal(result.updated.length, 1)
   assert.equal(result.updated[0].updatedCashPrice, 110)
-  assert.equal(state.updates[0].values.cash_price, 110)
-  assert.equal(state.updates[0].values.list_price, 125)
-  assert.equal(state.updates[0].values.source_product_id, '122140')
-  assert.equal(state.history[0].source, 'carrefour_sync')
+  assert.equal(state.updates[0].updatedCashPrice, 110)
+  assert.equal(state.updates[0].updatedListPrice, 125)
+  assert.equal(state.updates[0].sourceProductId, '122140')
+  assert.equal(state.updates[0].priceChanged, true)
   assert.equal(state.catalogChanges, 1)
   assert.equal(state.logs[0].filters.postal_code, '5186')
+  assert.equal(state.queries.find((query) => query.rpc)?.rpc, 'apply_catalog_carrefour_price_sync')
 })
 
 test('uses saved product identity for legacy Carrefour offers but does not guess identity for other sources', async () => {
@@ -137,9 +130,9 @@ test('uses saved product identity for legacy Carrefour offers but does not guess
     legacy,
     makeOffer({
       id: 2,
-      product_id: 'product-2',
+      product_id: 2,
       source_product_id: null,
-      products: { id: 'product-2', source: 'disco', source_product_id: 'disco-42', ean: '7798033333907' },
+      products: { id: 2, source: 'disco', source_product_id: 'disco-42', ean: '7798033333907' },
     }),
   ], makeCurrent())
   const result = await state.promise
@@ -147,7 +140,7 @@ test('uses saved product identity for legacy Carrefour offers but does not guess
   assert.equal(result.updated.length, 1)
   assert.equal(result.unavailable[0].reason, 'missing_carrefour_source_id')
   assert.equal(state.updates.length, 1)
-  assert.equal(state.updates[0].values.source_product_id, '122140')
+  assert.equal(state.updates[0].sourceProductId, '122140')
 })
 
 test('does not update an offer when GTIN identity conflicts', async () => {
@@ -157,7 +150,6 @@ test('does not update an offer when GTIN identity conflicts', async () => {
   assert.equal(result.identityMismatch.length, 1)
   assert.equal(result.identityMismatch[0].reason, 'gtin_mismatch')
   assert.equal(state.updates.length, 0)
-  assert.equal(state.history.length, 0)
 })
 
 test('requires a current real GTIN and SKU before refreshing a price', async () => {
@@ -166,7 +158,6 @@ test('requires a current real GTIN and SKU before refreshing a price', async () 
 
   assert.equal(result.needsReview[0].reason, 'invalid_current_identity')
   assert.equal(state.updates.length, 0)
-  assert.equal(state.history.length, 0)
 })
 
 test('leaves unavailable offers unchanged and reports them for review', async () => {
@@ -175,7 +166,6 @@ test('leaves unavailable offers unchanged and reports them for review', async ()
 
   assert.equal(result.unavailable[0].reason, 'out_of_stock')
   assert.equal(state.updates.length, 0)
-  assert.equal(state.history.length, 0)
 })
 
 test('does not overwrite prices when official price changes by the suspicious threshold', async () => {
@@ -184,7 +174,6 @@ test('does not overwrite prices when official price changes by the suspicious th
 
   assert.equal(result.suspicious.length, 1)
   assert.equal(state.updates.length, 0)
-  assert.equal(state.history.length, 0)
 })
 
 test('does not create history or write when price and list price are unchanged', async () => {
@@ -193,7 +182,16 @@ test('does not create history or write when price and list price are unchanged',
 
   assert.equal(result.unchanged.length, 1)
   assert.equal(state.updates.length, 0)
-  assert.equal(state.history.length, 0)
+})
+
+test('requires a privileged database before starting Carrefour synchronization', async () => {
+  await assert.rejects(syncCarrefourPrices({
+    database: null,
+    postalCode: '5186',
+  }), {
+    code: 'SERVICE_ROLE_NOT_CONFIGURED',
+    status: 503,
+  })
 })
 
 test('requires a privileged database before starting Carrefour synchronization', async () => {
@@ -216,9 +214,25 @@ test('stores official Carrefour identity when prices are unchanged', async () =>
   assert.equal(result.updated.length, 1)
   assert.equal(result.updated[0].identityChanged, true)
   assert.equal(result.updated[0].priceChanged, false)
-  assert.equal(state.updates[0].values.source_sku, '9547')
-  assert.equal(state.updates[0].values.source_url, 'https://www.carrefour.com.ar/producto-122140/p')
-  assert.equal(state.history.length, 0)
+  assert.equal(state.updates[0].sourceSku, '9547')
+  assert.equal(state.updates[0].sourceUrl, 'https://www.carrefour.com.ar/producto-122140/p')
+  assert.equal(state.updates[0].priceChanged, false)
+  assert.equal(state.logs[0].products_updated, 0)
+})
+
+test('updates a regular list price without changing the cash price or history count', async () => {
+  const state = runSync(
+    [makeOffer({ cash_price: 110, list_price: 125 })],
+    makeCurrent({ listPrice: 130 }),
+  )
+  const result = await state.promise
+
+  assert.equal(result.updated.length, 1)
+  assert.equal(result.updated[0].priceChanged, false)
+  assert.equal(result.updated[0].updatedCashPrice, 110)
+  assert.equal(state.updates[0].updatedCashPrice, 110)
+  assert.equal(state.updates[0].updatedListPrice, 130)
+  assert.equal(state.updates[0].priceChanged, false)
   assert.equal(state.logs[0].products_updated, 0)
 })
 
@@ -240,7 +254,6 @@ test('wraps the cursor to the first batch after reaching the final offer', async
   state.state.last_offer_id = 2
   const result = await syncCarrefourPrices({
     database: state.database,
-    historyRecorder: async () => {},
     postalCode: '5186',
     fetchProductById: async () => makeCurrent(),
     maxOffersPerRun: 1,
@@ -248,7 +261,10 @@ test('wraps the cursor to the first batch after reaching the final offer', async
 
   assert.equal(result.wrapped, true)
   assert.equal(result.nextOfferId, 1)
-  assert.deepEqual(state.queries.map(({ afterId }) => afterId), [2, null])
+  assert.deepEqual(
+    state.queries.filter((query) => Object.hasOwn(query, 'afterId')).map(({ afterId }) => afterId),
+    [2, null],
+  )
 })
 
 test('keeps the cursor before a transient fetch error so it is retried', async () => {
@@ -256,7 +272,6 @@ test('keeps the cursor before a transient fetch error so it is retried', async (
   const state = createDatabase(offers)
   const result = await syncCarrefourPrices({
     database: state.database,
-    historyRecorder: async () => {},
     postalCode: '5186',
     fetchProductById: async (id) => {
       if (id === '122142') throw new Error('temporary error')
@@ -273,15 +288,47 @@ test('keeps the cursor before a transient fetch error so it is retried', async (
 test('rejects invalid postal codes, concurrency, and batch limits', async () => {
   const state = createDatabase([makeOffer()])
   await assert.rejects(
-    syncCarrefourPrices({ database: state.database, historyRecorder: async () => {}, postalCode: '1' }),
+    syncCarrefourPrices({ database: state.database, postalCode: '1' }),
     /código postal válido/,
   )
   await assert.rejects(
-    syncCarrefourPrices({ database: state.database, historyRecorder: async () => {}, postalCode: '5186', concurrency: 6 }),
+    syncCarrefourPrices({ database: state.database, postalCode: '5186', concurrency: 6 }),
     /concurrencia debe ser un entero/,
   )
   await assert.rejects(
-    syncCarrefourPrices({ database: state.database, historyRecorder: async () => {}, postalCode: '5186', maxOffersPerRun: 101 }),
+    syncCarrefourPrices({ database: state.database, postalCode: '5186', maxOffersPerRun: 101 }),
     /máximo de ofertas por ejecución/,
   )
+})
+
+test('does not advance the cursor or report a committed batch when the atomic RPC result is unknown', async () => {
+  const state = runSync([makeOffer()], makeCurrent(), { rpcError: new Error('network disconnected') })
+
+  await assert.rejects(state.promise, (error) => {
+    assert.equal(error.resultUnknown, true)
+    assert.ok(error.operationId)
+    return true
+  })
+
+  assert.equal(state.state.last_offer_id, null)
+  assert.equal(state.logs.length, 0)
+  assert.equal(state.updates.length, 0)
+  assert.equal(state.catalogChanges, 1)
+  const rpcQuery = state.queries.find((query) => query.rpc)
+  assert.equal(rpcQuery.parameters.p_log.filters.operationId.length, 36)
+})
+
+test('wraps thrown RPC transport errors with an operation ID and invalidates the catalog cache', async () => {
+  const state = runSync([makeOffer()], makeCurrent(), {
+    rpcError: new Error('fetch failed'),
+    rpcThrows: true,
+  })
+
+  await assert.rejects(state.promise, (error) => {
+    assert.equal(error.resultUnknown, true)
+    assert.ok(error.operationId)
+    return true
+  })
+  assert.equal(state.catalogChanges, 1)
+  assert.equal(state.state.last_offer_id, null)
 })

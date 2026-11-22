@@ -10,9 +10,12 @@ export function formatOptionalPercentage(value) {
 }
 
 export function getAnalysisLoadMessage(product, loadState) {
-  if (product?.analysis) return null
+  if (product?.priceStatusPending || loadState === 'stale') {
+    return 'El análisis está pendiente porque los datos del producto cambiaron. No mostramos un diagnóstico hasta validar la información actual.'
+  }
   if (loadState === 'loading') return 'Cargando análisis de precios…'
   if (loadState === 'error') return 'No se pudo cargar el análisis de precios. Intenta nuevamente más tarde.'
+  if (product?.analysis) return null
   return 'No hay un análisis disponible para este producto.'
 }
 
@@ -21,11 +24,21 @@ export function resolveSelectedAnalysisProduct(selectedProduct, products) {
   const hydratedProduct = (products || []).find(
     (product) => String(product.id) === String(selectedProduct.id),
   )
-  if (!hydratedProduct?.analysis) return selectedProduct
+  if (!hydratedProduct) return selectedProduct
+  if (hydratedProduct.priceStatusPending) {
+    return {
+      ...selectedProduct,
+      priceStatusPending: true,
+      status: hydratedProduct.status,
+      analysis: null,
+      priceHistory: [],
+    }
+  }
   return {
     ...selectedProduct,
-    analysis: hydratedProduct.analysis,
+    priceStatusPending: false,
+    analysis: hydratedProduct.analysis || null,
     status: hydratedProduct.status,
-    priceHistory: hydratedProduct.priceHistory,
+    priceHistory: hydratedProduct.analysis?.priceHistory || hydratedProduct.priceHistory || [],
   }
 }

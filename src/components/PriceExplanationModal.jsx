@@ -32,13 +32,20 @@ export default function PriceExplanationModal({ product, analysisLoadState = 'id
   if (!product) return null
   const displayName = translateProductName(product.name)
 
-  const analysis = product.analysis
+  const isAnalysisUnconfirmed = product.priceStatusPending
+    || ['idle', 'loading', 'stale', 'error'].includes(analysisLoadState)
+    || !product.analysis
+  const analysis = isAnalysisUnconfirmed ? null : product.analysis
   const indicators = analysis?.indicators || {}
   const references = Array.isArray(analysis?.references?.references)
     ? analysis.references.references
     : null
   const dataQuality = analysis?.dataQuality
-  const status = t(statusLabels[analysis?.classification || product.status] || 'Estado no disponible')
+  const status = isAnalysisUnconfirmed
+    ? t(product.priceStatusPending || analysisLoadState === 'stale' || analysisLoadState === 'loading'
+      ? 'Analizando...'
+      : 'Estado no disponible')
+    : t(statusLabels[analysis.classification] || 'Estado no disponible')
   const riskLevel = getRiskLevel(analysis?.score, t)
   const confidenceLabel = formatOptionalNumber(analysis?.confidencePercentage) !== 'No disponible'
     ? `${t(analysis.confidence || 'No disponible')} (${formatOptionalPercentage(analysis.confidencePercentage)})`

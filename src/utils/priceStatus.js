@@ -89,26 +89,35 @@ export function calculatePriceStatus({
   const historicalDifference = historicalReference
     ? ((currentPrice - historicalReference) / historicalReference) * 100
     : null;
-  const hasHistory = Boolean(historicalReference);
+  const historyPoints = Number(analysis?.dataQuality?.historyPoints ?? dataPoints) || 0;
+  const historyDays = Number(analysis?.periodDays) || 0;
+  const hasMarketSample = Number(supermarketCount) >= PRICE_CLASSIFICATION_CONFIG.minimumData.supermarketsForMarket;
+  const hasHistorySample = historyPoints >= PRICE_CLASSIFICATION_CONFIG.minimumData.historyPointsForTrend
+    && historyDays >= PRICE_CLASSIFICATION_CONFIG.minimumData.historyDaysForTrend;
+  const hasComparableSample = Number(comparableCount) >= PRICE_CLASSIFICATION_CONFIG.minimumData.comparablesForStrongReference;
+  const comparableDifference = peerDifference ?? analysis?.comparableDeviation ?? null;
   const signals = []
+  const riskSignalSources = new Set()
   let anomalyRawScore = 0
   let offerRawScore = 0
-  const addSignal = (id, label, score, direction = 'risk') => {
+  const addSignal = (id, label, score, direction = 'risk', source = id) => {
     signals.push({ id, label, score, direction })
     if (direction === 'offer') offerRawScore += score
-    else anomalyRawScore += score
+    else if (direction === 'risk') {
+      anomalyRawScore += score
+      riskSignalSources.add(source)
+    }
   }
 
-  if (marketDifference <= PRICE_CLASSIFICATION_CONFIG.offerThreshold) addSignal('market_low', 'por debajo del mercado', PRICE_CLASSIFICATION_CONFIG.weights.marketLow, 'offer')
-  if (historicalDifference != null && historicalDifference <= PRICE_CLASSIFICATION_CONFIG.offerThreshold) addSignal('history_low', 'por debajo del historial ajustado', PRICE_CLASSIFICATION_CONFIG.weights.historyLow, 'offer')
-  if (marketDifference > PRICE_CLASSIFICATION_CONFIG.atypicalMarketUpper) addSignal('market_high', 'por encima del mercado', PRICE_CLASSIFICATION_CONFIG.weights.marketHigh)
-  if (historicalDifference != null && historicalDifference > PRICE_CLASSIFICATION_CONFIG.inflationDeviation) addSignal('history_high', 'por encima del historial ajustado', PRICE_CLASSIFICATION_CONFIG.weights.historyHigh)
-  if (analysis?.inflationDeviation > PRICE_CLASSIFICATION_CONFIG.inflationDeviation) addSignal('inflation_deviation', 'supera la inflación esperada', PRICE_CLASSIFICATION_CONFIG.weights.inflationDeviation)
-  if (analysis?.comparableDeviation > PRICE_CLASSIFICATION_CONFIG.comparableDeviation) addSignal('comparable_deviation', 'supera a productos comparables', PRICE_CLASSIFICATION_CONFIG.weights.comparableDeviation)
-  if (peerDifference != null && peerDifference > PRICE_CLASSIFICATION_CONFIG.comparableDeviation) addSignal('peer_high', 'supera a productos comparables', PRICE_CLASSIFICATION_CONFIG.weights.comparableDeviation)
-  if (peerDifference != null && peerDifference <= PRICE_CLASSIFICATION_CONFIG.offerThreshold) addSignal('peer_low', 'por debajo de productos comparables', PRICE_CLASSIFICATION_CONFIG.weights.comparableDeviation, 'offer')
-  if ((recentDifference ?? analysis?.recentVariation ?? 0) > PRICE_CLASSIFICATION_CONFIG.abruptIncrease && (analysis?.recentPeriodDays || 999) <= 30) addSignal('abrupt_increase', 'aumento abrupto reciente', PRICE_CLASSIFICATION_CONFIG.weights.abruptIncrease)
-  if (analysis?.supermarkets?.isolated) addSignal('isolated_increase', 'aumento aislado de un supermercado', PRICE_CLASSIFICATION_CONFIG.weights.isolatedIncrease)
+  if (hasMarketSample && marketDifference <= PRICE_CLASSIFICATION_CONFIG.offerThreshold) addSignal('market_low', 'por debajo del mercado', PRICE_CLASSIFICATION_CONFIG.weights.marketLow, 'offer', 'market')
+  if (hasHistorySample && historicalDifference != null && historicalDifference <= PRICE_CLASSIFICATION_CONFIG.offerThreshold) addSignal('history_low', 'por debajo del historial ajustado', PRICE_CLASSIFICATION_CONFIG.weights.historyLow, 'offer', 'history')
+  if (hasMarketSample && marketDifference > PRICE_CLASSIFICATION_CONFIG.atypicalMarketUpper) addSignal('market_high', 'por encima del mercado', PRICE_CLASSIFICATION_CONFIG.weights.marketHigh, 'risk', 'market')
+  if (hasHistorySample && historicalDifference != null && historicalDifference > PRICE_CLASSIFICATION_CONFIG.inflationDeviation) addSignal('history_high', 'por encima del historial ajustado', PRICE_CLASSIFICATION_CONFIG.weights.historyHigh, 'risk', 'history')
+  if (hasHistorySample && analysis?.inflationDeviation > PRICE_CLASSIFICATION_CONFIG.inflationDeviation) addSignal('inflation_deviation', 'supera la inflación esperada', PRICE_CLASSIFICATION_CONFIG.weights.inflationDeviation, 'risk', 'history')
+  if (hasComparableSample && comparableDifference > PRICE_CLASSIFICATION_CONFIG.comparableDeviation) addSignal('peer_high', 'supera a productos comparables', PRICE_CLASSIFICATION_CONFIG.weights.comparableDeviation, 'risk', 'comparables')
+  if (hasComparableSample && comparableDifference != null && comparableDifference <= PRICE_CLASSIFICATION_CONFIG.offerThreshold) addSignal('peer_low', 'por debajo de productos comparables', PRICE_CLASSIFICATION_CONFIG.weights.comparableDeviation, 'offer', 'comparables')
+  if ((recentDifference ?? analysis?.recentVariation ?? 0) > PRICE_CLASSIFICATION_CONFIG.abruptIncrease && (analysis?.recentPeriodDays || 999) <= 30) addSignal('abrupt_increase', 'aumento abrupto reciente', PRICE_CLASSIFICATION_CONFIG.weights.abruptIncrease, 'risk', 'recent')
+  if (analysis?.supermarkets?.isolated) addSignal('isolated_increase', 'aumento aislado de un supermercado', PRICE_CLASSIFICATION_CONFIG.weights.isolatedIncrease, 'risk', 'recent')
   if (analysis?.supermarkets?.generalized) addSignal('generalized_increase', 'aumento compartido por varios supermercados', -PRICE_CLASSIFICATION_CONFIG.weights.generalizedIncreasePenalty, 'mitigating')
 
   const maximumRiskScore = Object.entries(PRICE_CLASSIFICATION_CONFIG.weights)
@@ -118,12 +127,10 @@ export function calculatePriceStatus({
   const riskScore = Math.max(0, anomalyRawScore - signals.filter((signal) => signal.direction === 'mitigating').reduce((total, signal) => total + Math.abs(signal.score), 0))
   const anomalyScore = Math.min(100, Math.round((riskScore / maximumRiskScore) * 100))
   const offerScore = Math.min(100, Math.round((offerRawScore / maximumOfferScore) * 100))
-  const evidenceCount = signals.filter((signal) => signal.direction !== 'mitigating').length + (hasHistory ? 1 : 0) + (peerDifference != null ? 1 : 0)
-  const sourceCount = Math.min(4, (dataPoints > 0 ? 1 : 0) + (hasHistory ? 1 : 0) + (peerDifference != null ? 1 : 0) + (analysis?.market?.count >= 2 ? 1 : 0))
-  const hasMarketSample = supermarketCount >= PRICE_CLASSIFICATION_CONFIG.minimumData.supermarketsForMarket
-  const hasHistorySample = (analysis?.dataQuality?.historyPoints || dataPoints) >= PRICE_CLASSIFICATION_CONFIG.minimumData.historyPointsForTrend
-    && (analysis?.periodDays || 0) >= PRICE_CLASSIFICATION_CONFIG.minimumData.historyDaysForTrend
-  const hasComparableSample = comparableCount >= PRICE_CLASSIFICATION_CONFIG.minimumData.comparablesForStrongReference
+  const evidenceCount = Number(hasMarketSample)
+    + Number(hasHistorySample)
+    + Number(hasComparableSample && comparableDifference !== null)
+  const sourceCount = Math.min(4, evidenceCount)
   const qualityFactors = [hasMarketSample, hasHistorySample, hasComparableSample, evidenceCount >= 2]
   const qualityScore = qualityFactors.filter(Boolean).length
   const rawConfidencePercentage = Math.round(20 + (sourceCount * 12) + (Math.min(evidenceCount, 6) * 6) + (qualityScore * 8))
@@ -165,17 +172,36 @@ export function calculatePriceStatus({
     reasons: signals.map((signal) => signal.label),
   });
 
-  if (offerScore >= PRICE_CLASSIFICATION_CONFIG.offerScoreThreshold && offerScore > anomalyScore) {
+  if (offerScore >= PRICE_CLASSIFICATION_CONFIG.offerScoreThreshold
+    && offerScore > anomalyScore
+    && evidenceCount >= 2) {
     return result('OFERTA');
   }
 
   const riskSignalCount = signals.filter((signal) => signal.direction === 'risk').length
-  if (anomalyScore >= PRICE_CLASSIFICATION_CONFIG.anomalyScoreThreshold && riskSignalCount >= 2 && confidencePercentage >= 60) {
+  const hasPriceEvidence = hasMarketSample || hasHistorySample
+    || (hasComparableSample && comparableDifference !== null)
+  if (anomalyScore >= PRICE_CLASSIFICATION_CONFIG.anomalyScoreThreshold
+    && riskSignalCount >= 2
+    && riskSignalSources.size >= 2
+    && evidenceCount >= 2
+    && confidencePercentage >= 60) {
     return result('INFLADO');
   }
 
-  if (anomalyScore >= PRICE_CLASSIFICATION_CONFIG.atypicalScoreThreshold) {
+  if (anomalyScore >= PRICE_CLASSIFICATION_CONFIG.atypicalScoreThreshold
+    && riskSignalCount >= 2
+    && riskSignalSources.size >= 2
+    && evidenceCount >= 2
+    && confidencePercentage >= 50) {
     return result('AUMENTO_ATIPICO');
+  }
+
+  if (!hasPriceEvidence
+    || evidenceCount < 2
+    || riskSignalCount > 0
+    || offerScore >= PRICE_CLASSIFICATION_CONFIG.offerScoreThreshold) {
+    return result('INFORMACION_INSUFICIENTE');
   }
 
   return result('PRECIO_NORMAL');

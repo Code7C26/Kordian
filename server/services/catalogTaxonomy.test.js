@@ -1,6 +1,10 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { suggestCatalogMapping } = require('./catalogTaxonomy')
+const {
+  buildCatalogTaxonomyExamples,
+  suggestCatalogMapping,
+  suggestCatalogMappingWithExamples,
+} = require('./catalogTaxonomy')
 
 function assertMapping(product, category, subcategory, confidence = null) {
   const suggestion = suggestCatalogMapping(product)
@@ -563,4 +567,121 @@ test('returns a stable, compatible mapping shape for Mami and Carrefour inputs',
     assert.equal(typeof suggestion.reason, 'string')
     assert.equal(typeof suggestion.rule, 'string')
   }
+})
+
+test('inherits taxonomy from exact identities using reviewed, manual, then high-confidence suggestions', () => {
+  const examples = buildCatalogTaxonomyExamples([
+    {
+      id: 1,
+      name: 'Producto anterior marca Uno 500 g',
+      ean: '7791234567898',
+      brand: 'Marca Uno',
+      category_id: 'category-reviewed',
+      subcategory_id: 'subcategory-reviewed',
+      categories: { name: 'Almacén y Alimentos' },
+      subcategories: { name: 'Golosinas y snacks', category_id: 'category-reviewed' },
+      classification_source: 'automatic',
+    },
+    {
+      id: 2,
+      name: 'Producto anterior marca Uno 500 g',
+      ean: '7791234567898',
+      brand: 'Marca Uno',
+      category_id: 'category-manual',
+      subcategory_id: 'subcategory-manual',
+      categories: { name: 'Hogar y Otros' },
+      subcategories: { name: 'Cocina y bazar', category_id: 'category-manual' },
+      classification_source: 'manual',
+    },
+  ], [{ product_id: 1, status: 'resolved' }])
+
+  const suggestion = suggestCatalogMappingWithExamples({
+    name: 'Producto anterior marca Uno 500 g',
+    ean: '7791234567898',
+    brand: 'Marca Uno',
+  }, examples)
+
+  assert.equal(suggestion.status, 'determined')
+  assert.equal(suggestion.category, 'Almacén y Alimentos')
+  assert.equal(suggestion.subcategory, 'Golosinas y snacks')
+  assert.equal(suggestion.rule, 'reviewed_product_identity_match')
+  assert.equal(suggestion.matchedProductId, 1)
+})
+
+test('abstains when equally trusted exact-product examples disagree', () => {
+  const examples = buildCatalogTaxonomyExamples([
+    {
+      id: 1,
+      name: 'Producto marca Uno 500 g',
+      ean: '7791234567898',
+      category_id: 'category-a',
+      subcategory_id: 'subcategory-a',
+      categories: { name: 'Almacén y Alimentos' },
+      subcategories: { name: 'Golosinas y snacks', category_id: 'category-a' },
+      classification_source: 'manual',
+    },
+    {
+      id: 2,
+      name: 'Producto marca Uno 500 g',
+      ean: '7791234567898',
+      category_id: 'category-b',
+      subcategory_id: 'subcategory-b',
+      categories: { name: 'Hogar y Otros' },
+      subcategories: { name: 'Cocina y bazar', category_id: 'category-b' },
+      classification_source: 'manual',
+    },
+  ])
+
+  const suggestion = suggestCatalogMappingWithExamples({
+    name: 'Producto marca Uno 500 g',
+    ean: '7791234567898',
+  }, examples)
+
+  assert.equal(suggestion.status, 'ambiguous')
+  assert.equal(suggestion.reason, 'conflicting_existing_product_classifications')
+  assert.equal(suggestion.category, null)
+  assert.equal(suggestion.alternatives.length, 2)
+})
+
+test('does not use a suggested example to overrule a direct product-type rule', () => {
+  const examples = buildCatalogTaxonomyExamples([{
+    id: 1,
+    name: 'Shampoo Marca Uno 500 ml',
+    ean: '7791234567898',
+    category_id: 'category',
+    subcategory_id: 'subcategory',
+    categories: { name: 'Almacén y Alimentos' },
+    subcategories: { name: 'Bebidas', category_id: 'category' },
+    classification_source: 'automatic',
+    classification_confidence: 'high',
+  }])
+
+  const suggestion = suggestCatalogMappingWithExamples({
+    name: 'Shampoo Marca Uno 500 ml',
+    ean: '7791234567898',
+  }, examples)
+
+  assert.equal(suggestion.status, 'ambiguous')
+  assert.equal(suggestion.reason, 'conflicting_existing_product_classifications')
+})
+
+test('does not fall back to a name match when both products have different valid GTINs', () => {
+  const examples = buildCatalogTaxonomyExamples([{
+    id: 1,
+    name: 'Producto especial Marca Uno 500 g',
+    ean: '7791234567898',
+    category_id: 'category',
+    subcategory_id: 'subcategory',
+    categories: { name: 'Almacén y Alimentos' },
+    subcategories: { name: 'Golosinas y snacks', category_id: 'category' },
+    classification_source: 'manual',
+  }])
+
+  const suggestion = suggestCatalogMappingWithExamples({
+    name: 'Producto especial Marca Uno 500 g',
+    ean: '7791234567881',
+  }, examples)
+
+  assert.equal(suggestion.status, 'insufficient_evidence')
+  assert.equal(suggestion.category, null)
 })

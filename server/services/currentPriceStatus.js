@@ -1,6 +1,6 @@
 const crypto = require('node:crypto')
 
-const PRICE_STATUS_RULES_VERSION = '2026-10-10-v2'
+const PRICE_STATUS_RULES_VERSION = '2026-11-24-v3'
 const PRICE_STATUS_BATCH_SIZE = 100
 const PRICE_STATUS_REFRESH_RETRY_DELAY_MS = 60 * 1000
 
@@ -44,13 +44,25 @@ function isPersistablePriceStatusRow(status) {
 }
 
 function buildPriceFingerprint(product, references = {}, analysis = {}) {
-  const offers = (product?.offers || [])
+  const rawOffers = (product?.offers || [])
     .map((offer, index) => ({
       offer_id: String(offer.id ?? `${offer.supermarket || ''}:${index}`),
-      cash_price: Number(offer.cash_price),
+      cash_price: Number(offer.cash_price ?? offer.cashPrice),
       previous_price: Number(offer.previous_price) || 0,
       supermarket: String(offer.supermarket || ''),
     }))
+    .filter((offer) => Number.isFinite(offer.cash_price) && offer.cash_price > 0)
+    .sort((first, second) => first.offer_id.localeCompare(second.offer_id))
+  const source = String(product?.source || '').trim().toLowerCase()
+  const fingerprintOffers = (product?.offers || [])
+    .filter((offer) => offer.id !== null && offer.id !== undefined)
+    .map((offer) => {
+      const cashPrice = Number(offer.cash_price ?? offer.cashPrice)
+      const catalogPrice = ['disco', 'mami'].includes(source) && cashPrice < 100
+        ? Math.round(cashPrice * 10000) / 100
+        : cashPrice
+      return { offer_id: String(offer.id), cash_price: catalogPrice }
+    })
     .filter((offer) => Number.isFinite(offer.cash_price) && offer.cash_price > 0)
     .sort((first, second) => first.offer_id.localeCompare(second.offer_id))
   const comparableReferences = (references.references || [])
@@ -79,7 +91,7 @@ function buildPriceFingerprint(product, references = {}, analysis = {}) {
     subcategory_id: String(product?.subcategory_id || ''),
     subcategory_name: String(product?.subcategories?.name || ''),
     source: String(product?.source || ''),
-    offers,
+    offers: rawOffers,
     comparableReferences,
     referencePrice: Number(references.referencePrice) || 0,
     history,
@@ -92,7 +104,11 @@ function buildPriceFingerprint(product, references = {}, analysis = {}) {
     dataQuality: analysis.dataQuality || {},
     taxonomy: analysis.taxonomy || null,
   })
-  return crypto.createHash('sha256').update(inputs).digest('hex')
+  return JSON.stringify({
+    rules_version: PRICE_STATUS_RULES_VERSION,
+    offers: fingerprintOffers,
+    analysis_fingerprint: crypto.createHash('sha256').update(inputs).digest('hex'),
+  })
 }
 
 function buildCurrentPriceStatusRows(analyses, analyzedAt = new Date().toISOString()) {

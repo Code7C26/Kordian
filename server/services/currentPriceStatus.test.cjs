@@ -42,6 +42,18 @@ test('price fingerprint includes the product and comparable prices', () => {
   )
 })
 
+test('fingerprint exposes catalog-compatible offers while retaining analysis inputs', () => {
+  const fingerprint = JSON.parse(buildPriceFingerprint({
+    id: 10,
+    source: 'mami',
+    offers: [{ id: 3, cash_price: 3.49 }],
+  }))
+
+  assert.equal(fingerprint.rules_version, PRICE_STATUS_RULES_VERSION)
+  assert.deepEqual(fingerprint.offers, [{ offer_id: '3', cash_price: 349 }])
+  assert.match(fingerprint.analysis_fingerprint, /^[a-f0-9]{64}$/)
+})
+
 test('price fingerprint includes current taxonomy and analysis inputs', () => {
   const analysis = createAnalysis()
   const original = buildPriceFingerprint(analysis.product, analysis.references, analysis)

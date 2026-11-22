@@ -17,9 +17,9 @@ function filterKnownPriceScaleArtifacts(history, product) {
     .map((offer) => [String(offer.id), normalizeDiscoStoredPrice(offer.cash_price, product.source)]))
   const currentPrices = new Map([...discoPrices, ...mamiPrices])
 
-  if (!currentPrices.size) return history
-
   return history.filter((point) => {
+    if (point.source === 'price_token_normalization') return false
+
     const currentPrice = currentPrices.get(String(point.offer_id))
     if (!currentPrice || currentPrice <= 0) return true
 
@@ -113,6 +113,9 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   const historicalAverage = behavior.previousPrice || 0
   const marketAverage = behavior.market.median || behavior.market.average || 0
   const effectiveCurrentPrice = behavior.market.minimum || currentPrice
+  const supermarketCount = new Set(offers
+    .map((offer) => String(offer.supermarket || offer.supermarket_name || '').trim().toLowerCase())
+    .filter(Boolean)).size
   const normalizedCurrentPrice = references.normalized
     ? comparables.normalizePrice(product, effectiveCurrentPrice).unitPrice
     : effectiveCurrentPrice
@@ -127,7 +130,7 @@ async function analyzeProduct(product, products = [], history = [], categoryName
       : null,
     dataPoints: relevantHistory.length,
     analysis: behavior,
-    supermarketCount: offers.length,
+    supermarketCount,
     comparableCount: references.references.length,
   })
   const pricePeriods = buildPricePeriods(relevantHistory)
@@ -151,6 +154,7 @@ async function analyzeProduct(product, products = [], history = [], categoryName
       offerId: point.offer_id,
       avgPrice: numeric(point.cash_price),
       minPrice: numeric(point.cash_price),
+      source: point.source,
     })),
     pricePeriods,
     populatedPeriods,

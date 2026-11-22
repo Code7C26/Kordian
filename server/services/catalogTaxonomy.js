@@ -1,7 +1,117 @@
+const { extractGtin } = require('./productIdentityAudit')
+
 const normalize = (value) => String(value || '')
   .toLowerCase()
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
+
+const normalizeIdentityText = (value) => normalize(value)
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim()
+  .replace(/\s+/g, ' ')
+
+function getCatalogExampleAuthority(example) {
+  const reviewStatus = String(example.reviewStatus || example.review_status || '').toLowerCase()
+  if (reviewStatus === 'resolved' || reviewStatus === 'dismissed') return 3
+
+  const source = String(example.classification_source || example.classificationSource || '').toLowerCase()
+  if (source === 'manual' || source === 'manual_override') return 2
+  if (source === 'automatic'
+    && String(example.classification_confidence || example.classificationConfidence || '').toLowerCase() === 'high') {
+    return 1
+  }
+  return 0
+}
+
+function hasSameCatalogIdentity(product, example) {
+  const productGtin = extractGtin(product)
+  const exampleGtin = extractGtin(example)
+  const productBrand = normalizeIdentityText(product.brand || product.brands?.name)
+  const exampleBrand = normalizeIdentityText(example.brand || example.brands?.name)
+  if (productGtin && exampleGtin) {
+    if (productGtin !== exampleGtin) return false
+    return !productBrand || !exampleBrand || productBrand === exampleBrand
+  }
+
+  const productName = normalizeIdentityText(product.name)
+  const exampleName = normalizeIdentityText(example.name)
+  return Boolean(productName && productName === exampleName
+    && (!productBrand || !exampleBrand || productBrand === exampleBrand))
+}
+
+function buildCatalogTaxonomyExamples(products = [], decisions = []) {
+  const decisionsByProductId = new Map(
+    decisions.map((decision) => [String(decision.product_id), decision.status]),
+  )
+
+  return products
+    .filter((product) => product.category_id && product.subcategory_id
+      && product.categories?.name && product.subcategories?.name
+      && (!product.subcategories.category_id
+        || String(product.subcategories.category_id) === String(product.category_id)))
+    .map((product) => ({
+      ...product,
+      reviewStatus: decisionsByProductId.get(String(product.id)) || null,
+    }))
+    .filter((product) => getCatalogExampleAuthority(product) > 0)
+}
+
+function resolveCatalogMappingFromExamples(product, suggestion, examples = []) {
+  const matches = examples.filter((example) => (
+    getCatalogExampleAuthority(example) > 0
+    && example.categories?.name
+    && example.subcategories?.name
+    && hasSameCatalogIdentity(product, example)
+  ))
+  if (!matches.length) return suggestion
+
+  const authority = Math.max(...matches.map(getCatalogExampleAuthority))
+  const authoritativeMatches = matches.filter((example) => getCatalogExampleAuthority(example) === authority)
+  const destinations = new Map(authoritativeMatches.map((example) => [
+    `${example.categories.name}\u0000${example.subcategories.name}`,
+    example,
+  ]))
+
+  if (destinations.size > 1 || (authority === 1
+    && suggestion.status === 'determined'
+    && !destinations.has(`${suggestion.category}\u0000${suggestion.subcategory}`))) {
+    return makeUndeterminedSuggestion(
+      'ambiguous',
+      'conflicting_existing_product_classifications',
+      [
+        ...[...destinations.values()].map((example) => ({
+          category: example.categories.name,
+          subcategory: example.subcategories.name,
+          rule: 'existing_product_identity_match',
+        })),
+        ...(suggestion.status === 'determined' ? [{
+          category: suggestion.category,
+          subcategory: suggestion.subcategory,
+          rule: suggestion.rule,
+        }] : []),
+      ],
+    )
+  }
+
+  const [destinationKey, example] = destinations.entries().next().value
+  if (authority === 1 && suggestion.status === 'determined') return suggestion
+
+  const [category, subcategory] = destinationKey.split('\u0000')
+  return {
+    category,
+    subcategory,
+    confidence: authority === 1 ? 'medium' : 'high',
+    reason: 'matched_existing_product_identity',
+    rule: authority === 3
+      ? 'reviewed_product_identity_match'
+      : authority === 2
+        ? 'manual_product_identity_match'
+        : 'suggested_product_identity_match',
+    status: 'determined',
+    alternatives: [],
+    matchedProductId: example.id,
+  }
+}
 
 const rules = [
   { category: 'Almacén y Alimentos', subcategory: 'Aceites, condimentos y aderezos', terms: [
@@ -611,4 +721,13 @@ function suggestCatalogMapping(product) {
   }
 }
 
-module.exports = { suggestCatalogMapping }
+function suggestCatalogMappingWithExamples(product, examples = []) {
+  return resolveCatalogMappingFromExamples(product, suggestCatalogMapping(product), examples)
+}
+
+module.exports = {
+  buildCatalogTaxonomyExamples,
+  resolveCatalogMappingFromExamples,
+  suggestCatalogMapping,
+  suggestCatalogMappingWithExamples,
+}

@@ -1,3 +1,5 @@
+import { requiresReviewGroupingBackend } from '../utils/apiBackendCapabilities.js'
+
 const configuredApiBase = import.meta.env.VITE_API_URL?.replace(/\/$/, '')
 const isLoopbackApiBase = (value) => {
   if (!value) return false
@@ -13,7 +15,6 @@ const usableConfiguredApiBase =
   import.meta.env.DEV || !isLoopbackApiBase(configuredApiBase)
     ? configuredApiBase
     : null
-
 const DEFAULT_API_BASES = [
   usableConfiguredApiBase,
   'https://ar-price-api.onrender.com',
@@ -133,7 +134,7 @@ async function fetchWithApiFallback(
   options = {},
   bases = DEFAULT_API_BASES,
   rememberBackend = false,
-  discoverReviewBackend = true
+  discoverReviewBackend = false
 ) {
   const normalizedPath = path.startsWith('/')
     ? path
@@ -201,7 +202,7 @@ async function fetchWithApiFallback(
 }
 
 export function apiFetch(path, options = {}) {
-  return fetchWithApiFallback(path, options)
+  return fetchWithApiFallback(path, options, DEFAULT_API_BASES, false, requiresReviewGroupingBackend(path))
 }
 
 export function customerApiFetch(path, options = {}) {
@@ -269,7 +270,7 @@ export async function adminFetch(path, options = {}) {
         ? [localStorage.getItem(API_BASE_STORAGE_KEY) || API_BASE_URL]
         : DEFAULT_API_BASES,
       true,
-      !isDeleteRequest
+      !isDeleteRequest && requiresReviewGroupingBackend(path)
     )
 
     if (response.status === 401) {
