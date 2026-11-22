@@ -20,6 +20,20 @@ function normalizePrice(value) {
   return Number.isFinite(price) ? Number(price.toFixed(2)) : null
 }
 
+function getVisibilityChange(offer, isCatalogVisible) {
+  const currentlyVisible = offer.is_catalog_visible !== false
+  if (currentlyVisible === isCatalogVisible) return null
+  return { offerId: offer.id, isCatalogVisible }
+}
+
+function withoutInternalChanges(result) {
+  const cleaned = { ...result }
+  delete cleaned.syncChange
+  delete cleaned.visibilityChange
+  delete cleaned.promotionChange
+  return cleaned
+}
+
 async function mapWithConcurrency(items, concurrency, callback) {
   const results = new Array(items.length)
   let nextIndex = 0
@@ -53,7 +67,7 @@ async function runDiscoPriceSync({
   assertCatalogWriteAllowed('Disco')
   const { data: products, error: productsError } = await database
     .from('products')
-    .select('id, name, source_product_id, offers(id, supermarket, cash_price)')
+    .select('id, name, source_product_id, offers(id, supermarket, cash_price, list_price, is_catalog_visible)')
     .eq('source', 'disco')
 
   if (productsError) throw productsError
@@ -77,20 +91,21 @@ async function runDiscoPriceSync({
     if (!offer) return { status: 'unavailable', productId: product.id, name: product.name }
     const current = await fetchProductById(product.source_product_id)
     if (!current) {
-      return { status: 'unavailable', productId: product.id, name: product.name }
+      return {
+        status: 'unavailable',
+        productId: product.id,
+        name: product.name,
+        hiddenOfferId: offer.id,
+        visibilityChange: getVisibilityChange(offer, false),
+      }
     }
     if (!current.available) {
       return {
         status: 'unavailable',
         productId: product.id,
         name: product.name,
-        removedOfferId: offer.id,
-        removal: {
-          offerId: offer.id,
-          productId: product.id,
-          sourceProductId: product.source_product_id,
-          previousCashPrice: Number(offer.cash_price),
-        },
+        hiddenOfferId: offer.id,
+        visibilityChange: getVisibilityChange(offer, false),
       }
     }
     const currentPrice = normalizePrice(current.price)
@@ -98,8 +113,28 @@ async function runDiscoPriceSync({
       return { status: 'unavailable', productId: product.id, name: product.name, reason: 'invalid_price' }
     }
     const previousPrice = normalizePrice(offer.cash_price)
+    const sourceListPrice = normalizePrice(current.listPrice)
+    const updatedListPrice = sourceListPrice && sourceListPrice > currentPrice ? sourceListPrice : null
+    const previousListPrice = offer.list_price == null ? null : normalizePrice(offer.list_price)
+    const listPriceChanged = previousListPrice !== updatedListPrice
+    const promotionChange = listPriceChanged
+      ? {
+          offerId: offer.id,
+          productId: product.id,
+          sourceProductId: product.source_product_id,
+          expectedCashPrice: currentPrice,
+          previousListPrice,
+          updatedListPrice,
+        }
+      : null
     if (previousPrice === currentPrice) {
-      return { status: 'unchanged', productId: product.id, name: product.name }
+      return {
+        status: 'unchanged',
+        productId: product.id,
+        name: product.name,
+        visibilityChange: getVisibilityChange(offer, true),
+        promotionChange,
+      }
     }
     const isScaleCorrection = isDiscoScaleCorrection(previousPrice, currentPrice)
     const changeRatio = previousPrice > 0
@@ -122,6 +157,9 @@ async function runDiscoPriceSync({
       sourceProductId: product.source_product_id,
       previousCashPrice: Number(offer.cash_price),
       updatedCashPrice: currentPrice,
+      listPriceChanged,
+      visibilityChange: getVisibilityChange(offer, true),
+      promotionChange,
     }
     return {
       ...change,
@@ -135,22 +173,22 @@ async function runDiscoPriceSync({
     }
   })
   const updated = results.filter((result) => result.status === 'updated')
-  const updatedChanges = updated.map((result) => ({
-    status: result.status,
-    productId: result.productId,
-    offerId: result.offerId,
-    sourceProductId: result.sourceProductId,
-    previousCashPrice: result.previousCashPrice,
-    updatedCashPrice: result.updatedCashPrice,
-  }))
-  const unchanged = results.filter((result) => result.status === 'unchanged')
-  const unavailable = results.filter((result) => result.status === 'unavailable')
+  const updatedChanges = updated.map(withoutInternalChanges)
+  const unchanged = results.filter((result) => result.status === 'unchanged').map(withoutInternalChanges)
+  const unavailable = results.filter((result) => result.status === 'unavailable').map(withoutInternalChanges)
   const suspicious = results.filter((result) => result.status === 'suspicious')
   const updates = updated.map((result) => result.syncChange)
   const removals = unavailable.map((result) => result.removal).filter(Boolean)
+  const visibilityChanges = results
+    .map((result) => result.visibilityChange)
+    .filter(Boolean)
+  const promotionChanges = results
+    .map((result) => result.promotionChange)
+    .filter(Boolean)
   const operationId = randomUUID()
 
-  const log = updated.length || removals.length || suspicious.length
+  const log = updated.length || removals.length || visibilityChanges.length
+    || promotionChanges.length || suspicious.length
     ? {
       admin_username: adminUsername,
       filters: {
@@ -160,6 +198,8 @@ async function runDiscoPriceSync({
         operationId,
         suspicious,
         removedOffers: removals,
+        visibilityChanges,
+        promotionChanges,
       },
       percentage: updated[0]?.previousCashPrice > 0
         ? ((updated[0].updatedCashPrice - updated[0].previousCashPrice) / updated[0].previousCashPrice) * 100
@@ -168,20 +208,51 @@ async function runDiscoPriceSync({
       changes: updatedChanges,
     }
     : null
-  if (updates.length || removals.length || log) {
+  if (updates.length || removals.length || visibilityChanges.length || promotionChanges.length || log) {
     assertCatalogWriteAllowed('Disco')
-    const { error } = await database.rpc('apply_catalog_price_sync', {
+    const { error } = await database.rpc('apply_catalog_price_promotion_sync', {
       p_supermarket: 'Disco',
       p_source: 'disco_sync',
       p_updates: updates,
+      p_promotion_updates: promotionChanges,
       p_removals: removals,
       p_log: log,
     })
     if (error) throw wrapPriceSyncRpcError(error, operationId)
-    if (updates.length || removals.length) onCatalogChange()
   }
 
-  return { updated: updatedChanges, unchanged, unavailable, suspicious }
+  for (const isCatalogVisible of [false, true]) {
+    const offerIds = visibilityChanges
+      .filter((change) => change.isCatalogVisible === isCatalogVisible)
+      .map((change) => change.offerId)
+    if (!offerIds.length) continue
+
+    const { data, error } = await database
+      .from('offers')
+      .update({ is_catalog_visible: isCatalogVisible })
+      .in('id', offerIds)
+      .eq('supermarket', 'Disco')
+      .select('id')
+    if (error) throw error
+    if ((data || []).length !== offerIds.length) {
+      throw new Error('Disco offer visibility update did not affect every expected offer')
+    }
+  }
+
+  if (updates.length || removals.length || visibilityChanges.length || promotionChanges.length) onCatalogChange()
+
+  return {
+    updated: updatedChanges,
+    promotionsUpdated: promotionChanges.map(({ offerId, previousListPrice, updatedListPrice }) => ({
+      offerId,
+      previousListPrice,
+      updatedListPrice,
+    })),
+    unchanged,
+    unavailable,
+    suspicious,
+    visibilityChanges,
+  }
 }
 
 module.exports = { syncDiscoPrices }

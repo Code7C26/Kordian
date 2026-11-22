@@ -5,8 +5,33 @@ const { syncDiscoPrices } = require('./discoPriceSync')
 function createDatabase(products) {
   const rpcCalls = []
   const logs = []
+  const visibilityUpdates = []
   const database = {
-    from() {
+    from(table) {
+      if (table === 'offers') {
+        return {
+          update(values) {
+            return {
+              in(column, ids) {
+                assert.equal(column, 'id')
+                return {
+                  eq(filterColumn, filterValue) {
+                    assert.equal(filterColumn, 'supermarket')
+                    assert.equal(filterValue, 'Disco')
+                    return {
+                      select: async () => {
+                        visibilityUpdates.push({ values, ids })
+                        return { data: ids.map((id) => ({ id })), error: null }
+                      },
+                    }
+                  },
+                }
+              },
+            }
+          },
+        }
+      }
+
       return {
         select() {
           return {
@@ -21,7 +46,7 @@ function createDatabase(products) {
       return { error: null }
     },
   }
-  return { database, rpcCalls, logs }
+  return { database, rpcCalls, logs, visibilityUpdates }
 }
 
 function productWithPrice(cashPrice) {
@@ -30,7 +55,7 @@ function productWithPrice(cashPrice) {
     name: 'Producto Disco',
     source: 'disco',
     source_product_id: 'source-1',
-    offers: [{ id: 'offer-1', supermarket: 'Disco', cash_price: cashPrice }],
+    offers: [{ id: 'offer-1', supermarket: 'Disco', cash_price: cashPrice, list_price: null }],
   }
 }
 
@@ -56,6 +81,45 @@ test('rounds to cents before comparing to avoid no-op price updates', async () =
   assert.equal(state.history.length, 0)
 })
 
+test('syncs a promotional and regular price together', async () => {
+  const state = optionsFor([productWithPrice(100)], 90, {
+    fetchProductById: async () => ({ price: 90, listPrice: 120, available: true }),
+  })
+  const result = await state.promise
+
+  assert.equal(result.updated.length, 1)
+  assert.deepEqual(result.promotionsUpdated, [{
+    offerId: 'offer-1',
+    previousListPrice: null,
+    updatedListPrice: 120,
+  }])
+  assert.deepEqual(state.rpcCalls.map(({ name }) => name), ['apply_catalog_price_promotion_sync'])
+  assert.equal(state.rpcCalls[0].args.p_supermarket, 'Disco')
+  assert.equal(state.rpcCalls[0].args.p_source, 'disco_sync')
+  assert.equal(state.rpcCalls[0].args.p_updates[0].updatedCashPrice, 90)
+  assert.equal(state.rpcCalls[0].args.p_promotion_updates[0].expectedCashPrice, 90)
+  assert.equal(state.rpcCalls[0].args.p_promotion_updates[0].updatedListPrice, 120)
+  assert.equal(state.logs[0].filters.promotionChanges.length, 1)
+})
+
+test('clears a stale regular price when the current Disco price is no longer promotional', async () => {
+  const product = productWithPrice(100)
+  product.offers[0].list_price = 120
+  const state = optionsFor([product], 100, {
+    fetchProductById: async () => ({ price: 100, listPrice: 100, available: true }),
+  })
+  const result = await state.promise
+
+  assert.deepEqual(result.promotionsUpdated, [{
+    offerId: 'offer-1',
+    previousListPrice: 120,
+    updatedListPrice: null,
+  }])
+  assert.deepEqual(state.rpcCalls.map(({ name }) => name), ['apply_catalog_price_promotion_sync'])
+  assert.equal(state.rpcCalls[0].args.p_promotion_updates[0].updatedListPrice, null)
+  assert.equal(state.history.length, 0)
+})
+
 test('skips and reports suspicious upward changes instead of persisting inflated prices', async () => {
   const state = optionsFor([productWithPrice(8613)], 861300)
   const result = await state.promise
@@ -74,9 +138,9 @@ test('automatically corrects a prior 100x scale inflation from the authoritative
 
   assert.equal(result.updated.length, 1)
   assert.equal(result.updated[0].updatedCashPrice, 8613)
-  assert.equal(state.rpcCalls[0].name, 'apply_catalog_price_sync')
+  assert.equal(state.rpcCalls[0].name, 'apply_catalog_price_promotion_sync')
   assert.equal(state.rpcCalls[0].args.p_updates[0].updatedCashPrice, 8613)
-  assert.equal(state.rpcCalls[0].args.p_source, 'disco_sync')
+  assert.equal(state.logs[0].filters.source, 'disco_sync')
   assert.equal(state.logs[0].percentage, -99)
 })
 
@@ -115,6 +179,51 @@ test('does not remove an existing offer when Disco returns an invalid price', as
 
   assert.equal(result.unavailable[0].reason, 'invalid_price')
   assert.equal(state.rpcCalls.length, 0)
+})
+
+test('hides an unavailable offer without deleting it and restores it when a valid price returns', async () => {
+  const unavailableProduct = productWithPrice(72)
+  unavailableProduct.offers[0].is_catalog_visible = true
+  const hiddenState = optionsFor([unavailableProduct], null, {
+    fetchProductById: async () => ({ available: false }),
+  })
+  const hiddenResult = await hiddenState.promise
+
+  assert.equal(hiddenResult.unavailable[0].hiddenOfferId, 'offer-1')
+  assert.deepEqual(hiddenState.visibilityUpdates, [{
+    values: { is_catalog_visible: false },
+    ids: ['offer-1'],
+  }])
+  assert.deepEqual(hiddenState.rpcCalls[0].args.p_updates, [])
+  assert.deepEqual(hiddenState.rpcCalls[0].args.p_promotion_updates, [])
+  assert.deepEqual(hiddenState.rpcCalls[0].args.p_removals, [])
+
+  const hiddenProduct = productWithPrice(72)
+  hiddenProduct.offers[0].is_catalog_visible = false
+  const restoredState = optionsFor([hiddenProduct], 72)
+  const restoredResult = await restoredState.promise
+
+  assert.equal(restoredResult.unchanged.length, 1)
+  assert.deepEqual(restoredState.visibilityUpdates, [{
+    values: { is_catalog_visible: true },
+    ids: ['offer-1'],
+  }])
+  assert.equal(restoredState.rpcCalls[0].name, 'apply_catalog_price_promotion_sync')
+})
+
+test('hides a Disco offer when its source product cannot be found', async () => {
+  const product = productWithPrice(72)
+  const state = optionsFor([product], null, {
+    fetchProductById: async () => null,
+  })
+
+  const result = await state.promise
+
+  assert.equal(result.unavailable[0].hiddenOfferId, 'offer-1')
+  assert.deepEqual(state.visibilityUpdates, [{
+    values: { is_catalog_visible: false },
+    ids: ['offer-1'],
+  }])
 })
 
 test('requires a privileged database before reading or writing prices', async () => {

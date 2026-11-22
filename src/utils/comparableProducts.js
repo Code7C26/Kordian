@@ -30,16 +30,25 @@ const catalogGroupKey = (product, classification) => {
 
 export function createComparableProductIndex(products = [], classificationById = new Map()) {
   const byCatalogGroup = new Map()
+  const byComparableGroup = new Map()
 
   for (const product of products) {
     const key = catalogGroupKey(product, classificationById.get(String(product.id)))
-    if (!key) continue
-    const matches = byCatalogGroup.get(key) || []
-    matches.push(product)
-    byCatalogGroup.set(key, matches)
+    if (key) {
+      const matches = byCatalogGroup.get(key) || []
+      matches.push(product)
+      byCatalogGroup.set(key, matches)
+    }
+
+    const comparableGroupId = product.comparable_group_id || product.comparableGroupId
+    if (comparableGroupId) {
+      const matches = byComparableGroup.get(String(comparableGroupId)) || []
+      matches.push(product)
+      byComparableGroup.set(String(comparableGroupId), matches)
+    }
   }
 
-  return { byCatalogGroup }
+  return { byCatalogGroup, byComparableGroup }
 }
 
 export function extractMeasure(product) {
@@ -68,24 +77,43 @@ export function normalizePrice(product, price) {
 export function findComparableReferences(product, products = [], classificationById = new Map(), productIndex = null) {
   const classification = classificationById.get(String(product.id))
   const groupKey = catalogGroupKey(product, classification)
-  if (!groupKey) {
+  const comparableGroupId = product.comparable_group_id || product.comparableGroupId
+  if (!groupKey && !comparableGroupId) {
     return { level: 'inflacion_general', references: [], referencePrice: 0, confidence: 'baja' }
   }
 
   const productMeasure = extractMeasure(product)
-  let candidateProducts = products
-  if (productIndex) {
-    candidateProducts = productIndex.byCatalogGroup.get(groupKey) || []
-  }
-  const candidates = candidateProducts
+  const identityCandidates = comparableGroupId
+    ? productIndex
+      ? productIndex.byComparableGroup.get(String(comparableGroupId)) || []
+      : products.filter((candidate) => String(
+        candidate.comparable_group_id || candidate.comparableGroupId || '',
+      ) === String(comparableGroupId))
+    : []
+  let hasIdentityGroup = identityCandidates.some((candidate) => (
+    String(candidate.id) !== String(product.id)
+  ))
+  const peerCandidates = groupKey
+    ? productIndex
+      ? productIndex.byCatalogGroup.get(groupKey) || []
+      : products
+    : []
+  const collectCandidates = (candidateProducts, identityOnly) => candidateProducts
     .filter((candidate) => String(candidate.id) !== String(product.id))
     .map((candidate) => {
       const candidateClassification = classificationById.get(String(candidate.id))
-      if (catalogGroupKey(candidate, candidateClassification) !== groupKey) return null
+      if (identityOnly) {
+        const candidateGroupId = candidate.comparable_group_id || candidate.comparableGroupId
+        if (String(candidateGroupId || '') !== String(comparableGroupId)) return null
+      } else if (catalogGroupKey(candidate, candidateClassification) !== groupKey) {
+        return null
+      }
       const sameType = candidateClassification?.type && candidateClassification.type === classification?.type
       const sameVariant = classification?.variant && candidateClassification?.variant && normalize(classification.variant) === normalize(candidateClassification.variant)
       const candidateMeasure = extractMeasure(candidate)
-      const sameBaseUnit = productMeasure && candidateMeasure && productMeasure.baseUnit === candidateMeasure.baseUnit
+      const sameBaseUnit = (productMeasure?.baseUnit || null) === (candidateMeasure?.baseUnit || null)
+      if (!sameBaseUnit || (!identityOnly && classification?.type
+        && candidateClassification?.type !== classification.type)) return null
       const offerPrices = (candidate.offers || []).map((offer) => Number(offer.cash_price ?? offer.cashPrice)).filter((price) => price > 0)
       if (!offerPrices.length) return null
       const priceData = normalizePrice(candidate, calculateMedian(offerPrices))
@@ -96,6 +124,18 @@ export function findComparableReferences(product, products = [], classificationB
       }
     })
     .filter(Boolean)
+
+  const identityCandidateProducts = hasIdentityGroup ? identityCandidates : []
+  let candidates = collectCandidates(
+    hasIdentityGroup ? identityCandidateProducts : peerCandidates,
+    hasIdentityGroup,
+  )
+  if (!candidates.length && hasIdentityGroup) {
+    hasIdentityGroup = false
+    candidates = collectCandidates(peerCandidates, false)
+  }
+
+  candidates = candidates
     .sort((first, second) => second.score - first.score)
     .slice(0, 8)
 
@@ -115,7 +155,10 @@ export function findComparableReferences(product, products = [], classificationB
       brand: reference.brands?.name || reference.brand || null,
       price: priceData.price,
       unitPrice: priceData.unitPrice,
+      identityMatch: hasIdentityGroup,
     })),
+    referenceGroup: hasIdentityGroup ? 'same_product' : 'product_peers',
+    identityReferenceCount: hasIdentityGroup ? candidates.length : 0,
     referencePrice,
     normalized: Boolean(productMeasure && productPrices.length),
     confidence: candidates.length >= 3 ? 'alta' : 'media',

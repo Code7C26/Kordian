@@ -1,9 +1,13 @@
 const DISCO_API_URL = 'https://www.disco.com.ar/api/catalog_system/pub/products/search'
+const DISCO_IMAGE_CHECK_CONCURRENCY = 8
 const DISCO_PROMOTION_CACHE_TTL_MS = 10 * 60 * 1000
 const DISCO_PROMOTION_CACHE_MAX_ENTRIES = 256
 import { createCommonProduct, isValidCommonProduct } from './importerContract.js'
 import { extractGenericProductProfile, extractJsonLdProductItems, parseHtmlProductDetails } from './htmlProductParser.js'
-import { suggestCatalogMapping } from './catalogTaxonomy.js'
+import {
+  resolveCatalogMappingFromExamples,
+  suggestCatalogMapping,
+} from './catalogTaxonomy.js'
 
 export class InvalidDiscoPromotionRequestError extends Error {
   constructor(message) {
@@ -23,20 +27,7 @@ const invalidProductNamePattern = /\b(envio|envios|entrega|delivery|shipping|ofe
 const productMeasurePattern = /\b\d+(?:[.,]\d+)?\s*(?:kg|kgs|kilo(?:s)?|g|gr|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|uds?|u)\b/i
 
 function normalizeDiscoPrice(value) {
-  const price = numeric(value)
-  if (price > 0 && price < 100) return price * 100
-  return price
-}
-
-function getTokenPrice(token) {
-  if (typeof token !== 'string') return null
-  try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString())
-    const price = Number(payload?.data?.price)
-    return Number.isFinite(price) && price > 0 ? price : null
-  } catch {
-    return null
-  }
+  return numeric(value)
 }
 
 const categoryMapping = [
@@ -374,12 +365,15 @@ export function suggestDiscoCatalogMapping(product = {}) {
   }
 }
 
-export function getDiscoProductClassification(product = {}) {
-  const suggestion = suggestDiscoCatalogMapping(product)
+export function getDiscoProductClassification(product = {}, taxonomyExamples = []) {
   const manualMappingStatus = ['manual', 'manual_override'].includes(product.mappingStatus)
   const manual = manualMappingStatus
     || [product.classification_source, product.classificationSource]
       .some((source) => ['manual', 'manual_override'].includes(source))
+  const ruleSuggestion = suggestDiscoCatalogMapping(product)
+  const suggestion = manual
+    ? ruleSuggestion
+    : resolveCatalogMappingFromExamples(product, ruleSuggestion, taxonomyExamples)
   const manualConfidence = product.classificationConfidence
     ?? product.classification_confidence
   return {
@@ -425,7 +419,7 @@ function isLikelyProductImage(image, productName) {
 async function isPlaceholderRemoteImage(image) {
   if (!image || !/^https?:\/\//i.test(image)) return false
   try {
-    const response = await fetch(image, { method: 'HEAD' })
+    const response = await fetch(image, { method: 'HEAD', signal: AbortSignal.timeout(8000) })
     return response.ok && response.headers.get('content-length') === '6948'
   } catch {
     return false
@@ -438,13 +432,8 @@ function getOffer(item) {
     || sellers.find((candidate) => numeric(candidate.commertialOffer?.Price) > 0)
   const offer = seller?.commertialOffer || {}
   const rawPrice = offer.Price || offer.PriceWithoutDiscount || offer.FullSellingPrice
-  const tokenPrice = getTokenPrice(offer.PriceToken)
-  const normalizedPrice = normalizeDiscoPrice(rawPrice)
-  const rawNumericPrice = Number(rawPrice)
-  const tokenMatchesScaledPrice = tokenPrice && rawNumericPrice > 0 && Math.abs(tokenPrice - rawNumericPrice * 100) < 0.01
-  const price = tokenMatchesScaledPrice && rawNumericPrice < 100 ? tokenPrice : normalizedPrice
   return {
-    price,
+    price: normalizeDiscoPrice(rawPrice),
     listPrice: normalizeDiscoPrice(offer.ListPrice || offer.PriceWithoutDiscount),
     available: Boolean(offer.IsAvailable),
     quantity: numeric(offer.AvailableQuantity),
@@ -704,8 +693,19 @@ export async function fetchDiscoPreviewReport({ query = '', from = 0, to = 49 } 
     const data = await fetchDiscoPage({ query, from: pageFrom, to: pageTo })
     if (!data.length) break
 
-    for (const product of data.map(normalizeDiscoProduct)) {
-      if (await isPlaceholderRemoteImage(product.image)) product.image = ''
+    const normalizedProducts = data.map(normalizeDiscoProduct)
+    const imageUrls = [...new Set(normalizedProducts.map((product) => product.image).filter(Boolean))]
+    const placeholderImages = new Set()
+    for (let index = 0; index < imageUrls.length; index += DISCO_IMAGE_CHECK_CONCURRENCY) {
+      const batch = imageUrls.slice(index, index + DISCO_IMAGE_CHECK_CONCURRENCY)
+      const results = await Promise.all(batch.map(async (image) => (
+        (await isPlaceholderRemoteImage(image)) ? image : null
+      )))
+      results.filter(Boolean).forEach((image) => placeholderImages.add(image))
+    }
+
+    for (const product of normalizedProducts) {
+      if (placeholderImages.has(product.image)) product.image = ''
       const reason = getDiscoProductInvalidReason(product)
       if (reason) discarded.push({ sourceProductId: product.sourceProductId, name: product.name, reason })
       else products.push(product)

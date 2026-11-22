@@ -72,6 +72,33 @@ test('enqueue persists only unique IDs through the database RPC', async () => {
   }])
 })
 
+test('notifies after a refreshed status is committed', async () => {
+  const savedIds = []
+  const queue = createDurablePriceStatusRefreshQueue({
+    database: {
+      async rpc(name) {
+        if (name === 'claim_product_price_status_refresh') {
+          return {
+            data: [{ product_id: 10, generation: 1, lease_token: 'lease-10' }],
+            error: null,
+          }
+        }
+        if (name === 'save_and_complete_product_price_status_refresh') {
+          return { data: 'completed', error: null }
+        }
+        throw new Error(`Unexpected RPC ${name}`)
+      },
+    },
+    refreshBatch: async (ids) => ids.map(statusRow),
+    onStatusSaved: (productId) => savedIds.push(productId),
+    logger: createLogger(),
+  })
+
+  assert.deepEqual(await queue.processNextBatch(), { claimed: 1, completed: 1, failed: 0 })
+  assert.deepEqual(savedIds, ['10'])
+  queue.stop()
+})
+
 test('surfaces enqueue RPC errors instead of falling back to memory', async () => {
   const failure = new Error('RPC unavailable')
   const queue = createQueue({

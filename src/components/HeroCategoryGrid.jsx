@@ -16,6 +16,7 @@ export function HeroCategoryGrid({
   isLoadingCategories = false,
   selectedCategory,
   onSelectCategory,
+  onPrefetchAllProducts,
   searchQuery,
   setSearchQuery,
   onSearchSubmit,
@@ -179,6 +180,8 @@ export function HeroCategoryGrid({
           <button
             type="button"
             onClick={() => onSelectCategory('todos')}
+            onPointerEnter={onPrefetchAllProducts}
+            onFocus={onPrefetchAllProducts}
             className={`group relative order-first min-w-[180px] sm:min-w-[190px] flex-1 snap-start text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-36 ${
               selectedCategory === 'todos'
                 ? 'bg-sky-700 text-white border-sky-700'

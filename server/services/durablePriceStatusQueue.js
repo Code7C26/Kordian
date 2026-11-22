@@ -17,6 +17,7 @@ function createDurablePriceStatusRefreshQueue({
   batchSize = DEFAULT_BATCH_SIZE,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   leaseSeconds = DEFAULT_LEASE_SECONDS,
+  onStatusSaved = () => {},
   logger = console,
 }) {
   if (!database || typeof database.rpc !== 'function') {
@@ -33,6 +34,9 @@ function createDurablePriceStatusRefreshQueue({
   }
   if (!Number.isInteger(leaseSeconds) || leaseSeconds < 30 || leaseSeconds > 3600) {
     throw new TypeError('leaseSeconds must be an integer between 30 and 3600')
+  }
+  if (typeof onStatusSaved !== 'function') {
+    throw new TypeError('onStatusSaved must be a function')
   }
 
   let started = false
@@ -145,7 +149,10 @@ function createDurablePriceStatusRefreshQueue({
               p_lease_token: claim.lease_token,
               p_status: status,
             })
-            if (state === 'completed') result.completed += 1
+            if (state === 'completed') {
+              result.completed += 1
+              onStatusSaved(productId)
+            }
             else {
               result.failed += 1
               logger.warn('Price status refresh result was rejected by the database fence', {

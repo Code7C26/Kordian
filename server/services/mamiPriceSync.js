@@ -44,7 +44,7 @@ async function syncMamiLowPrices({
   assertCatalogWriteAllowed('Mami')
   const { data: offers, error } = await database
     .from('offers')
-    .select('id, product_id, cash_price, supermarket, products!inner(id, name, source, source_product_id, source_url)')
+    .select('id, product_id, cash_price, list_price, supermarket, products!inner(id, name, source, source_product_id, source_url)')
     .eq('supermarket', 'Mami')
     .eq('products.source', 'mami')
     .lt('cash_price', 100)
@@ -70,8 +70,33 @@ async function syncMamiLowPrices({
     }
 
     const previousPrice = Number(offer.cash_price)
-    if (Number(previousPrice.toFixed(2)) === Number(price.toFixed(2))) {
-      return { status: 'unchanged', productId: product.id, name: product.name }
+    const priceChanged = Number(previousPrice.toFixed(2)) !== Number(price.toFixed(2))
+    const sourceListPrice = Number(current.listPrice)
+    const updatedListPrice = Number.isFinite(sourceListPrice) && sourceListPrice > price
+      ? Number(sourceListPrice.toFixed(2))
+      : null
+    const previousListPrice = offer.list_price == null
+      ? null
+      : Number(Number(offer.list_price).toFixed(2))
+    const listPriceChanged = previousListPrice !== updatedListPrice
+    const promotionChange = listPriceChanged
+      ? {
+          offerId: offer.id,
+          productId: product.id,
+          sourceProductId: product.source_product_id,
+          expectedCashPrice: price,
+          previousListPrice,
+          updatedListPrice,
+        }
+      : null
+
+    if (!priceChanged) {
+      return {
+        status: 'unchanged',
+        productId: product.id,
+        name: product.name,
+        promotionChange,
+      }
     }
 
     return {
@@ -82,18 +107,35 @@ async function syncMamiLowPrices({
       name: product.name,
       previousCashPrice: Number(offer.cash_price),
       updatedCashPrice: price,
+      promotionChange,
     }
   })
 
   const updated = results.filter((result) => result.status === 'updated')
-  if (updated.length) {
+  const promotionChanges = results
+    .map((result) => result.promotionChange)
+    .filter(Boolean)
+  if (updated.length || promotionChanges.length) {
     assertCatalogWriteAllowed('Mami')
     const operationId = randomUUID()
     const firstChange = updated[0]
-    const percentage = firstChange.previousCashPrice > 0
+    const percentage = firstChange?.previousCashPrice > 0
       ? ((firstChange.updatedCashPrice - firstChange.previousCashPrice) / firstChange.previousCashPrice) * 100
       : 0
-    const { error } = await database.rpc('apply_catalog_price_sync', {
+    const log = updated.length
+      ? {
+          admin_username: adminUsername,
+          filters: {
+            source: 'mami_price_repair',
+            operationId,
+            promotionChanges,
+          },
+          percentage,
+          products_updated: updated.length,
+          changes: updated,
+        }
+      : null
+    const { error } = await database.rpc('apply_catalog_price_promotion_sync', {
       p_supermarket: 'Mami',
       p_source: 'mami_price_repair',
       p_updates: updated.map((change) => ({
@@ -103,14 +145,9 @@ async function syncMamiLowPrices({
         previousCashPrice: change.previousCashPrice,
         updatedCashPrice: change.updatedCashPrice,
       })),
+      p_promotion_updates: promotionChanges,
       p_removals: [],
-      p_log: {
-        admin_username: adminUsername,
-        filters: { source: 'mami_price_repair', operationId },
-        percentage,
-        products_updated: updated.length,
-        changes: updated,
-      },
+      p_log: log,
     })
     if (error) throw wrapPriceSyncRpcError(error, operationId)
   }
@@ -118,6 +155,11 @@ async function syncMamiLowPrices({
   return {
     checked: candidates.length,
     updated,
+    promotionsUpdated: promotionChanges.map(({ offerId, previousListPrice, updatedListPrice }) => ({
+      offerId,
+      previousListPrice,
+      updatedListPrice,
+    })),
     unchanged: results.filter((result) => result.status === 'unchanged'),
     skipped: results.filter((result) => !['updated', 'unchanged'].includes(result.status)),
   }

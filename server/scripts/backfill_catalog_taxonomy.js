@@ -1,5 +1,8 @@
 const database = require('../supabaseAdmin')
-const { suggestCatalogMapping } = require('../services/catalogTaxonomy')
+const {
+  buildCatalogTaxonomyExamples,
+  suggestCatalogMappingWithExamples,
+} = require('../services/catalogTaxonomy')
 const { resolveCatalogClassification } = require('../services/categoryIntegrity')
 const {
   isCatalogProductWriteBlocked,
@@ -14,7 +17,7 @@ async function main() {
   ] = await Promise.all([
     database.from('categories').select('id,name'),
     database.from('subcategories').select('id,name,category_id'),
-    database.from('catalog_taxonomy_review_decisions').select('product_id'),
+    database.from('catalog_taxonomy_review_decisions').select('product_id,status'),
   ])
 
   if (categoriesError) throw categoriesError
@@ -26,13 +29,14 @@ async function main() {
   for (let from = 0; ; from += pageSize) {
     const { data: page, error: productsError } = await database
       .from('products')
-      .select('id,name,source,source_product_id,source_category,source_subcategory,category_id,subcategory_id,classification_source,brands(name),offers(supermarket)')
+      .select('id,name,source,source_product_id,ean,source_category,source_subcategory,category_id,subcategory_id,classification_source,classification_confidence,brands(name),categories(name),subcategories(name,category_id),offers(supermarket)')
       .range(from, from + pageSize - 1)
     if (productsError) throw productsError
     products.push(...(page || []))
     if (!page || page.length < pageSize) break
   }
 
+  const taxonomyExamples = buildCatalogTaxonomyExamples(products, reviewDecisions || [])
   const reviewedProductIds = new Set((reviewDecisions || []).map((decision) => String(decision.product_id)))
   let updated = 0
   let skipped = 0
@@ -47,7 +51,10 @@ async function main() {
       continue
     }
 
-    const mapping = suggestCatalogMapping({ ...product, brand: product.brands?.name })
+    const mapping = suggestCatalogMappingWithExamples(
+      { ...product, brand: product.brands?.name },
+      taxonomyExamples,
+    )
     if (mapping.status !== 'determined') {
       skipped++
       continue

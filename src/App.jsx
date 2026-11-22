@@ -16,9 +16,11 @@ import { hasActiveCatalogFilters, resetCatalogFilters } from './utils/catalogFil
 import { isValidCatalogProduct } from './utils/validCatalogProducts.js';
 import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from './services/catalogResponseCache.js';
 import { readStoredCategories, storeCategories } from './services/categoryStorageCache.js'
-import { fetchProductAnalysis } from './services/analysisApi.js';
+import { fetchProductAnalyses, fetchProductAnalysis } from './services/analysisApi.js';
 import { resolveSelectedAnalysisProduct } from './utils/priceExplanationPresentation.js';
 import { filterProductOffers, getProductPrice } from './utils/productOffers.js';
+import { applyDiscoPromotionToProduct } from './utils/discoPromotionDisplay.js';
+import { fetchDiscoPromotions } from './services/discoPromotionApi.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
 import brandLogo from '../assets/Ar-Price/Logo_final.svg';
 import brandLogoDark from '../assets/Ar-Price/Logo_final_Negativo.svg';
@@ -31,6 +33,18 @@ const PriceExplanationModal = lazy(() => import('./components/PriceExplanationMo
 
 const SEARCH_DEBOUNCE_MS = 180;
 const CATEGORIES_URL = apiUrl('/categories')
+
+function attachProductAnalysis(product, analysis) {
+  return {
+    ...product,
+    analysis,
+    priceStatusPending: false,
+    status: analysis.classification === 'PRECIO_NORMAL'
+      ? 'EN_PRECIO'
+      : analysis.classification || product.status,
+    priceHistory: analysis.priceHistory || product.priceHistory,
+  }
+}
 
 function getBasketItemDetails(product, selectedOffer = null) {
   const offer = selectedOffer
@@ -181,8 +195,11 @@ export default function App() {
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
   const catalogReferenceCache = useRef(null)
   const catalogTotalRequest = useRef(null)
+  const discoPromotionRequestId = useRef(0)
   const lastCatalogRefreshKey = useRef(catalogRefreshKey)
   const analysisCache = useRef(new Map())
+  const analysisRequests = useRef(new Map())
+  const pendingStatusRefreshAttempts = useRef(0)
   const [productsPage, setProductsPage] = useState(1)
   const productsPageSize = 20
   const initialSearchParams = new URLSearchParams(location.search)
@@ -248,6 +265,12 @@ export default function App() {
       void request.catch(() => {})
     }
     return catalogTotalRequest.current
+  }
+
+  const prefetchCatalogTotal = () => {
+    if (!catalogTotalLoaded) {
+      void loadCatalogTotal().catch(() => {})
+    }
   }
 
   useEffect(() => {
@@ -419,7 +442,6 @@ export default function App() {
                 signal: controller.signal,
                 ttlMs: 300_000,
               })
-          void loadCatalogTotal().catch(() => {})
 
           const categoriesData = await categoriesPromise
           if (!mounted) return
@@ -457,11 +479,62 @@ export default function App() {
             catalogReferenceCache.current = references
             return references
           })
+        const productsResponsePromise = fetchCachedCatalogResponse(apiUrl(`/products?${query.toString()}`), {
+          signal: controller.signal,
+          bypassCache: bypassProductCache,
+        })
+        const productAnalysisPromise = productsResponsePromise
+          .then((payload) => {
+            const pageData = Array.isArray(payload) ? payload : payload?.data || []
+            const productIds = [...new Set(pageData
+              .filter((product) => isValidCatalogProduct(product) && !product.priceStatusPending)
+              .map((product) => String(product.id))
+              .filter((id) => /^[1-9]\d{0,18}$/.test(id)))]
+            if (!productIds.length) return null
+
+            const analysisController = new AbortController()
+            const abortAnalysis = () => analysisController.abort(controller.signal.reason)
+            controller.signal.addEventListener('abort', abortAnalysis, { once: true })
+            const analysisTimeout = setTimeout(() => {
+              analysisController.abort(new DOMException('Price analysis preload timed out', 'TimeoutError'))
+            }, 10000)
+            const analysisQuery = new URLSearchParams({ productIds: productIds.join(',') })
+            const batchRequest = fetchProductAnalyses(
+              apiUrl(`/analysis/products?${analysisQuery}`),
+              { signal: analysisController.signal },
+            )
+              .then((analyses) => {
+                analyses.forEach((analysis) => {
+                  const productId = String(analysis.product.id)
+                  if (productIds.includes(productId)) analysisCache.current.set(productId, analysis)
+                })
+                return analyses
+              })
+              .finally(() => {
+                clearTimeout(analysisTimeout)
+                controller.signal.removeEventListener('abort', abortAnalysis)
+              })
+
+            for (const productId of productIds) {
+              const productRequest = batchRequest.then((analyses) => (
+                analyses.find((analysis) => String(analysis.product.id) === productId) || null
+              ))
+              analysisRequests.current.set(productId, productRequest)
+              const clearProductRequest = () => {
+                if (analysisRequests.current.get(productId) === productRequest) {
+                  analysisRequests.current.delete(productId)
+                }
+              }
+              productRequest.then(clearProductRequest, clearProductRequest)
+              productRequest.catch(() => {})
+            }
+            batchRequest.catch(() => {})
+            return { productIds, batchRequest }
+          })
+          .catch(() => null)
+
         const [productsResponse, references] = await Promise.all([
-          fetchCachedCatalogResponse(apiUrl(`/products?${query.toString()}`), {
-            signal: controller.signal,
-            bypassCache: bypassProductCache,
-          }),
+          productsResponsePromise,
           referencesPromise,
         ])
 
@@ -495,6 +568,9 @@ export default function App() {
           const avgMarketPrice = offers.length
             ? offers.reduce((sum, offer) => sum + offer.price, 0) / offers.length
             : Number(product.avgMarketPrice || 0)
+          const discoPromotionEan = String(product.ean || '').replace(/\D/g, '')
+          const hasDiscoOffer = offers.some((offer) => offer.supermarket.trim().toLowerCase() === 'disco')
+          const shouldCheckDiscoPromotion = hasDiscoOffer && /^\d{8,14}$/.test(discoPromotionEan)
           return {
             ...product,
             brand: product.brand || product.brands?.name || '',
@@ -513,11 +589,14 @@ export default function App() {
             percentageDiff: avgMarketPrice
               ? ((avgMarketPrice - currentPrice) / avgMarketPrice) * 100
               : Number(product.percentageDiff || 0),
-            status: product.status || 'EN_PRECIO',
+            status: product.status || 'INFORMACION_INSUFICIENTE',
             analysis: product.analysis || null,
             priceHistory: product.priceHistory || [],
             otherStores: offers.filter((offer) => offer !== primary),
             unit: product.unit || '',
+            discoPromotionEan: shouldCheckDiscoPromotion ? discoPromotionEan : '',
+            discoPromotionStatus: shouldCheckDiscoPromotion ? 'loading' : 'idle',
+            discoPromotion: null,
           }
         })
 
@@ -526,6 +605,27 @@ export default function App() {
         setCatalogTotal(total)
         setCatalogTotalLoaded(true)
         setCatalogLoadError(null)
+        void productAnalysisPromise
+          .then((batch) => {
+            if (!mounted || !batch) return
+            return batch.batchRequest.then((analyses) => {
+              if (!mounted) return
+              const requestedIds = new Set(batch.productIds)
+              const analysesById = new Map(analyses
+                .filter((analysis) => requestedIds.has(String(analysis.product.id)))
+                .map((analysis) => [String(analysis.product.id), analysis]))
+              setProducts((current) => current.map((product) => {
+                const analysis = analysesById.get(String(product.id))
+                return analysis && !product.priceStatusPending
+                  ? attachProductAnalysis(product, analysis)
+                  : product
+              }))
+            })
+          })
+          .catch((error) => {
+            if (!mounted || error.name === 'AbortError') return
+            console.error('No se pudieron precargar los análisis de la página:', error)
+          })
 
         const stores = new Map()
         ;(supermarkets || []).forEach((supermarket) => {
@@ -536,11 +636,51 @@ export default function App() {
           if (name && !stores.has(name)) stores.set(name, { id: name, name, image: supermarketImages.get(name) || '' })
         }))
         setStoresList([...stores.values()])
+
+        const discoPromotionEans = [...new Set(
+          enriched.map((product) => product.discoPromotionEan).filter(Boolean),
+        )]
+        const promotionRequestId = ++discoPromotionRequestId.current
+        if (discoPromotionEans.length) {
+          const applyPromotionResults = (results) => {
+            if (promotionRequestId !== discoPromotionRequestId.current) return
+            const resultsByEan = new Map(
+              results.map((result) => [String(result.ean || ''), result]),
+            )
+            const requestedEans = new Set(discoPromotionEans)
+            setProducts((current) => current.map((product) => {
+              const ean = product.discoPromotionEan
+              if (!ean || !requestedEans.has(ean)) return product
+              const result = resultsByEan.get(ean)
+              if (!result || result.status !== 'ready') {
+                return { ...product, discoPromotionStatus: 'error', discoPromotion: null }
+              }
+
+              const updated = {
+                ...product,
+                discoPromotionStatus: 'ready',
+                discoPromotion: result.promotion || null,
+              }
+              return result.promotion
+                ? applyDiscoPromotionToProduct(updated, result.promotion)
+                : updated
+            }))
+          }
+
+          fetchDiscoPromotions(discoPromotionEans, apiUrl('/products/disco-promotions-preview'))
+            .then(applyPromotionResults)
+            .catch((error) => {
+              if (promotionRequestId !== discoPromotionRequestId.current) return
+              console.error('No se pudieron cargar las promociones de Disco para el catálogo:', error)
+              applyPromotionResults([])
+            })
+        }
       } catch (error) {
         if (!mounted) return
         const timedOut = error.name === 'TimeoutError'
           || controller.signal.reason?.name === 'TimeoutError'
         if (error.name === 'AbortError' && !timedOut) return
+        controller.abort()
         console.error('Error loading data', error)
         setCatalogLoadError(timedOut ? 'timeout' : 'request')
         setProducts([])
@@ -564,8 +704,28 @@ export default function App() {
     analysisCache.current.clear()
   }, [catalogRefreshKey])
 
+  useEffect(() => {
+    if (!products.some((product) => product.priceStatusPending)) {
+      pendingStatusRefreshAttempts.current = 0
+      return undefined
+    }
+    if (pendingStatusRefreshAttempts.current >= 3) return undefined
+
+    const refreshTimer = setTimeout(() => {
+      pendingStatusRefreshAttempts.current += 1
+      setCatalogRefreshKey((key) => key + 1)
+    }, 5000)
+    return () => clearTimeout(refreshTimer)
+  }, [products])
+
   const activeAnalysisProductId = selectedProductForExplanation?.id ?? selectedProductForComparison?.id
-  const isExplanationAnalysisActive = Boolean(selectedProductForExplanation)
+  const activeAnalysisProduct = products.find(
+    (product) => String(product.id) === String(activeAnalysisProductId),
+  )
+  const activeAnalysisPending = activeAnalysisProduct
+    ? Boolean(activeAnalysisProduct.priceStatusPending)
+    : Boolean(selectedProductForExplanation?.priceStatusPending || selectedProductForComparison?.priceStatusPending)
+  const isPriceAnalysisActive = Boolean(selectedProductForExplanation || selectedProductForComparison)
 
   useEffect(() => {
     if (activeAnalysisProductId === undefined || activeAnalysisProductId === null) {
@@ -573,57 +733,67 @@ export default function App() {
       return
     }
 
+    if (activeAnalysisPending) {
+      setAnalysisLoadState('stale')
+      return
+    }
+
     const productId = String(activeAnalysisProductId)
     if (analysisCache.current.has(productId)) {
-      if (isExplanationAnalysisActive) setAnalysisLoadState('loaded')
+      if (isPriceAnalysisActive) setAnalysisLoadState('loaded')
       return
     }
 
     const controller = new AbortController()
     let active = true
-    if (isExplanationAnalysisActive) setAnalysisLoadState('loading')
+    if (isPriceAnalysisActive) setAnalysisLoadState('loading')
 
-    fetchProductAnalysis(
+    const sharedRequest = analysisRequests.current.get(productId)
+    const request = sharedRequest || fetchProductAnalysis(
       apiUrl(`/analysis/products/${encodeURIComponent(productId)}`),
       { signal: controller.signal },
     )
+    if (!sharedRequest) {
+      analysisRequests.current.set(productId, request)
+      const clearProductRequest = () => {
+        if (analysisRequests.current.get(productId) === request) {
+          analysisRequests.current.delete(productId)
+        }
+      }
+      request.then(clearProductRequest, clearProductRequest)
+      request.catch(() => {})
+    }
+
+    request
       .then((analysis) => {
         if (!active) return
-        analysisCache.current.set(productId, analysis)
         if (analysis) {
-          const hydrateProduct = (product) => ({
-            ...product,
-            analysis,
-            status: analysis.classification === 'PRECIO_NORMAL'
-              ? 'EN_PRECIO'
-              : analysis.classification || product.status,
-            priceHistory: analysis.priceHistory || product.priceHistory,
-          })
+          analysisCache.current.set(productId, analysis)
           setProducts((current) => current.map((product) => (
             String(product.id) !== productId
               ? product
-              : hydrateProduct(product)
+              : attachProductAnalysis(product, analysis)
           )))
           setSelectedProductForExplanation((current) => (
-            String(current?.id) === productId ? hydrateProduct(current) : current
+            String(current?.id) === productId ? attachProductAnalysis(current, analysis) : current
           ))
           setSelectedProductForComparison((current) => (
-            String(current?.id) === productId ? hydrateProduct(current) : current
+            String(current?.id) === productId ? attachProductAnalysis(current, analysis) : current
           ))
         }
-        if (isExplanationAnalysisActive) setAnalysisLoadState('loaded')
+        if (isPriceAnalysisActive) setAnalysisLoadState('loaded')
       })
       .catch((error) => {
         if (!active || error.name === 'AbortError') return
         console.error('Error loading product price analysis', error)
-        if (isExplanationAnalysisActive) setAnalysisLoadState('error')
+        if (isPriceAnalysisActive) setAnalysisLoadState('error')
       })
 
     return () => {
       active = false
-      controller.abort()
+      if (!sharedRequest) controller.abort()
     }
-  }, [activeAnalysisProductId, isExplanationAnalysisActive, catalogRefreshKey])
+  }, [activeAnalysisProductId, activeAnalysisPending, isPriceAnalysisActive, catalogRefreshKey])
 
   const toggleFavorite = (product) => {
     if (!customerUser) {
@@ -858,6 +1028,7 @@ export default function App() {
             isLoadingCategories={isLoadingProducts && categories.length === 0}
             selectedCategory={filters.category}
             onSelectCategory={handleSelectCategory}
+            onPrefetchAllProducts={prefetchCatalogTotal}
             searchQuery={filters.searchQuery}
             setSearchQuery={(value) => updateFilters((prev) => ({ ...prev, searchQuery: value }))}
             onSearchSubmit={navigateToSearch}
@@ -1210,6 +1381,7 @@ export default function App() {
         <Suspense fallback={null}>
           <ComparisonModal
             product={comparisonProduct}
+            analysisLoadState={analysisLoadState}
             onClose={() => setSelectedProductForComparison(null)}
             onAddToBasket={addToBasket}
             onRemoveFromBasket={removeBasketUnit}

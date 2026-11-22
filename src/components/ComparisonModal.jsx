@@ -6,8 +6,10 @@ import { apiUrl } from '../config/api.js';
 import { ProductImage } from './ProductImage';
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
 import { SupermarketLogo } from './SupermarketLogo.jsx'
+import { filterDisplayPriceHistory } from '../utils/priceHistoryDisplay.js';
+import { applyDiscoPromotionToOffers } from '../utils/discoPromotionDisplay.js';
 
-export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromBasket, getBasketQuantity, onExplain, onReportPriceInflated }) {
+export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, onAddToBasket, onRemoveFromBasket, getBasketQuantity, onExplain, onReportPriceInflated }) {
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const [discoPromotionCheck, setDiscoPromotionCheck] = useState({ key: '', status: 'idle', promotion: null });
   const { language, t } = useLanguage();
@@ -37,6 +39,15 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
       return undefined;
     }
 
+    if (product?.discoPromotionStatus === 'ready') {
+      setDiscoPromotionCheck({
+        key: promotionKey,
+        status: 'ready',
+        promotion: product.discoPromotion || null,
+      });
+      return undefined;
+    }
+
     const controller = new AbortController();
     setDiscoPromotionCheck({ key: promotionKey, status: 'loading', promotion: null });
 
@@ -61,20 +72,31 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
       });
 
     return () => controller.abort();
-  }, [promotionKey, discoSourceUrl, discoEan]);
+  }, [
+    promotionKey,
+    discoSourceUrl,
+    discoEan,
+    product?.discoPromotionStatus,
+    product?.discoPromotion,
+  ]);
 
   if (!product) return null;
   const displayName = translateProductName(product.name);
-  const cheapestStore = sortedStores[0] || { price: 0, supermarket: '' };
   const activePromotionCheck = discoPromotionCheck.key === promotionKey
     ? discoPromotionCheck
     : { key: promotionKey, status: promotionKey ? 'loading' : 'idle', promotion: null };
+  const displayStores = activePromotionCheck.status === 'ready' && activePromotionCheck.promotion
+    ? applyDiscoPromotionToOffers(sortedStores, activePromotionCheck.promotion)
+    : sortedStores;
+  const cheapestStore = displayStores[0] || { price: 0, supermarket: '' };
   const promotionConditionsUnknown = Boolean(
     promotionKey
     && (activePromotionCheck.status !== 'ready' || activePromotionCheck.promotion?.conditionsVerified === false),
   );
   const promotionWarning = activePromotionCheck.promotion && !activePromotionCheck.promotion.conditionsVerified;
-  const history = Array.isArray(product.priceHistory) ? product.priceHistory : [];
+  const rawHistory = Array.isArray(product.priceHistory) ? product.priceHistory : [];
+  const history = filterDisplayPriceHistory(rawHistory, sortedStores);
+  const hasFilteredHistory = history.length !== rawHistory.length;
   const serverPeriods = Array.isArray(product.analysis?.pricePeriods) ? product.analysis.pricePeriods : [];
   const historyByDate = history
     .map((point, index) => ({ ...point, timestamp: new Date(point.date).getTime(), originalIndex: index }))
@@ -122,7 +144,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
         ? ((period.avgPrice - periods[index - 1].avgPrice) / periods[index - 1].avgPrice) * 100
         : null,
     }));
-  const displayPeriods = serverPeriods.length === 4 ? serverPeriods.map((period) => ({
+  const displayPeriods = !hasFilteredHistory && serverPeriods.length === 4 ? serverPeriods.map((period) => ({
     ...period,
     avgPrice: period.averagePrice || 0,
     minPrice: period.minimumPrice || 0,
@@ -131,8 +153,20 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
   const hasHistoryReferences = visiblePeriods.length > 0;
   const evolutionAvailable = visiblePeriods.length >= 2;
   const maxHistPrice = hasHistoryReferences ? Math.max(...visiblePeriods.map((point) => point.avgPrice || 0)) : 1;
-  const isInflated = product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO';
-  const statusLabel = t(product.status === 'OFERTA' ? 'En oferta' : isInflated ? 'Inflado' : 'En precio');
+  const isPriceStatusUnconfirmed = product.priceStatusPending
+    || !product.analysis
+    || ['loading', 'stale', 'error'].includes(analysisLoadState)
+  const isOffer = !isPriceStatusUnconfirmed && product.status === 'OFERTA';
+  const isInflated = !isPriceStatusUnconfirmed && (product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO');
+  const statusLabel = isPriceStatusUnconfirmed
+    ? t(['error', 'loaded'].includes(analysisLoadState) ? 'Estado no disponible' : 'Analizando...')
+    : t(isOffer
+      ? 'En oferta'
+      : isInflated
+        ? 'Inflado'
+        : product.status === 'INFORMACION_INSUFICIENTE' || !product.status
+          ? 'Información insuficiente'
+          : 'En precio');
   const selectedPeriodRecords = selectedPeriod
     ? datedHistory
       .map((record) => ({ ...record, price: Number(record.avgPrice || record.minPrice || 0) }))
@@ -207,10 +241,14 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
               </p>
             )}
             <div className="space-y-2.5">
-              {sortedStores.map((store, index) => {
-                const hasComparison = sortedStores.length > 1 && !promotionConditionsUnknown;
+              {displayStores.map((store, index) => {
+                const hasComparison = displayStores.length > 1 && !promotionConditionsUnknown;
                 const isCheapest = hasComparison && index === 0;
-                const isMostExpensive = hasComparison && index === sortedStores.length - 1;
+                const isMostExpensive = hasComparison && index === displayStores.length - 1;
+                const isDiscoStore = String(store.supermarket || store.storeName || '').trim().toLowerCase() === 'disco';
+                const discoPriceUnavailable = isDiscoStore
+                  && promotionKey
+                  && ['loading', 'error'].includes(activePromotionCheck.status);
                 const diffFromCheapest = hasComparison ? (store.price || 0) - (cheapestStore.price || 0) : 0;
                 const basketQuantity = getBasketQuantity?.(product, store) || 0;
                 return (
@@ -241,21 +279,27 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
                       {hasComparison && !isCheapest && <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold">+{formatCurrency(diffFromCheapest)}</span>}
                       <div className="flex items-center gap-3">
                         <div className="text-right">
-                          {Number(store.listPrice) > Number(store.price) && (
-                            <p className="text-xs text-stone-500 line-through">
-                              {formatCurrency(store.listPrice)}
-                            </p>
-                          )}
-                          <span className={`text-xl font-black ${isCheapest ? 'text-emerald-700 dark:text-emerald-400' : isMostExpensive ? 'text-rose-600 dark:text-rose-400' : 'text-stone-900 dark:text-white'}`}>
-                            {formatCurrency(store.price || 0)}
-                          </span>
+                          {discoPriceUnavailable
+                            ? <span role="status" className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                              {t(activePromotionCheck.status === 'loading' ? 'Verificando precio de Disco...' : 'Precio no verificado')}
+                            </span>
+                            : <>
+                              {Number(store.listPrice) > Number(store.price) && (
+                                <p className="text-xs text-stone-500 line-through">
+                                  {formatCurrency(store.listPrice)}
+                                </p>
+                              )}
+                              <span className={`text-xl font-black ${isCheapest ? 'text-emerald-700 dark:text-emerald-400' : isMostExpensive ? 'text-rose-600 dark:text-rose-400' : 'text-stone-900 dark:text-white'}`}>
+                                {formatCurrency(store.price || 0)}
+                              </span>
+                            </>}
                         </div>
                         <div className="ml-2 flex items-center gap-1">
                           {onRemoveFromBasket && (
                             <button
                               type="button"
                               onClick={() => onRemoveFromBasket(product, store)}
-                              disabled={!basketQuantity}
+                              disabled={!basketQuantity || discoPriceUnavailable}
                               className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sky-600 text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
                               title={t('Quitar una unidad de la canasta')}
                               aria-label={`${t('Quitar una unidad de la canasta')}: ${displayName}`}
@@ -266,7 +310,8 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
                           {onAddToBasket && <button
                             type="button"
                             onClick={() => onAddToBasket(product, store)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sky-600 text-sm font-bold text-white hover:bg-sky-500"
+                            disabled={discoPriceUnavailable}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sky-600 text-sm font-bold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
                             title={t('Agregar esta oferta a la canasta')}
                             aria-label={`${t('Agregar esta oferta a la canasta')}: ${displayName}`}
                           >
@@ -308,7 +353,7 @@ export function ComparisonModal({ product, onClose, onAddToBasket, onRemoveFromB
               <div className="flex flex-col items-end gap-1">
                 <span className="text-xs font-semibold px-2.5 py-1 bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 rounded-lg">{t('Ref. Promedio:')} {formatCurrency(product.avgMarketPrice || 0)}</span>
                 <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-extrabold ${
-                  product.status === 'OFERTA'
+                  isOffer
                     ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800'
                     : isInflated
                       ? 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800'

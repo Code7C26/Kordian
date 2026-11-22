@@ -3,7 +3,9 @@ const { test } = require('node:test')
 const {
   normalizeProduct,
   extractVisibleMamiPrice,
+  extractVisibleMamiListPrice,
   extractMamiDetailProductsFromHtml,
+  fetchMamiProductById,
   fetchPreview: fetchMamiPreview,
 } = require('./mamiImporter')
 
@@ -14,7 +16,10 @@ test('reads the visible Mami retail price rather than the lower schema price', (
     </script>
     <title>LIMON X KG. | Super MaMi</title>
     <script>productId = "prod3390086"</script>
+    <!-- INICIO PRECIO LISTA Y DE REFERENCIA -->
     <div class="precio-unidad"><span>$3,490.00</span> x kg.</div>
+    <p>antes <span>$4,200.00</span> x kg.</p>
+    <!-- FIN PRECIO LISTA Y DE REFERENCIA -->
   `
   const parsed = extractMamiDetailProductsFromHtml(
     html,
@@ -22,8 +27,10 @@ test('reads the visible Mami retail price rather than the lower schema price', (
   )
 
   assert.equal(extractVisibleMamiPrice(html), 3490)
+  assert.equal(extractVisibleMamiListPrice(html), 4200)
   assert.equal(parsed.length, 1)
   assert.equal(parsed[0].price, 3490)
+  assert.equal(parsed[0].listPrice, 4200)
   assert.equal(parsed[0].sourceProductId, 'prod3390086')
 })
 
@@ -32,10 +39,12 @@ test('converts Mami structured low prices when the visible retail price is unava
     sourceProductId: 'prod123',
     name: 'Yogur Bebible',
     price: 3.49,
+    listPrice: 4.49,
     sourceUrl: 'https://www.supermami.com.ar/super/producto/yogur',
   })
 
   assert.equal(product.price, 3490)
+  assert.equal(product.listPrice, 4490)
 })
 
 test('interprets Schema.org stock availability instead of discarding in-stock products', () => {
@@ -61,6 +70,31 @@ test('interprets Schema.org stock availability instead of discarding in-stock pr
 test('parses both Argentine and decimal Mami price formats', () => {
   assert.equal(extractVisibleMamiPrice('<div class="precio-unidad">$1.234,56 x kg.</div>'), 1234.56)
   assert.equal(extractVisibleMamiPrice('<div class="precio-unidad">$3490.00 x kg.</div>'), 3490)
+})
+
+test('shares an in-flight Mami detail request for the same product URL', async () => {
+  const originalFetch = global.fetch
+  let requestCount = 0
+  global.fetch = async () => {
+    requestCount += 1
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    return new Response('<html>Product detail</html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    })
+  }
+
+  try {
+    const productUrl = 'https://www.supermami.com.ar/super/producto/concurrent-load-test'
+    const results = await Promise.all([
+      fetchMamiProductById('missing-product', productUrl),
+      fetchMamiProductById('missing-product', productUrl),
+    ])
+    assert.deepEqual(results, [null, null])
+    assert.equal(requestCount, 1)
+  } finally {
+    global.fetch = originalFetch
+  }
 })
 
 test('bounds Mami query detail fetches to the requested result page and records timing', async () => {

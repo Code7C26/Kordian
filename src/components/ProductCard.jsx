@@ -20,12 +20,18 @@ export function ProductCard({
   const translateProductName = useProductNameTranslator([product.name]);
   const displayName = translateProductName(product.name);
   const [selectedOfferId, setSelectedOfferId] = useState(null);
-  const isInflated = product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO';
-  const statusLabel = product.status === 'OFERTA'
+  const isPriceStatusPending = Boolean(product.priceStatusPending);
+  const isOffer = !isPriceStatusPending && product.status === 'OFERTA';
+  const isInflated = !isPriceStatusPending && (product.status === 'INFLADO' || product.status === 'AUMENTO_ATIPICO');
+  const statusLabel = isPriceStatusPending
+    ? t('Analizando...')
+    : isOffer
     ? t('En oferta')
     : isInflated
       ? t('Inflado')
-      : t('En precio');
+      : product.status === 'INFORMACION_INSUFICIENTE' || !product.status
+        ? t('Información insuficiente')
+        : t('En precio');
 
   const sortedStores = getProductOffers(product);
 
@@ -38,6 +44,8 @@ export function ProductCard({
   }, [defaultOfferId]);
 
   const selectedOffer = sortedStores.find((store) => store.id === selectedOfferId) || sortedStores[0] || null;
+  const primaryOffer = sortedStores[0] || null;
+  const discoPriceUnavailable = ['loading', 'error'].includes(product.discoPromotionStatus);
   const getOfferToAdd = () => {
     const best = sortedStores.length ? sortedStores[0] : null;
     return best
@@ -51,6 +59,7 @@ export function ProductCard({
   };
 
   const handleAddToBasket = () => {
+    if (['loading', 'error'].includes(product.discoPromotionStatus)) return
     const offerToAdd = getOfferToAdd();
     onAddToBasket(product, offerToAdd);
     setJustAdded(true);
@@ -73,7 +82,7 @@ export function ProductCard({
 
         <div className="absolute top-2.5 left-2.5 z-10">
           <div className={`inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-semibold ${
-            product.status === 'OFERTA'
+            isOffer
               ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-900'
               : isInflated
                 ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-900'
@@ -133,21 +142,32 @@ export function ProductCard({
               Precio atípico sin otra oferta para comparar; verifica con el comercio.
             </p>
           )}
-          {Number(product.primaryStore?.listPrice) > Number(product.currentPrice) && (
-            <p className="text-xs text-stone-500 line-through">
-              {t('Precio regular:')} {formatCurrency(product.primaryStore.listPrice)}
+          {discoPriceUnavailable
+            ? <p role="status" className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+              {t(product.discoPromotionStatus === 'loading' ? 'Verificando precio de Disco...' : 'Precio no verificado')}
             </p>
-          )}
+            : Number(primaryOffer?.listPrice) > Number(primaryOffer?.price) && (
+              <p className="text-xs text-stone-500 line-through">
+                {t('Precio regular:')} {formatCurrency(primaryOffer.listPrice)}
+              </p>
+            )}
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-black text-stone-900 dark:text-white tracking-tight">
-              {formatCurrency(product.currentPrice)}
+              {discoPriceUnavailable ? '—' : formatCurrency(primaryOffer?.price || product.currentPrice)}
             </span>
-            <SupermarketLogo
-              name={product.primaryStore?.name || t('Sin supermercado')}
-              image={product.primaryStore?.image}
+            {!discoPriceUnavailable && <SupermarketLogo
+              name={primaryOffer?.supermarket || product.primaryStore?.name || t('Sin supermercado')}
+              image={primaryOffer?.image || product.primaryStore?.image}
               className="h-8 max-w-[38%]"
-            />
+            />}
           </div>
+          {!discoPriceUnavailable
+            && String(primaryOffer?.supermarket || '').trim().toLowerCase() === 'disco'
+            && product.discoPromotion?.conditionsVerified === false && (
+              <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                {t('Condiciones de Disco sin verificar')}
+              </p>
+            )}
         </div>
 
         <div className="grid grid-cols-2 gap-2 pt-1">
@@ -162,13 +182,14 @@ export function ProductCard({
           <div className="flex min-w-0 gap-1.5">
             <button
               onClick={handleAddToBasket}
+              disabled={discoPriceUnavailable}
               className={`h-11 min-w-0 flex-1 flex items-center justify-center gap-1 px-2 rounded-xl text-xs font-bold transition-[background-color,box-shadow,transform] duration-200 ease-out cursor-pointer whitespace-nowrap active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-800 ${
                 justAdded
                   ? 'bg-white text-sky-700 border border-sky-300 shadow-md dark:bg-stone-100 dark:text-sky-800'
                   : isInBasket
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs hover:shadow-md'
                   : 'bg-sky-600 hover:bg-sky-500 text-white shadow-xs hover:shadow-md'
-              }`}
+              } disabled:cursor-not-allowed disabled:opacity-50`}
             >
               <ShoppingBag className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isInBasket ? 'scale-105' : ''}`} />
               <span>{t(isInBasket ? 'Agregado ✓' : '+ Canasta')}</span>

@@ -5,6 +5,7 @@ const fs = require('fs')
 const path = require('path')
 
 const mamiDetailCache = new Map()
+const mamiHtmlRequests = new Map()
 const mamiCookies = new Map()
 let mamiHomeCache = null
 const MAMI_DETAIL_CACHE_TTL_MS = Number(process.env.MAMI_DETAIL_CACHE_TTL_MS || 5 * 60 * 1000)
@@ -37,6 +38,11 @@ function normalizeMamiProduct(item = {}) {
   if (Number.isFinite(price) && price > 0 && price < 100) {
     raw.price = Number((price * 1000).toFixed(2))
   }
+  const listPrice = Number(raw.listPrice)
+  if (Number.isFinite(listPrice) && listPrice > 0 && listPrice < 100) {
+    raw.listPrice = Number((listPrice * 1000).toFixed(2))
+  }
+  if (Number(raw.listPrice) <= Number(raw.price)) raw.listPrice = null
   if (raw.sourceUrl) raw.sourceUrl = normalizeMamiSourceUrl(raw.sourceUrl)
   if (raw.url) raw.sourceUrl = normalizeMamiSourceUrl(raw.url)
   return createCommonProduct(raw, source)
@@ -48,6 +54,18 @@ function extractVisibleMamiPrice(html = '') {
   const rawPrice = priceBlock.replace(/<[^>]*>/g, ' ').match(/\$\s*([0-9][0-9.,]*)/)?.[1]
   if (!rawPrice) return null
   return normalizeNumericValue(rawPrice)
+}
+
+function extractVisibleMamiListPrice(html = '') {
+  const listPriceBlock = String(html).match(
+    /<!--\s*INICIO PRECIO LISTA Y DE REFERENCIA\s*-->([\s\S]*?)<!--\s*FIN PRECIO LISTA Y DE REFERENCIA\s*-->/i,
+  )?.[1]
+  if (!listPriceBlock) return null
+  const rawPrice = listPriceBlock.match(/<p\b[^>]*>\s*antes\b[\s\S]*?\$\s*([0-9][0-9.,]*)/i)?.[1]
+  if (!rawPrice) return null
+  const listPrice = normalizeNumericValue(rawPrice)
+  const currentPrice = extractVisibleMamiPrice(html)
+  return listPrice > currentPrice ? listPrice : null
 }
 
 function getMamiInvalidReason(product = {}) {
@@ -107,35 +125,45 @@ function rememberCookies(response) {
   }
 }
 
-async function fetchMamiHtml(url, attempts = MAMI_MAX_ATTEMPTS) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), MAMI_REQUEST_TIMEOUT_MS)
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; arprice-local/1.0)',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          Referer: 'https://www.dinoonline.com.ar/super/home',
-          ...(cookieHeader() ? { Cookie: cookieHeader() } : {}),
-        },
-        redirect: 'follow',
-        signal: controller.signal,
-      })
-      rememberCookies(response)
-      const html = response.ok ? await response.text() : ''
-      const retryable = isRetryableMamiStatus(response.status) || !html.trim()
-      if (response.ok && html.trim()) return html
-      if (!retryable || attempt + 1 >= attempts) return html
-      await wait(getMamiRetryDelay(attempt, getRetryAfterMs(response.headers.get('retry-after'))))
-    } catch {
-      if (attempt + 1 >= attempts) return ''
-      await wait(getMamiRetryDelay(attempt))
-    } finally {
-      clearTimeout(timeout)
+function fetchMamiHtml(url, attempts = MAMI_MAX_ATTEMPTS) {
+  const key = `${attempts}:${url}`
+  const pendingRequest = mamiHtmlRequests.get(key)
+  if (pendingRequest) return pendingRequest
+
+  const request = (async () => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), MAMI_REQUEST_TIMEOUT_MS)
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; arprice-local/1.0)',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            Referer: 'https://www.dinoonline.com.ar/super/home',
+            ...(cookieHeader() ? { Cookie: cookieHeader() } : {}),
+          },
+          redirect: 'follow',
+          signal: controller.signal,
+        })
+        rememberCookies(response)
+        const html = response.ok ? await response.text() : ''
+        const retryable = isRetryableMamiStatus(response.status) || !html.trim()
+        if (response.ok && html.trim()) return html
+        if (!retryable || attempt + 1 >= attempts) return html
+        await wait(getMamiRetryDelay(attempt, getRetryAfterMs(response.headers.get('retry-after'))))
+      } catch {
+        if (attempt + 1 >= attempts) return ''
+        await wait(getMamiRetryDelay(attempt))
+      } finally {
+        clearTimeout(timeout)
+      }
     }
-  }
-  return ''
+    return ''
+  })()
+  mamiHtmlRequests.set(key, request)
+  return request.finally(() => {
+    if (mamiHtmlRequests.get(key) === request) mamiHtmlRequests.delete(key)
+  })
 }
 
 async function fetchMamiHomeHtml() {
@@ -365,9 +393,11 @@ function extractMamiProductProfile(html = '') {
   if (itemBrand) profile.brand = itemBrand
 
   const visiblePrice = extractVisibleMamiPrice(text)
+  const visibleListPrice = extractVisibleMamiListPrice(text)
   const eventPrice = text.match(/"price":\s*["']?([0-9.,]+)/)?.[1]
   if (visiblePrice > 0) profile.price = visiblePrice
   else if (eventPrice) profile.price = Number(String(eventPrice).replace(/[^0-9.,]/g, '').replace(',', '.'))
+  if (visibleListPrice > 0) profile.listPrice = visibleListPrice
 
   const productId = text.match(/productId\s*:\s*"prod([0-9]+)"|productId\s*=\s*"prod([0-9]+)"|idProductoSelected[^\n]*value="prod([0-9]+)"/i)?.slice(1).find(Boolean)
   if (productId) profile.sourceProductId = `prod${productId}`
@@ -643,6 +673,7 @@ module.exports = {
   extractMamiDetailProductsFromHtml,
   extractMamiProductProfile,
   extractVisibleMamiPrice,
+  extractVisibleMamiListPrice,
   fetchMamiProductById,
   extractMamiCategoryRoutes,
   extractMamiProductRoutes,
