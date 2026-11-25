@@ -5,12 +5,15 @@ const {
   readLegacyComparableProducts,
 } = require('./freshPriceStatusAnalysis')
 
-function createDatabase(state) {
+function createDatabase(state, selections = []) {
   return {
     from(table) {
       const query = {
         filters: [],
-        select() { return this },
+        select(selection) {
+          selections.push({ table, selection })
+          return this
+        },
         in(column, values) {
           this.filters.push((row) => values.map(String).includes(String(row[column])))
           return this
@@ -248,4 +251,31 @@ test('legacy in-memory analysis does not require the durable membership table', 
 
   const [result] = await analyzer.analyzeProductIds([1])
   assert.deepEqual(result.analyzedProductIds, [1, 2])
+})
+
+test('fresh analysis selects subcategories through the category-integrity foreign key', async () => {
+  const selections = []
+  const database = createDatabase({
+    products: [{
+      id: 1,
+      category_id: 'c1',
+      subcategory_id: 's1',
+      offers: [],
+    }],
+    price_history: [],
+  }, selections)
+  const analyzer = createFreshPriceStatusAnalyzer({
+    database,
+    analyzeProduct: async (product) => ({ product, classification: 'OFERTA' }),
+    createAnalysisContext: async () => ({}),
+    loadComparableProducts: readLegacyComparableProducts,
+    loadPriceUpdateLogs: async () => [],
+  })
+
+  await analyzer.analyzeProductIds([1])
+
+  assert.ok(selections.some(({ table, selection }) => (
+    table === 'products'
+      && selection.includes('subcategories!products_subcategory_category_integrity_fkey(name)')
+  )))
 })

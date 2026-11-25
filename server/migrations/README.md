@@ -68,6 +68,80 @@ independiente está en
 No usar `backfill_catalog_taxonomy.js` para reproducir estas decisiones: ese
 script calcula sugerencias automáticas.
 
+## Jabones en pan mal clasificados — 20261125
+
+`20261125_catalog_soap_taxonomy_correction.sql` corrige 11 productos (8 Disco,
+3 Mami): 10 jabones en pan que figuraban como
+`Alimentos Frescos y Refrigerados / Panadería y pastelería`, y un jabón líquido
+Protex en `Almacén y Alimentos / Granos, cereales y legumbres`. Los reasigna,
+respectivamente, a `Limpieza e Higiene / Lavado de ropa` y
+`Limpieza e Higiene / Higiene personal`. Valida ID, nombre, origen, ID de
+producto de origen y clasificación actual antes de escribir, y verifica el
+resultado dentro de la misma transacción. Si el catálogo cambió, la migración
+aborta sin aplicar cambios. Es idempotente y no se ejecuta automáticamente.
+
+## Productos no alimentarios en Alimentos Frescos y Refrigerados — 20261125
+
+`20261125_catalog_fresh_food_nonfood_correction.sql` corrige 83 productos
+identificados al revisar los nombres completos de los 1.832 productos
+devueltos por la lista pública de esa categoría. Incluye artículos de higiene
+personal e infantil, cuidado capilar y bucal, limpieza, jabones en pan y
+utensilios de cocina. No reclasifica productos cuyo nombre no aporta evidencia
+suficiente para distinguir un alimento de un cosmético.
+
+La migración valida los IDs, nombres, origen, ID de producto de origen,
+subcategoría y clasificación actuales; también valida los destinos y el estado
+final. Aborta toda la transacción si el catálogo ya no coincide con la
+instantánea, y permite reejecución si las filas ya tienen el destino y la
+clasificación manual esperados. Una auditoría directa de solo lectura confirmó
+que los 83 productos están actualmente en sus destinos esperados; no volver a
+ejecutar la migración.
+
+Esta migración contiene los 10 jabones en pan de la categoría tratados por la
+migración anterior. La migración anterior incluye además un jabón Protex fuera
+de esta categoría, que esta corrección no modifica. Si se ejecuta esta
+migración, no hace falta volver a ejecutar la migración anterior para esos 10
+jabones. El Protex adicional fue incluido en la corrección de 14 productos
+descrita abajo.
+
+La cifra de 1.832 corresponde al total de la ruta pública `/products`; no es
+comparable directamente con `productCount` de `/taxonomy`, que cuenta solo
+productos con al menos una oferta visible y con precio y supermercado válidos.
+La diferencia entre ambos conteos no demuestra por sí sola un desfase de caché.
+
+## Correcciones de clasificación restantes — 20261125
+
+`20261125_catalog_remaining_taxonomy_correction.sql` corrige 14 productos
+confirmados por su nombre completo: un jabón Protex, dos productos de limpieza
+del hogar, tres utensilios/vajilla, un sazonador, dos golosinas y cinco
+detergentes para ropa. Los reasigna a sus categorías y subcategorías
+correspondientes.
+
+La migración valida los IDs, nombres, orígenes, IDs de producto de origen,
+clasificación actual y destinos; aborta si la instantánea del catálogo cambió,
+y verifica el estado final dentro de una transacción. Permite reejecución si
+los productos ya tienen el destino y la clasificación manual esperados. El ID
+13570 también figura en `20261125_catalog_soap_taxonomy_correction.sql`; ambas
+migraciones aceptan ese producto ya corregido. La auditoría directa confirmó
+que los 14 productos están actualmente en sus destinos esperados; no volver a
+ejecutar esta migración.
+
+## Auditoría complementaria de categorías — 20261125
+
+La auditoría directa de solo lectura revisó 9.098 productos. El clasificador
+marcó 1.631 para revisión (519 sugerencias distintas, 107 conflictos y 1.005
+casos sin evidencia suficiente); esa cifra no equivale a errores confirmados.
+Tras revisar los nombres completos y las categorías de origen, se preparó
+`20261125_catalog_additional_nonfood_correction.sql` para 23 casos claros:
+tratamientos y tintura capilar, vasos y copas, aromatizantes, soda cáustica y
+ablandadores de agua, accesorios de cocina y un juguete.
+
+La migración valida las identidades, categorías y marcadores actuales, aborta
+si la instantánea cambió y verifica los destinos en la misma transacción.
+Permite reejecución si las filas ya están corregidas. **No se ha aplicado**;
+queda preparada para ejecución manual. Se dejaron sin cambios los vasos de
+yogur y los packs de cerveza con vasos porque son productos alimenticios.
+
 ## Estado de preparación dirigido — 20261108 / 20261113
 
 La candidata vigente de

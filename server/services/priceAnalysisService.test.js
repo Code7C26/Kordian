@@ -19,6 +19,23 @@ test('duplicate offers from one supermarket do not count as independent market e
   assert.equal(result.classification, 'INFORMACION_INSUFICIENTE')
 })
 
+test('hidden offers do not contribute to current price analysis', async () => {
+  const product = {
+    id: 2,
+    name: 'Bebida de soja 1 L',
+    source: 'disco',
+    offers: [
+      { id: 1, supermarket: 'Disco', cash_price: 3650, is_catalog_visible: false },
+      { id: 2, supermarket: 'Disco', cash_price: 1500, is_catalog_visible: true },
+    ],
+  }
+
+  const result = await analyzeProduct(product, [product], [], 'Alimentos')
+
+  assert.equal(result.indicators.currentPrice, 1500)
+  assert.equal(result.indicators.market.minimum, 1500)
+})
+
 test('excludes known 100x Disco scale artifacts from current-price analysis history', () => {
   const product = {
     offers: [{ id: 'disco-offer', supermarket: 'Disco', cash_price: 8613 }],
@@ -30,6 +47,16 @@ test('excludes known 100x Disco scale artifacts from current-price analysis hist
   ]
 
   assert.deepEqual(filterKnownPriceScaleArtifacts(history, product), [history[0], history[2]])
+})
+
+test('hidden offers do not hide historical scale artifacts', () => {
+  const product = {
+    source: 'disco',
+    offers: [{ id: 'hidden', supermarket: 'Disco', cash_price: 950, is_catalog_visible: false }],
+  }
+  const history = [{ offer_id: 'hidden', cash_price: 95000 }]
+
+  assert.deepEqual(filterKnownPriceScaleArtifacts(history, product), history)
 })
 
 test('excludes price token normalization records from analysis history', () => {

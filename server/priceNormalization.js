@@ -74,7 +74,7 @@ function isDiscoScaleCorrection(previousPrice, currentPrice) {
   const current = Number(currentPrice)
   if (!Number.isFinite(previous) || !Number.isFinite(current) || previous <= current || current <= 0) return false
   const ratio = previous / current
-  return ratio >= 90 && ratio <= 110
+  return ratio >= 85 && ratio <= 110
 }
 
 module.exports = { parsePrice, normalizeNumericValue, normalizeDiscoStoredPrice, isDiscoScaleCorrection }

@@ -149,6 +149,208 @@ test('distinguishes laundry powder, dishwasher detergent, and unspecified powder
   assert.equal(unspecified.subcategory, null)
 })
 
+test('classifies laundry soap bars ahead of bakery terms and identifies personal soaps', () => {
+  for (const name of [
+    'Jabon Pan Gigante For.econom 120g',
+    'Jabon En Pan Argentino Blancura Extrema 150g',
+    'Jabón En Pan Argentino 200 Gr',
+    'JABON EN PAN SEISEME X 300 GR.',
+    'JABON EN PAN COSQUIN BLANCO X 200GR.',
+    'JABON EN PAN VANISH SUPERBARRA X 75 GR.',
+    'Jabón de Lavar en Pan 150 Grs Gran Federal',
+    'Jabón en Pan 300 Grs x 2 Un Zorro',
+    'Jabón en Pan Coco 400 Grs x 2 Un Ala',
+    'Jabón en Pan Blanco 400 Grs x 2 Un Argentino',
+  ]) {
+    assertMapping(
+      { name },
+      'Limpieza e Higiene',
+      'Lavado de ropa',
+    )
+  }
+
+  for (const name of [
+    'Jabón de Tocador Dove Original 90g',
+    'Jabón de Tocador Aloe 85 Grs Protex',
+    'Jabón Líquido Antibacterial Avena y Prebiótico 221 Ml Protex',
+  ]) {
+    assertMapping(
+      { name },
+      'Limpieza e Higiene',
+      'Higiene personal',
+    )
+  }
+})
+
+test('keeps household and personal-care products out of food categories', () => {
+  const cases = [
+    ['Detergente Cif Frutas Cítricas 500 Ml', 'Limpieza e Higiene', 'Limpieza de cocina'],
+    ['Detergente Magistral Multiuso Manzana 750 Ml', 'Limpieza e Higiene', 'Limpieza de cocina'],
+    ['DETERGENTE HEROE ULTRA MANZANA X 500ML.', 'Limpieza e Higiene', 'Limpieza de cocina'],
+    ['CREMA DENTAL COLGATE TOTAL MENTA ORIGINAL 140 GR', 'Limpieza e Higiene', 'Cuidado bucal'],
+    ['Crema Adhesiva para Prótesis Dentales Sabor Menta 70 Grs Corega', 'Limpieza e Higiene', 'Cuidado bucal'],
+    ['Crema Capilar Elvive', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Crema Peinar Anti Caida X 300 Ml Pantene', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Crema Tratamiento Dream Liso X 300 Gr Elvive', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Crema de Peinar Nutrición Óleo de Coco 300 Ml Plusbelle', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['CREMA SEDAL PARA PEINAR RIZOS DEFINIDOS X300ML', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Tintura Crema Oleos Sin Amoniaco Rubio 7.0 1 Un Nutrisse', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Crema de Manos Anti-Edad Q10 3 en 1 100 Ml Nivea', 'Limpieza e Higiene', 'Higiene personal'],
+    ['CREMA HINDS HIDRATACIÓN EXTREMA 250ML', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Crema de Afeitar Cara y Cuerpo Hidratante 150 Ml Gillette', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Repelente para Mosquitos Crema 196 Grs Off', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Leche Y Tónico Micelar Nivea 200 Ml', 'Limpieza e Higiene', 'Higiene personal'],
+    ['Crema corporal Johnson Baby hidratante recién nacido 200 ml', 'Limpieza e Higiene', 'Higiene infantil'],
+    ['CREMA PARA CUEROS Y ZAPATOS AROLA MARRON X 60 CC.', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['LUSTRAMUEBLES SUIZA CLASICO CREMA X 200 CC.', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Corta Queso Plástico Blanco 1 Un Loekemeyer', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Bowl Jaspeado Crema Cerámica 1300 Cc Plus', 'Hogar y Otros', 'Cocina y bazar'],
+    ['SARTEN PANELUX CLASSIC TEFLON P/HUEVO FRITO 12 CM.', 'Hogar y Otros', 'Cocina y bazar'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    assertMapping({ name }, category, subcategory)
+  }
+})
+
+test('keeps edible cream products classified as food', () => {
+  for (const name of ['Crema de Leche 330 Cc Milkaut', 'Queso Crema Clásico Individual 0.290 Kg Cuisine y Co']) {
+    assertMapping(
+      { name },
+      'Alimentos Frescos y Refrigerados',
+      'Lácteos',
+    )
+  }
+
+  const ambiguousNutSpread = suggestCatalogMapping({ name: 'Crema de Avellanas Sin Tacc 170 Gr Dicomere' })
+  assert.equal(ambiguousNutSpread.category, null)
+  assert.equal(ambiguousNutSpread.subcategory, null)
+})
+
+test('prefers confectionery, tableware, and seasonings over ingredient or use words', () => {
+  for (const name of [
+    'Bon O Bon Leche 150 Grs',
+    'Bombon Aguila Frambuesa Choco C Leche X 12 Arcor',
+    'Chocolate Aireado Leche 80 Grs Suflair',
+    'Alfajor relleno de dulce de leche',
+    'Caramelos Masticables Yogur Arcor',
+  ]) {
+    assertMapping(
+      { name },
+      'Almacén y Alimentos',
+      'Golosinas y snacks',
+    )
+  }
+
+  for (const name of [
+    'Leche Chocolatada Sabor Chocolate 1 Lts La Serenísima',
+    'Yogur Bebible Yopro Chocolate 250 Cm3',
+  ]) {
+    assertMapping(
+      { name },
+      'Alimentos Frescos y Refrigerados',
+      'Lácteos',
+    )
+  }
+
+  for (const name of [
+    'Mug Mate Lila Hydrum',
+    'Bowl Mate Verde Cerámica 14,7 Cm Krea',
+    'Plato De Fondo Línea Verde Mate Cerámica 27 Cm Krea',
+  ]) {
+    assertMapping(
+      { name },
+      'Hogar y Otros',
+      'Cocina y bazar',
+    )
+  }
+
+  for (const name of [
+    'SAZONADOR + PAPELITO AL SARTEN MAGGI AJO Y CEBOLLA',
+    'SAZONADOR + BOLSA PARA HORNO MAGGI HIERBAS',
+  ]) {
+    assertMapping(
+      { name },
+      'Almacén y Alimentos',
+      'Aceites, condimentos y aderezos',
+    )
+  }
+  assertMapping(
+    { name: 'Bolsa para horno descartable' },
+    'Hogar y Otros',
+    'Cocina y bazar',
+  )
+})
+
+test('recognizes hair treatments, household chemicals, glassware, and kitchen accessories', () => {
+  const cases = [
+    ['MASCARILLA DOVE BOND INTENSE REPARADORA X 250GR.', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['TRATAMIENTO CAPILATIS CAPILAR NUTRITIVO X200G.', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['MASCARA CAPILATIS MAXIMA PROTECCION X 200G', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['TRATAMIENTO TRESEMME HYDRA MICRO-MO X 300 GR.', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['MASCARA TRATAMIENTO SEDAL CERAMIDAS X 300 GR.', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['MASCARA TRATAMIENTO SEDAL RIZOS DEFINIDOS X 300 GR.', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['TRATAMIENTO CAPILAR NATURAL OIL POTE X 300 GR', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Kit De Coloracion Nutrisse Tono 67p - Chocolate Intenso', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Mascarilla Intensiva Hidratación 270 Ml Pantene', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Tratamiento Oil Nutritivo X 95 Ml Pantene', 'Limpieza e Higiene', 'Cuidado capilar'],
+    ['Aceite Aromatizante Harmony Repuesto 21ml Glade', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Aromatizante Aceite Natural Tropical Floral 21 Ml Glade', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Repuesto de Aromatizante de Ambientes Naranjo y Orquídeas 21 Ml Glade', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Soda Cáustica Mavax', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Cristal De Soda Mavax', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Ablandador de Agua Mavax Cristal de Soda X 400 Gr', 'Limpieza e Higiene', 'Limpieza del hogar'],
+    ['Vasito De Vidrio P/soda', 'Hogar y Otros', 'Cocina y bazar'],
+    ['PACK X 3 COPAS VINO RIOJA CHIANTI 318 CC.', 'Hogar y Otros', 'Cocina y bazar'],
+    ['SET X 6 VASO CERVEZA 592 ML.METEORA VIDRIO', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Azucarera C/tapa Vde Manzana', 'Hogar y Otros', 'Cocina y bazar'],
+    ['AZUCARERA CRYSTAL ROCK C/DOSIFICADOR', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Azucarera Cerámica Crema Queen 10,3*11,5 Cm', 'Hogar y Otros', 'Cocina y bazar'],
+    ['MOLINILLO DE PIMIENTA CRYSTAL ROCK VIDRIO', 'Hogar y Otros', 'Cocina y bazar'],
+    ['ACEITERA CRYSTAL ROCK VIDRIO FORRADA', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Aceit/vinagrera/sañ/pim C/ Soporte Rojo', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Salero Y Pimentero Eléctrico La Hacienda', 'Hogar y Otros', 'Cocina y bazar'],
+    ['Yerbero Y Azucarera Plastimart Encastrables', 'Hogar y Otros', 'Cocina y bazar'],
+    ['SUPER HAMBURGUESA 18X15X13 CM. ART.50679', 'Hogar y Otros', 'Juguetes'],
+    ['Molinillo Eléctrico De Café 94mc8141p Atma', 'Electrónica y Electrodomésticos', 'Electrodomésticos pequeños'],
+  ]
+
+  for (const [name, category, subcategory] of cases) {
+    assertMapping({ name }, category, subcategory)
+  }
+})
+
+test('keeps drink bundles, yogurt cups, and packaged salt in food categories', () => {
+  assertMapping(
+    { name: 'Cerveza Stella Artois 2 Cervezas + Vaso Estuche' },
+    'Almacén y Alimentos',
+    'Bebidas',
+  )
+  assertMapping(
+    { name: 'Vaso Yogur Mickey' },
+    'Alimentos Frescos y Refrigerados',
+    'Lácteos',
+  )
+  assertMapping(
+    { name: 'Sal fina Celusal salero 500 g.' },
+    'Almacén y Alimentos',
+    'Aceites, condimentos y aderezos',
+  )
+})
+
+test('does not infer a soap category from an ingredient or source taxonomy alone', () => {
+  for (const product of [
+    { name: 'Jabón líquido 300 ml' },
+    { name: 'Jabón líquido de coco 250 ml', source_subcategory: 'Lácteos' },
+  ]) {
+    const suggestion = suggestCatalogMapping(product)
+    assert.equal(suggestion.status, 'insufficient_evidence')
+    assert.equal(suggestion.reason, 'soap_use_not_identified')
+    assert.equal(suggestion.category, null)
+    assert.equal(suggestion.subcategory, null)
+  }
+})
+
 test('recognizes explicit drink and feminine-care types without inferring from brands', () => {
   for (const name of [
     'Ron Havana Club Añejo',

@@ -26,6 +26,7 @@ test('normalizeDiscoStoredPrice repairs low-scale historical offers', () => {
 test('recognizes Disco scale corrections despite moderate price drift', () => {
   assert.equal(isDiscoScaleCorrection(861300, 8613), true)
   assert.equal(isDiscoScaleCorrection(285000, 2700), true)
+  assert.equal(isDiscoScaleCorrection(85000, 950), true)
   assert.equal(isDiscoScaleCorrection(2700, 285000), false)
   assert.equal(isDiscoScaleCorrection(222000, 2000), false)
   assert.equal(isDiscoScaleCorrection(1000, 0), false)

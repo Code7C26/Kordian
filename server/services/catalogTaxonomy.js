@@ -212,21 +212,109 @@ const PRIMARY_TYPE_RULES = [
     rule: 'ambient_deodorizer_type',
     category: 'Limpieza e Higiene',
     subcategory: 'Limpieza del hogar',
-    priority: 125,
-    terms: ['desodorante de ambiente', 'desodorante ambiental'],
+    priority: 140,
+    terms: [
+      'desodorante de ambiente', 'desodorante ambiental',
+      'aromatizante de ambiente', 'aromatizante de ambientes',
+      'aromatizante de ambiente y telas', 'aromatizante textil',
+      'repuesto de aromatizante', 'aceite aromatizante',
+      'aromatizante aceite natural', 'aromatizante aerosol',
+    ],
   },
   {
     rule: 'laundry_product_type',
     category: 'Limpieza e Higiene',
     subcategory: 'Lavado de ropa',
-    priority: 120,
-    terms: ['jabon para ropa', 'detergente para ropa', 'detergente en polvo para ropa', 'suavizante', 'quitamanchas'],
+    priority: 140,
+    terms: [
+      'jabon de lavar en pan', 'jabon en pan', 'jabon pan',
+      'jabon para ropa', 'jabon para lavar ropa', 'jabon de lavar',
+      'detergente para ropa', 'detergente liquido para ropa',
+      'detergente en polvo para ropa', 'suavizante', 'quitamanchas',
+    ],
+  },
+  {
+    rule: 'personal_soap_product_type',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Higiene personal',
+    priority: 135,
+    terms: [
+      'jabon de tocador', 'jabon tocador', 'jabon liquido corporal',
+      'jabon corporal', 'jabon liquido para manos', 'jabon liquido de manos',
+      'jabon liquido antibacterial', 'jabon antibacterial',
+    ],
+  },
+  {
+    rule: 'personal_care_product_type',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Higiene personal',
+    priority: 135,
+    terms: [
+      'antitranspirante', 'repelente', 'crema de afeitar', 'crema para afeitar',
+      'crema depilatoria', 'crema hidratante', 'crema humectante',
+      'crema corporal', 'crema facial', 'crema gel facial',
+      'crema de manos', 'crema para manos', 'crema noche', 'crema dia',
+      'protector solar', 'crema protectora solar', 'agua micelar',
+      'leche y tonico micelar', 'hidratacion extrema',
+      'leche micelar', 'tonico micelar', 'ordeñe',
+    ],
+  },
+  {
+    rule: 'baby_care_product_type',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Higiene infantil',
+    priority: 145,
+    terms: [
+      'crema corporal johnson baby', 'crema para bebe', 'crema bebe',
+      'crema para bebes', 'crema recien nacido',
+    ],
+  },
+  {
+    rule: 'kitchen_cleaning_product_type',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Limpieza de cocina',
+    priority: 135,
+    terms: ['detergente'],
+  },
+  {
+    rule: 'household_cleaning_product_type',
+    category: 'Limpieza e Higiene',
+    subcategory: 'Limpieza del hogar',
+    priority: 130,
+    terms: [
+      'lustramuebles', 'crema para cueros', 'crema para zapatos',
+      'soda caustica', 'cristal de soda', 'ablandador de agua',
+      'destapacañerias',
+    ],
+  },
+  {
+    rule: 'kitchenware_product_type',
+    category: 'Hogar y Otros',
+    subcategory: 'Cocina y bazar',
+    priority: 140,
+    terms: [
+      'corta queso', 'cortador de queso', 'sarten',
+      'bowl jaspeado', 'mug jaspeado',
+      'mug mate', 'bowl mate', 'plato de fondo linea',
+      'vasito de vidrio', 'vaso de vidrio', 'set de vasos',
+      'juego de vasos', 'set x 6 vaso', 'pack x 3 copas',
+      'set de copas', 'copas de vino',
+      'azucarera', 'yerbero', 'yerbera', 'aceitera', 'vinagrera',
+      'molinillo de pimienta', 'salero y pimentero', 'salero pimentero',
+    ],
+  },
+  {
+    rule: 'kitchen_playset_product_type',
+    category: 'Hogar y Otros',
+    subcategory: 'Juguetes',
+    priority: 145,
+    terms: ['super hamburguesa'],
   },
   {
     rule: 'dishwasher_detergent_product_type',
     category: 'Limpieza e Higiene',
     subcategory: 'Limpieza de cocina',
-    priority: 125,
+    priority: 140,
     terms: [
       'detergente en polvo lavavajillas', 'detergente en polvo lavavajilla',
       'detergente para lavavajillas', 'detergente para lavavajilla',
@@ -238,8 +326,19 @@ const PRIMARY_TYPE_RULES = [
     rule: 'hair_care_product_type',
     category: 'Limpieza e Higiene',
     subcategory: 'Cuidado capilar',
-    priority: 125,
-    terms: ['shampoo', 'acondicionador', 'mascara capilar', 'crema para peinar'],
+    priority: 135,
+    terms: [
+      'shampoo', 'acondicionador', 'mascara capilar', 'mascarilla capilar',
+      'mascara capilatis', 'mascarilla dove bond',
+      'mascarilla kera-liso', 'mascarilla elvive',
+      'mascarilla intensiva hidratacion', 'mascarilla intensiva nutricion',
+      'mascarilla intensiva restauracion', 'mascara tratamiento sedal',
+      'tratamiento capilar', 'tratamiento capilatis', 'tratamiento tresemme',
+      'tratamiento oil nutritivo', 'kit de coloracion', 'coloracion',
+      'crema para peinar',
+      'crema de peinar', 'crema peinar', 'para peinar', 'crema capilar',
+      'crema tratamiento', 'tintura',
+    ],
   },
   {
     rule: 'preserved_food_type',
@@ -331,8 +430,19 @@ const PRIMARY_TYPE_RULES = [
     rule: 'candy_product_type',
     category: 'Almacén y Alimentos',
     subcategory: 'Golosinas y snacks',
-    priority: 120,
-    terms: ['gomita'],
+    priority: 130,
+    terms: [
+      'bon o bon', 'bombon', 'alfajor', 'gomita', 'caramelo masticable',
+      'caramelos masticables', 'chupetin', 'chicle', 'oblea', 'confite',
+      'chocolate',
+    ],
+  },
+  {
+    rule: 'seasoning_product_type',
+    category: 'Almacén y Alimentos',
+    subcategory: 'Aceites, condimentos y aderezos',
+    priority: 145,
+    terms: ['sazonador'],
   },
   {
     rule: 'pasta_product_type',
@@ -385,14 +495,18 @@ const PRIMARY_TYPE_RULES = [
     category: 'Electrónica y Electrodomésticos',
     subcategory: 'Electrodomésticos pequeños',
     priority: 125,
-    terms: ['aspiradora'],
+    terms: ['aspiradora', 'molinillo electrico de cafe'],
   },
   {
     rule: 'oral_care_product_type',
     category: 'Limpieza e Higiene',
     subcategory: 'Cuidado bucal',
-    priority: 125,
-    terms: ['pasta dental', 'pasta de dientes', 'dentifrico', 'cepillo dental', 'enjuague bucal'],
+    priority: 135,
+    terms: [
+      'pasta dental', 'pasta de dientes', 'crema dental', 'dentifrico',
+      'crema adhesiva para protesis dental', 'crema adhesiva para protesis dentales',
+      'cepillo dental', 'enjuague bucal',
+    ],
   },
   {
     rule: 'feminine_care_product_type',
@@ -484,10 +598,16 @@ function isSecondaryOccurrence(text, index, term) {
   const suffix = text.slice(index + normalizedTerm.length).replace(/^(?:s|es)(?=\s|$)/, '')
   return SECONDARY_DESCRIPTOR_PREFIX.test(prefix)
     || hasProductTypeBeforeSecondaryDescriptor(text, index)
+    || (normalizedTerm === 'chocolate'
+      && PRODUCT_TYPE_CONTEXT_RULES.some((rule) => rule.terms.some((candidateTerm) => (
+        matches(prefix, candidateTerm) >= 0
+      ))))
     || (normalizedTerm === 'papa' && /\bpapas?\s+(?:pre)?fritas?\b/.test(text))
     || (normalizedTerm === 'freezer' && isFreezerAccessory(text, index))
     || (SECONDARY_AFTER_DE_TERMS.has(normalizedTerm)
       && /(?:^|\s)de\s+$/.test(prefix))
+    || (normalizedTerm === 'leche'
+      && /^\s+y\s+tonico\s+micelar\b/.test(suffix))
     || (['aceite', 'aceites'].includes(normalizedTerm)
       && /(?:^|\s)en\s+$/.test(prefix))
     || (SECONDARY_AFTER_PARA_TERMS.has(normalizedTerm)
@@ -627,6 +747,19 @@ function suggestCatalogMapping(product) {
     -25,
     DESCRIPTION_MAX_SCORE,
   )
+
+  const hasSoapProductType = /\bjabon(?:es)?\b/.test(nameText)
+  const hasExplicitSoapUse = [...nameTypeCandidates.values()].some((candidate) => (
+    candidate.rule === 'laundry_product_type'
+    || candidate.rule === 'personal_soap_product_type'
+  ))
+  if (hasSoapProductType && !hasExplicitSoapUse) {
+    return makeUndeterminedSuggestion(
+      'insufficient_evidence',
+      'soap_use_not_identified',
+      [...nameTypeCandidates.values(), ...nameFallbackCandidates.values()],
+    )
+  }
 
   const frozenFriesMatch = /\bpapas?\s+(?:pre)?fritas?\b(?:\s+\w+){0,4}\s+congelad[oa]s?\b|\bcongelad[oa]s?\b(?:\s+\w+){0,4}\s+\bpapas?\s+(?:pre)?fritas?\b/.exec(nameText)
   if (frozenFriesMatch) {

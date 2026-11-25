@@ -2,6 +2,7 @@ const DISCO_API_URL = 'https://www.disco.com.ar/api/catalog_system/pub/products/
 const DISCO_IMAGE_CHECK_CONCURRENCY = 8
 const DISCO_PROMOTION_CACHE_TTL_MS = 10 * 60 * 1000
 const DISCO_PROMOTION_CACHE_MAX_ENTRIES = 256
+const DISCO_MAX_LIST_PRICE_RATIO = 10
 import { createCommonProduct, isValidCommonProduct } from './importerContract.js'
 import { extractGenericProductProfile, extractJsonLdProductItems, parseHtmlProductDetails } from './htmlProductParser.js'
 import {
@@ -432,9 +433,32 @@ function getOffer(item) {
     || sellers.find((candidate) => numeric(candidate.commertialOffer?.Price) > 0)
   const offer = seller?.commertialOffer || {}
   const rawPrice = offer.Price || offer.PriceWithoutDiscount || offer.FullSellingPrice
+  const price = normalizeDiscoPrice(rawPrice)
+  const listPriceCandidates = [
+    { field: 'ListPrice', value: normalizeDiscoPrice(offer.ListPrice) },
+    { field: 'PriceWithoutDiscount', value: normalizeDiscoPrice(offer.PriceWithoutDiscount) },
+  ].filter(({ value }) => value > 0)
+  const listPrice = listPriceCandidates.find(({ value }) => (
+    value > price && value <= price * DISCO_MAX_LIST_PRICE_RATIO
+  ))
+  const rejectedListPrices = price > 0
+    ? listPriceCandidates.filter(({ value }) => value > price * DISCO_MAX_LIST_PRICE_RATIO)
+    : []
   return {
-    price: normalizeDiscoPrice(rawPrice),
-    listPrice: normalizeDiscoPrice(offer.ListPrice || offer.PriceWithoutDiscount),
+    price,
+    listPrice: listPrice?.value || 0,
+    listPriceWarning: rejectedListPrices.length
+      ? {
+          reason: 'list_price_ratio_exceeds_limit',
+          cashPrice: price,
+          maximumRatio: DISCO_MAX_LIST_PRICE_RATIO,
+          rejectedPrices: rejectedListPrices.map(({ field, value }) => ({
+            field,
+            value,
+            ratio: Number((value / price).toFixed(2)),
+          })),
+        }
+      : null,
     available: Boolean(offer.IsAvailable),
     quantity: numeric(offer.AvailableQuantity),
     seller: seller?.sellerName || 'Disco',
@@ -464,7 +488,7 @@ export function normalizeDiscoProduct(item) {
     classificationConfidence: item.classificationConfidence || item.classification_confidence || null,
   })
   const offer = getOffer(item)
-  return createCommonProduct({
+  const product = createCommonProduct({
     source: 'disco',
     sourceProductId: String(item.productId || ''),
     sourceSku: String(firstItem.itemId || ''),
@@ -490,6 +514,8 @@ export function normalizeDiscoProduct(item) {
     onlineOnly: isOnlineOnly(item),
     seller: offer.seller,
   }, 'disco')
+  if (offer.listPriceWarning) product.listPriceWarning = offer.listPriceWarning
+  return product
 }
 
 export function getDiscoProductInvalidReason(product = {}) {
@@ -719,7 +745,10 @@ export async function fetchDiscoPreviewReport({ query = '', from = 0, to = 49 } 
 
 export async function fetchDiscoProductById(sourceProductId) {
   const params = new URLSearchParams({ fq: `productId:${sourceProductId}`, _from: '0', _to: '0' })
-  const response = await fetch(`${DISCO_API_URL}?${params}`)
+  const response = await fetch(`${DISCO_API_URL}?${params}`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(10000),
+  })
   if (!response.ok) throw new Error(`Disco respondió con HTTP ${response.status}`)
   const data = await response.json()
   const item = Array.isArray(data) ? data[0] : null

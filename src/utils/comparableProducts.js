@@ -114,7 +114,10 @@ export function findComparableReferences(product, products = [], classificationB
       const sameBaseUnit = (productMeasure?.baseUnit || null) === (candidateMeasure?.baseUnit || null)
       if (!sameBaseUnit || (!identityOnly && classification?.type
         && candidateClassification?.type !== classification.type)) return null
-      const offerPrices = (candidate.offers || []).map((offer) => Number(offer.cash_price ?? offer.cashPrice)).filter((price) => price > 0)
+      const offerPrices = (candidate.offers || [])
+        .filter((offer) => offer.is_catalog_visible !== false)
+        .map((offer) => Number(offer.cash_price ?? offer.cashPrice))
+        .filter((price) => price > 0)
       if (!offerPrices.length) return null
       const priceData = normalizePrice(candidate, calculateMedian(offerPrices))
       return {

@@ -54,6 +54,26 @@ test('fingerprint exposes catalog-compatible offers while retaining analysis inp
   assert.match(fingerprint.analysis_fingerprint, /^[a-f0-9]{64}$/)
 })
 
+test('hidden offers do not affect the current price fingerprint', () => {
+  const product = {
+    id: 10,
+    source: 'disco',
+    offers: [
+      { id: 3, cash_price: 1500, is_catalog_visible: true },
+      { id: 4, cash_price: 3650, is_catalog_visible: false },
+    ],
+  }
+  const changedHiddenPrice = {
+    ...product,
+    offers: [product.offers[0], { ...product.offers[1], cash_price: 301653 }],
+  }
+
+  assert.equal(
+    buildPriceFingerprint(product),
+    buildPriceFingerprint(changedHiddenPrice),
+  )
+})
+
 test('price fingerprint includes current taxonomy and analysis inputs', () => {
   const analysis = createAnalysis()
   const original = buildPriceFingerprint(analysis.product, analysis.references, analysis)

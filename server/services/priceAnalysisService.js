@@ -10,10 +10,10 @@ const { normalizeDiscoStoredPrice } = require('../priceNormalization')
 
 function filterKnownPriceScaleArtifacts(history, product) {
   const discoPrices = new Map((product.offers || [])
-    .filter((offer) => offer.supermarket === 'Disco')
+    .filter((offer) => offer.is_catalog_visible !== false && offer.supermarket === 'Disco')
     .map((offer) => [String(offer.id), normalizeDiscoStoredPrice(offer.cash_price, product.source)]))
   const mamiPrices = new Map((product.offers || [])
-    .filter((offer) => offer.supermarket === 'Mami')
+    .filter((offer) => offer.is_catalog_visible !== false && offer.supermarket === 'Mami')
     .map((offer) => [String(offer.id), normalizeDiscoStoredPrice(offer.cash_price, product.source)]))
   const currentPrices = new Map([...discoPrices, ...mamiPrices])
 
@@ -97,11 +97,14 @@ async function analyzeProduct(product, products = [], history = [], categoryName
       ...point,
       cash_price: normalizeDiscoStoredPrice(point.cash_price, product.source),
     }))
-  const offers = (product.offers || []).map((offer) => ({
-    ...offer,
-    price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
-    previousPrice: numeric(offer.previous_price),
-  })).filter((offer) => offer.price > 0)
+  const offers = (product.offers || [])
+    .filter((offer) => offer.is_catalog_visible !== false)
+    .map((offer) => ({
+      ...offer,
+      price: normalizeDiscoStoredPrice(offer.cash_price, product.source),
+      previousPrice: numeric(offer.previous_price),
+    }))
+    .filter((offer) => offer.price > 0)
   const currentPrice = offers.length ? Math.min(...offers.map((offer) => offer.price)) : 0
   const behavior = analysis.analyzePriceBehavior({
     history: relevantHistory.map((point) => ({ date: point.observed_at, avgPrice: point.cash_price })),

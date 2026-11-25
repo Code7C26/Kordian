@@ -1,4 +1,4 @@
-const PRODUCT_SELECT = '*, offers(*), categories(name), subcategories(name), brands(name)'
+const PRODUCT_SELECT = '*, offers(*), categories(name), subcategories!products_subcategory_category_integrity_fkey(name), brands(name)'
 const DEFAULT_PAGE_SIZE = 500
 
 function normalizeProductIds(productIds) {

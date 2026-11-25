@@ -3,6 +3,7 @@ const { test } = require('node:test')
 const {
   buildDiscoProductTaxonomyFields,
   createDiscoPromotionFetcher,
+  fetchDiscoProductById,
   fetchDiscoPreviewReport,
   getDiscoProductClassification,
   normalizeDiscoHtmlProduct,
@@ -60,6 +61,98 @@ function productWithPrice({ name, price, tokenPrice }) {
     }],
   })
 }
+
+test('fetches current Disco identity and stock by product ID with a bounded request timeout', async () => {
+  const originalFetch = global.fetch
+  let requestedUrl
+  global.fetch = async (url, options) => {
+    requestedUrl = new URL(String(url))
+    assert.ok(options.signal)
+    return new Response(JSON.stringify([{
+      productId: 'source-1',
+      productName: 'Producto Disco',
+      items: [{
+        itemId: 'sku-1',
+        ean: '7790000000001',
+        sellers: [{
+          sellerName: 'Disco',
+          commertialOffer: { IsAvailable: true, Price: 100, ListPrice: 120, AvailableQuantity: 3 },
+        }],
+      }],
+    }]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  try {
+    const product = await fetchDiscoProductById('source-1')
+    assert.equal(requestedUrl.searchParams.get('fq'), 'productId:source-1')
+    assert.equal(product.sourceProductId, 'source-1')
+    assert.equal(product.ean, '7790000000001')
+    assert.equal(product.price, 100)
+    assert.equal(product.available, true)
+    assert.equal(product.stock, 3)
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test('rejects an implausible list price and reports the source field', () => {
+  const product = normalizeDiscoProduct({
+    productId: 'disco-extreme-list-price',
+    productName: 'Alfajor Negro 45 Grs Entre Dos',
+    categories: ['/Almacén/Golosinas/'],
+    items: [{
+      itemId: 'sku-extreme-list-price',
+      ean: '763571682326',
+      sellers: [{
+        sellerName: 'Disco Argentina',
+        commertialOffer: {
+          IsAvailable: true,
+          Price: 1050,
+          PriceWithoutDiscount: 1050,
+          ListPrice: 86777,
+          AvailableQuantity: 3,
+        },
+      }],
+    }],
+  })
+
+  assert.equal(product.price, 1050)
+  assert.equal(product.listPrice, 0)
+  assert.deepEqual(product.listPriceWarning, {
+    reason: 'list_price_ratio_exceeds_limit',
+    cashPrice: 1050,
+    maximumRatio: 10,
+    rejectedPrices: [{ field: 'ListPrice', value: 86777, ratio: 82.64 }],
+  })
+})
+
+test('uses a plausible PriceWithoutDiscount when the published ListPrice is anomalous', () => {
+  const product = normalizeDiscoProduct({
+    productId: 'disco-fallback-list-price',
+    productName: 'Producto en promoción',
+    categories: ['/Almacén/'],
+    items: [{
+      itemId: 'sku-fallback-list-price',
+      ean: '7791234567898',
+      sellers: [{
+        sellerName: 'Disco Argentina',
+        commertialOffer: {
+          IsAvailable: true,
+          Price: 100,
+          PriceWithoutDiscount: 120,
+          ListPrice: 86777,
+          AvailableQuantity: 1,
+        },
+      }],
+    }],
+  })
+
+  assert.equal(product.listPrice, 120)
+  assert.equal(product.listPriceWarning.rejectedPrices[0].field, 'ListPrice')
+})
 
 test('uses VTEX Price instead of a token 100 times higher for a durable product', () => {
   const product = productWithPrice({

@@ -45,6 +45,7 @@ function isPersistablePriceStatusRow(status) {
 
 function buildPriceFingerprint(product, references = {}, analysis = {}) {
   const rawOffers = (product?.offers || [])
+    .filter((offer) => offer.is_catalog_visible !== false)
     .map((offer, index) => ({
       offer_id: String(offer.id ?? `${offer.supermarket || ''}:${index}`),
       cash_price: Number(offer.cash_price ?? offer.cashPrice),
@@ -55,7 +56,9 @@ function buildPriceFingerprint(product, references = {}, analysis = {}) {
     .sort((first, second) => first.offer_id.localeCompare(second.offer_id))
   const source = String(product?.source || '').trim().toLowerCase()
   const fingerprintOffers = (product?.offers || [])
-    .filter((offer) => offer.id !== null && offer.id !== undefined)
+    .filter((offer) => offer.is_catalog_visible !== false
+      && offer.id !== null
+      && offer.id !== undefined)
     .map((offer) => {
       const cashPrice = Number(offer.cash_price ?? offer.cashPrice)
       const catalogPrice = ['disco', 'mami'].includes(source) && cashPrice < 100
