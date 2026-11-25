@@ -6,6 +6,8 @@ const {
   extractVisibleMamiListPrice,
   extractMamiDetailProductsFromHtml,
   fetchMamiProductById,
+  parseMamiDetailProductReport,
+  getInvalidReason: getMamiInvalidReason,
   fetchPreview: fetchMamiPreview,
 } = require('./mamiImporter')
 
@@ -34,7 +36,7 @@ test('reads the visible Mami retail price rather than the lower schema price', (
   assert.equal(parsed[0].sourceProductId, 'prod3390086')
 })
 
-test('converts Mami structured low prices when the visible retail price is unavailable', () => {
+test('quarantines low Mami structured prices when no visible price evidence is available', () => {
   const product = normalizeProduct({
     sourceProductId: 'prod123',
     name: 'Yogur Bebible',
@@ -43,8 +45,42 @@ test('converts Mami structured low prices when the visible retail price is unava
     sourceUrl: 'https://www.supermami.com.ar/super/producto/yogur',
   })
 
-  assert.equal(product.price, 3490)
+  assert.equal(product.price, 3.49)
+  assert.equal(product.priceNormalization.status, 'requires_review')
+  assert.equal(getMamiInvalidReason(product), 'mami_low_structured_price_requires_visible_evidence')
   assert.equal(product.listPrice, 4490)
+})
+
+test('reports the reason a low structured Mami price was quarantined', () => {
+  const html = `<script type="application/ld+json">${JSON.stringify({
+    '@type': 'Product',
+    productID: 'prod123',
+    name: 'Yogur Bebible 190 g',
+    image: 'https://example.com/yogur.jpg',
+    category: 'Lácteos',
+    url: 'https://www.supermami.com.ar/super/producto/yogur',
+    offers: { price: 3.49 },
+  })}</script>`
+  const report = parseMamiDetailProductReport(html)
+
+  assert.equal(report.products.length, 0)
+  assert.equal(report.discarded.length, 1)
+  assert.equal(report.discarded[0].reason, 'mami_low_structured_price_requires_visible_evidence')
+})
+
+test('does not rescale a low Mami price already confirmed on the visible page', () => {
+  const product = normalizeProduct({
+    sourceProductId: 'prod124',
+    name: 'Producto de bajo precio 100 g',
+    price: 3.49,
+    priceEvidence: 'visible_page',
+    available: true,
+    sourceUrl: 'https://www.supermami.com.ar/super/producto/producto',
+  })
+
+  assert.equal(product.price, 3.49)
+  assert.equal(product.priceNormalization.status, 'valid')
+  assert.equal(getMamiInvalidReason(product), null)
 })
 
 test('interprets Schema.org stock availability instead of discarding in-stock products', () => {

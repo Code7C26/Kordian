@@ -54,6 +54,21 @@ test('accepts a complete manually captured row without making network or databas
   assert.equal(result.product.postalCode, '5186')
 })
 
+test('parses Argentine decimal prices and rejects ambiguous comma grouping', () => {
+  const parsed = validateCarrefourManifestRow(validRow({
+    price: '1.299,99',
+    list_price: '1.500,00',
+  }))
+  assert.equal(parsed.valid, true)
+  assert.equal(parsed.product.price, 1299.99)
+  assert.equal(parsed.product.listPrice, 1500)
+  assert.equal(parsed.product.priceOriginal, '1.299,99')
+
+  const ambiguous = validateCarrefourManifestRow(validRow({ price: '1,299' }))
+  assert.equal(ambiguous.valid, false)
+  assert.ok(ambiguous.errors.includes('Formato de precio ambiguo'))
+})
+
 test('keeps new measurement fields optional for older manifests', () => {
   const result = validateCarrefourManifestRow(validRow({
     net_content: '',

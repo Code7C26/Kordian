@@ -1,6 +1,6 @@
 const { createCommonProduct, createImporterContract, getCommonInvalidReason, isValidCommonProduct } = require('./importerContract')
 const { parseHtmlProductDetails } = require('./htmlProductParser')
-const { normalizeNumericValue } = require('../priceNormalization')
+const { parseMonetaryAmount } = require('../priceNormalization')
 const fs = require('fs')
 const path = require('path')
 
@@ -35,8 +35,14 @@ function normalizeMamiProduct(item = {}) {
   const source = 'mami'
   const raw = { ...item, source }
   const price = Number(raw.price)
-  if (Number.isFinite(price) && price > 0 && price < 100) {
-    raw.price = Number((price * 1000).toFixed(2))
+  if (Number.isFinite(price) && price > 0 && price < 100 && raw.priceEvidence !== 'visible_page') {
+    raw.priceNormalization = {
+      status: 'requires_review',
+      originalValue: raw.price,
+      normalizedValue: price,
+      method: 'mami-structured-price',
+      reason: 'mami_low_structured_price_requires_visible_evidence',
+    }
   }
   const listPrice = Number(raw.listPrice)
   if (Number.isFinite(listPrice) && listPrice > 0 && listPrice < 100) {
@@ -49,11 +55,25 @@ function normalizeMamiProduct(item = {}) {
 }
 
 function extractVisibleMamiPrice(html = '') {
+  const evidence = extractVisibleMamiPriceEvidence(html)
+  return evidence?.parsed.status === 'valid'
+    ? evidence.parsed.normalizedValue
+    : null
+}
+
+function extractVisibleMamiPriceEvidence(html = '') {
   const priceBlock = String(html).match(/<div\b[^>]*class=["'][^"']*\bprecio-unidad\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]
   if (!priceBlock) return null
   const rawPrice = priceBlock.replace(/<[^>]*>/g, ' ').match(/\$\s*([0-9][0-9.,]*)/)?.[1]
   if (!rawPrice) return null
-  return normalizeNumericValue(rawPrice)
+  const locale = rawPrice.includes(',') && rawPrice.includes('.')
+    && rawPrice.lastIndexOf('.') > rawPrice.lastIndexOf(',')
+    ? 'en-US'
+    : 'es-AR'
+  return {
+    rawPrice,
+    parsed: parseMonetaryAmount(rawPrice, { locale }),
+  }
 }
 
 function extractVisibleMamiListPrice(html = '') {
@@ -63,7 +83,13 @@ function extractVisibleMamiListPrice(html = '') {
   if (!listPriceBlock) return null
   const rawPrice = listPriceBlock.match(/<p\b[^>]*>\s*antes\b[\s\S]*?\$\s*([0-9][0-9.,]*)/i)?.[1]
   if (!rawPrice) return null
-  const listPrice = normalizeNumericValue(rawPrice)
+  const locale = rawPrice.includes(',') && rawPrice.includes('.')
+    && rawPrice.lastIndexOf('.') > rawPrice.lastIndexOf(',')
+    ? 'en-US'
+    : 'es-AR'
+  const parsedListPrice = parseMonetaryAmount(rawPrice, { locale })
+  if (parsedListPrice.status !== 'valid') return null
+  const listPrice = parsedListPrice.normalizedValue
   const currentPrice = extractVisibleMamiPrice(html)
   return listPrice > currentPrice ? listPrice : null
 }
@@ -269,18 +295,9 @@ async function readMamiDetailRoute(route = '', query = '') {
   const jsonLdProducts = extractMamiProductJsonLd(detailHtml)
   const productProfile = extractMamiProductProfile(detailHtml)
   const routeUrl = route.startsWith('http') ? route : `https://www.supermami.com.ar${route}`
-  const htmlDetailProducts = extractMamiDetailProductsFromHtml(detailHtml, routeUrl)
-  const products = []
-  const discarded = []
-
-  for (const product of htmlDetailProducts) {
-    const normalized = normalizeMamiProduct(product)
-    if (!isSerializableMamiProduct(normalized) || !normalized.name || normalized.price <= 0 || !normalized.sourceProductId || !normalized.sourceCategory || !normalized.sourceCategories.length || !isValidCommonProduct(normalized)) {
-      discarded.push({ sourceProductId: normalized.sourceProductId || product.sourceProductId || '', name: normalized.name || product.name || '', reason: 'invalid_product_detail_payload' })
-      continue
-    }
-    if (matchesMamiQuery(normalized, query)) products.push(normalized)
-  }
+  const htmlDetailReport = parseMamiDetailProductReport(detailHtml, routeUrl)
+  const products = htmlDetailReport.products.filter((product) => matchesMamiQuery(product, query))
+  const discarded = htmlDetailReport.discarded
 
   return {
     products,
@@ -303,7 +320,8 @@ function extractMamiProductJsonLd(html = '') {
         if (!item || item['@type'] !== 'Product' && item.type !== 'Product') continue
         const name = item.name || item.productName || ''
         if (!name) continue
-        const price = item.offers?.price || item.price || item.lowPrice || item.priceSpecification?.price || 0
+        const price = item.offers?.price ?? item.price ?? item.lowPrice ?? item.priceSpecification?.price
+        const priceResult = parseMonetaryAmount(price, { locale: 'numeric' })
         const rawProductId = String(item.productID || item.sku || item.id || item.product_id || '')
         const cleanedProductId = String(rawProductId).replace(/[^0-9]/g, '')
         const looksLikeEAN = cleanedProductId.length >= 12 && cleanedProductId.startsWith('7')
@@ -315,7 +333,16 @@ function extractMamiProductJsonLd(html = '') {
           name,
           brand: String(item.brand?.name || item.brand || item.brandName || ''),
           image: String(item.image || item.imageUrl || (Array.isArray(item.images) ? item.images[0] : '') || ''),
-          price: Number(price) || 0,
+          price: priceResult.status === 'valid' ? priceResult.normalizedValue : 0,
+          priceOriginal: price ?? null,
+          priceNormalization: {
+            status: priceResult.status,
+            originalValue: price ?? null,
+            normalizedValue: priceResult.normalizedValue,
+            method: priceResult.method,
+            reason: priceResult.reason,
+          },
+          priceEvidence: 'structured_data',
           available: Boolean(item.availability || item.offers?.availability || true),
           sourceCategory: String(item.category || item.itemCategory || item.item_type || ''),
           sourceUrl: normalizeMamiSourceUrl(item.url || item.sourceUrl || item.link || null),
@@ -328,11 +355,12 @@ function extractMamiProductJsonLd(html = '') {
   return products
 }
 
-function extractMamiDetailProductsFromHtml(html = '', fallbackSourceUrl = '') {
+function parseMamiDetailProductReport(html = '', fallbackSourceUrl = '') {
   return parseHtmlProductDetails(html, {
     source: 'mami',
     normalizeProduct: normalizeMamiProduct,
     isValidProduct: isValidMamiProduct,
+    getInvalidReason: getMamiInvalidReason,
     isSerializableProduct: isSerializableMamiProduct,
     extractProfile: extractMamiProductProfile,
     normalizeSourceUrl: normalizeMamiSourceUrl,
@@ -346,7 +374,11 @@ function extractMamiDetailProductsFromHtml(html = '', fallbackSourceUrl = '') {
       sourceUrl: normalizeMamiSourceUrl(item.sourceUrl || fallbackSourceUrl || ''),
       seller: 'Mami',
     }),
-  }).products
+  })
+}
+
+function extractMamiDetailProductsFromHtml(html = '', fallbackSourceUrl = '') {
+  return parseMamiDetailProductReport(html, fallbackSourceUrl).products
 }
 
 function sanitizeSourceCategory(value = '') {
@@ -392,11 +424,35 @@ function extractMamiProductProfile(html = '') {
   const itemBrand = text.match(/"item_brand":"([^"]+)"/)?.[1] || text.match(/"brand":"([^"]+)"/)?.[1] || ''
   if (itemBrand) profile.brand = itemBrand
 
-  const visiblePrice = extractVisibleMamiPrice(text)
+  const visiblePriceEvidence = extractVisibleMamiPriceEvidence(text)
   const visibleListPrice = extractVisibleMamiListPrice(text)
-  const eventPrice = text.match(/"price":\s*["']?([0-9.,]+)/)?.[1]
-  if (visiblePrice > 0) profile.price = visiblePrice
-  else if (eventPrice) profile.price = Number(String(eventPrice).replace(/[^0-9.,]/g, '').replace(',', '.'))
+  const eventPriceMatch = text.match(/"price"\s*:\s*(?:"([^"]+)"|(\d+(?:\.\d+)?))/)
+  const eventPrice = eventPriceMatch?.[1] ?? eventPriceMatch?.[2]
+  if (visiblePriceEvidence) {
+    const { parsed, rawPrice } = visiblePriceEvidence
+    profile.price = parsed.status === 'valid' ? parsed.normalizedValue : 0
+    profile.priceOriginal = rawPrice
+    profile.priceNormalization = {
+      status: parsed.status,
+      originalValue: rawPrice,
+      normalizedValue: parsed.normalizedValue,
+      method: `mami-visible-page:${parsed.method || 'unparsed'}`,
+      reason: parsed.reason,
+    }
+    profile.priceEvidence = 'visible_page'
+  } else if (eventPrice) {
+    const parsedEventPrice = parseMonetaryAmount(eventPrice, { locale: 'es-AR' })
+    profile.price = parsedEventPrice.status === 'valid' ? parsedEventPrice.normalizedValue : 0
+    profile.priceOriginal = eventPrice
+    profile.priceNormalization = {
+      status: parsedEventPrice.status,
+      originalValue: eventPrice,
+      normalizedValue: parsedEventPrice.normalizedValue,
+      method: parsedEventPrice.method,
+      reason: parsedEventPrice.reason,
+    }
+    profile.priceEvidence = 'structured_data'
+  }
   if (visibleListPrice > 0) profile.listPrice = visibleListPrice
 
   const productId = text.match(/productId\s*:\s*"prod([0-9]+)"|productId\s*=\s*"prod([0-9]+)"|idProductoSelected[^\n]*value="prod([0-9]+)"/i)?.slice(1).find(Boolean)
@@ -671,6 +727,7 @@ module.exports = {
     findMatches: findMamiPreviewMatches,
   }),
   extractMamiDetailProductsFromHtml,
+  parseMamiDetailProductReport,
   extractMamiProductProfile,
   extractVisibleMamiPrice,
   extractVisibleMamiListPrice,

@@ -120,7 +120,7 @@ test('rejects an implausible list price and reports the source field', () => {
   })
 
   assert.equal(product.price, 1050)
-  assert.equal(product.listPrice, 0)
+  assert.equal(product.listPrice, null)
   assert.deepEqual(product.listPriceWarning, {
     reason: 'list_price_ratio_exceeds_limit',
     cashPrice: 1050,
@@ -182,6 +182,8 @@ test('uses the raw VTEX price when the token is expressed in a different unit', 
   })
 
   assert.equal(product.price, 86.13)
+  assert.equal(product.priceNormalization.tokenValue, 8613)
+  assert.equal(product.priceNormalization.method, 'vtex-price')
 })
 
 test('does not convert a fractional VTEX price using the integer PriceToken', () => {
@@ -192,6 +194,29 @@ test('does not convert a fractional VTEX price using the integer PriceToken', ()
   })
 
   assert.equal(product.price, 0.72)
+})
+
+test('keeps a valid VTEX price and exposes malformed PriceToken evidence', () => {
+  const product = normalizeDiscoProduct({
+    productId: 'disco-2',
+    productName: 'Producto de bajo precio 100 g',
+    items: [{
+      itemId: 'sku-2',
+      sellers: [{
+        sellerName: 'Disco',
+        commertialOffer: {
+          IsAvailable: true,
+          Price: 50,
+          PriceToken: 'not-a-token',
+        },
+      }],
+    }],
+  })
+
+  assert.equal(product.price, 50)
+  assert.equal(product.priceNormalization.status, 'valid')
+  assert.equal(product.priceNormalization.tokenStatus, 'invalid')
+  assert.equal(product.priceNormalization.tokenReason, 'malformed_token_payload')
 })
 
 test('does not apply the durable-product multiplier to ordinary raw prices', () => {

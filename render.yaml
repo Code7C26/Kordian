@@ -10,6 +10,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PRICE_STATUS_BOOTSTRAP_ENABLED
+        value: true
+      - key: PRICE_STATUS_BOOTSTRAP_SCOPE
+        value: pending-scale-artifacts
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY

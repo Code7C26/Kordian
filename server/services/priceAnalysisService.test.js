@@ -92,7 +92,7 @@ test('keeps ordinary historical price changes', () => {
   assert.deepEqual(filterKnownPriceScaleArtifacts(history, product), history)
 })
 
-test('normalizes low-scale Mami offers and their history to pesos', () => {
+test('does not rescale low Mami prices without source evidence', () => {
   const product = {
     source: 'mami',
     offers: [{ id: 'mami-offer', supermarket: 'Mami', cash_price: 3.49 }],
@@ -100,5 +100,5 @@ test('normalizes low-scale Mami offers and their history to pesos', () => {
   const history = [{ offer_id: 'mami-offer', cash_price: 3.49 }]
 
   assert.equal(filterKnownPriceScaleArtifacts(history, product).length, 1)
-  assert.equal(require('../priceNormalization').normalizeDiscoStoredPrice(product.offers[0].cash_price, product.source), 3490)
+  assert.equal(require('../priceNormalization').normalizeDiscoStoredPrice(product.offers[0].cash_price, product.source), 3.49)
 })

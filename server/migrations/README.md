@@ -390,6 +390,31 @@ identidad exacta hereda taxonomía en orden revisada, manual y sugerida; los
 conflictos de igual prioridad se abstienen para revisión. La importación no
 crea ni asigna grupos persistidos automáticamente.
 
+### Revisión de artefactos de escala de precios Disco
+
+Antes de aplicar `20261117_disco_price_scale_artifact_review.sql`, ejecutar
+`../scripts/preflight_disco_price_scale_artifacts.sql` en el proyecto destino y
+revisar las filas `candidate` e `identity_conflict`. El preflight es de solo
+lectura; no aplicar la migración si faltan columnas o hay conflictos sin
+resolver.
+
+La migración registra observaciones candidatas como `pending` en
+`price_history_scale_artifact_reviews`. No modifica precios, ofertas ni
+`price_history`; el acceso se limita a `service_role`. Revisar las decisiones
+antes de cambiar su estado.
+
+Para refrescar solo los productos pendientes, configurar
+`PRICE_STATUS_BOOTSTRAP_SCOPE=pending-scale-artifacts` con la tabla instalada y
+`PRICE_STATUS_BOOTSTRAP_ENABLED` distinto de `false`. La versión vigente de
+reglas es `2026-11-24-v3`. Verificar el estado después de aplicar:
+
+```sql
+select decision, count(*) as rows, count(distinct product_id) as products
+from public.price_history_scale_artifact_reviews
+group by decision
+order by decision;
+```
+
 ## Cargar categorías y subcategorías
 
 1. Abrir el SQL Editor del proyecto Supabase.

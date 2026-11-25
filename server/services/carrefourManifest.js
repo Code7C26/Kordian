@@ -1,5 +1,6 @@
 const { isValidGtin, normalizePostalCode } = require('./carrefourImporter')
 const { validateHistoricalIdentityEvidence } = require('./carrefourHistoricalEnrichment')
+const { parseMonetaryAmount } = require('../priceNormalization')
 
 const REQUIRED_MANIFEST_FIELDS = [
   'source_product_id',
@@ -58,9 +59,13 @@ function validateCarrefourManifestRow(row = {}) {
     && validationErrors[0] === 'No se pudo leer un GTIN'
   const name = String(manifestRow.name || '').trim()
   const category = String(manifestRow.category || '').trim()
-  const price = Number(manifestRow.price)
+  const parsedPrice = parseMonetaryAmount(manifestRow.price, { locale: 'es-AR' })
+  const price = parsedPrice.status === 'valid' ? parsedPrice.normalizedValue : null
+  const parsedListPrice = parseMonetaryAmount(manifestRow.list_price, { locale: 'es-AR' })
+  const listPrice = parsedListPrice.status === 'valid' ? parsedListPrice.normalizedValue : null
   const netContentValue = Number(manifestRow.net_content_value)
-  const unitPrice = Number(manifestRow.unit_price)
+  const parsedUnitPrice = parseMonetaryAmount(manifestRow.unit_price, { locale: 'es-AR' })
+  const unitPrice = parsedUnitPrice.status === 'valid' ? parsedUnitPrice.normalizedValue : null
   const postalCode = normalizePostalCode(manifestRow.postal_code)
   const captureTimestamp = Date.parse(manifestRow.capture_timestamp)
   let productUrl = null
@@ -75,7 +80,23 @@ function validateCarrefourManifestRow(row = {}) {
   if (!isValidGtin(gtin)) errors.push('GTIN/EAN inválido')
   if (!name) errors.push('Nombre vacío')
   if (!category || category.toLowerCase() === 'sin categoría') errors.push('Categoría no identificada')
-  if (!Number.isFinite(price) || price <= 0) errors.push('Precio debe ser mayor que cero')
+  if (price === null) {
+    errors.push(parsedPrice.status === 'ambiguous'
+      ? 'Formato de precio ambiguo'
+      : 'Formato de precio inválido')
+  } else if (price <= 0) {
+    errors.push('Precio debe ser mayor que cero')
+  }
+  if (String(manifestRow.list_price ?? '').trim() && listPrice === null) {
+    errors.push(parsedListPrice.status === 'ambiguous'
+      ? 'Formato de precio de lista ambiguo'
+      : 'Formato de precio de lista inválido')
+  }
+  if (String(manifestRow.unit_price ?? '').trim() && unitPrice === null) {
+    errors.push(parsedUnitPrice.status === 'ambiguous'
+      ? 'Formato de precio unitario ambiguo'
+      : 'Formato de precio unitario inválido')
+  }
   if (String(manifestRow.availability || '').trim().toLowerCase() !== 'available') {
     errors.push('Disponibilidad no confirmada')
   }
@@ -120,9 +141,11 @@ function validateCarrefourManifestRow(row = {}) {
       netContent: String(manifestRow.net_content || '').trim(),
       netContentUnit: String(manifestRow.net_content_unit || '').trim(),
       netContentValue: Number.isFinite(netContentValue) && netContentValue > 0 ? netContentValue : null,
-      price: Number.isFinite(price) ? price : null,
-      listPrice: Number(manifestRow.list_price) > 0 ? Number(manifestRow.list_price) : null,
-      unitPrice: Number.isFinite(unitPrice) && unitPrice > 0 ? unitPrice : null,
+      price,
+      priceOriginal: manifestRow.price,
+      priceNormalization: parsedPrice,
+      listPrice: listPrice !== null && listPrice > 0 ? listPrice : null,
+      unitPrice: unitPrice !== null && unitPrice > 0 ? unitPrice : null,
       rawUnitPrice: String(manifestRow.raw_unit_price || '').trim(),
       isOffer: isTrue(manifestRow.is_offer),
       postalCode,

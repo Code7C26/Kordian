@@ -138,6 +138,39 @@ test('statuses are upserted only when the price fingerprint or rules version cha
   assert.equal(upserts, 1)
 })
 
+test('statuses from the previous rules version are refreshed', async () => {
+  const analysis = createAnalysis()
+  const [completeRow] = buildCurrentPriceStatusRows([analysis])
+  let upserts = 0
+  const database = {
+    from() {
+      return {
+        select() {
+          return {
+            in: async () => ({
+              data: [{
+                product_id: '10',
+                price_fingerprint: completeRow.price_fingerprint,
+                rules_version: '2026-10-10-v2',
+                analysis_details: completeRow.analysis_details,
+                data_quality: completeRow.data_quality,
+              }],
+              error: null,
+            }),
+          }
+        },
+        upsert: async () => {
+          upserts += 1
+          return { error: null }
+        },
+      }
+    },
+  }
+
+  assert.equal(await saveCurrentPriceStatuses(database, [analysis]), 1)
+  assert.equal(upserts, 1)
+})
+
 test('statuses with a matching fingerprint but missing details are refreshed', async () => {
   const analysis = createAnalysis()
   const stored = {
@@ -273,6 +306,62 @@ test('startup without the details check reads lightweight columns and queues sta
   assert.ok(selectedStatusColumns.includes('product_id, rules_version'))
   assert.ok(!selectedStatusColumns.some((columns) => columns.includes('analysis_details')))
   assert.deepEqual([...enqueued].sort((left, right) => left - right), [11, 12])
+})
+
+test('targeted bootstrap queues only stale products with pending scale reviews', async () => {
+  const { enqueuePendingPriceScaleArtifactStatuses } = require('./currentPriceStatus')
+  const reviews = Array.from({ length: 205 }, (_, index) => ({
+    product_id: index + 1,
+    decision: 'pending',
+  }))
+  reviews.push(
+    { product_id: 4, decision: 'pending' },
+    { product_id: 206, decision: 'confirmed' },
+  )
+  const database = {
+    from(table) {
+      if (table === 'price_history_scale_artifact_reviews') {
+        return {
+          select: () => ({
+            eq: (column, value) => ({
+              order: () => ({
+                range: async (start, end) => ({
+                  data: reviews
+                    .filter((review) => review[column] === value)
+                    .slice(start, end + 1),
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        }
+      }
+      return {
+        select: () => ({
+          in: async (column, ids) => ({
+            data: ids
+              .filter((id) => id !== '105')
+              .map((id) => ({
+                product_id: id,
+                rules_version: id === '4' ? 'old-version' : PRICE_STATUS_RULES_VERSION,
+              })),
+            error: null,
+          }),
+        }),
+      }
+    },
+  }
+  const enqueued = []
+
+  const queued = await enqueuePendingPriceScaleArtifactStatuses(
+    database,
+    { enqueue: (ids) => enqueued.push(...ids) },
+    100,
+    { checkDetails: false },
+  )
+
+  assert.equal(queued, 2)
+  assert.deepEqual(enqueued, ['4', '105'])
 })
 
 test('refresh queue retries failed batches without dropping product ids', async () => {

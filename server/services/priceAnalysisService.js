@@ -7,6 +7,15 @@ const modulesPromise = Promise.all([
 
 const numeric = (value) => Number.isFinite(Number(value)) ? Number(value) : 0
 const { normalizeDiscoStoredPrice } = require('../priceNormalization')
+const PRICE_TOKEN_NORMALIZATION_SOURCE = 'price_token_normalization'
+const DISCO_PUBLIC_SEARCH_SOURCE = 'disco_public_search'
+const MAX_SOURCE_REFERENCE_AGE_MS = 30 * 24 * 60 * 60 * 1000
+
+function isScaleArtifactRatio(price, referencePrice, minimumRatio, maximumRatio) {
+  if (!price || !referencePrice || price <= 0 || referencePrice <= 0) return false
+  const ratio = Math.max(price, referencePrice) / Math.min(price, referencePrice)
+  return ratio >= minimumRatio && ratio <= maximumRatio
+}
 
 function filterKnownPriceScaleArtifacts(history, product) {
   const discoPrices = new Map((product.offers || [])
@@ -16,6 +25,17 @@ function filterKnownPriceScaleArtifacts(history, product) {
     .filter((offer) => offer.is_catalog_visible !== false && offer.supermarket === 'Mami')
     .map((offer) => [String(offer.id), normalizeDiscoStoredPrice(offer.cash_price, product.source)]))
   const currentPrices = new Map([...discoPrices, ...mamiPrices])
+  const publicSearchPrices = new Map()
+  for (const point of history) {
+    if (point.source !== DISCO_PUBLIC_SEARCH_SOURCE || !point.offer_id) continue
+    const price = normalizeDiscoStoredPrice(point.cash_price, product.source)
+    const timestamp = Date.parse(point.observed_at)
+    if (!price || price <= 0 || !Number.isFinite(timestamp)) continue
+    const offerId = String(point.offer_id)
+    const references = publicSearchPrices.get(offerId) || []
+    references.push({ price, timestamp })
+    publicSearchPrices.set(offerId, references)
+  }
 
   return history.filter((point) => {
     if (point.source === 'price_token_normalization') return false
@@ -26,8 +46,28 @@ function filterKnownPriceScaleArtifacts(history, product) {
     const historicalPrice = normalizeDiscoStoredPrice(point.cash_price, product.source)
     if (!historicalPrice || historicalPrice <= 0) return true
 
-    const ratio = historicalPrice / currentPrice
-    return !(ratio >= 95 && ratio <= 105) && !(ratio <= 1 / 95 && ratio >= 1 / 105)
+    const [minimumScaleRatio, maximumScaleRatio] = point.source === PRICE_TOKEN_NORMALIZATION_SOURCE
+      ? [90, 110]
+      : [95, 105]
+    const matchesCurrentPriceScale = isScaleArtifactRatio(
+      historicalPrice,
+      currentPrice,
+      minimumScaleRatio,
+      maximumScaleRatio,
+    )
+    if (matchesCurrentPriceScale) return false
+
+    if (point.source === PRICE_TOKEN_NORMALIZATION_SOURCE) {
+      const timestamp = Date.parse(point.observed_at)
+      const references = publicSearchPrices.get(String(point.offer_id)) || []
+      const matchesNearbyPublicSearch = Number.isFinite(timestamp) && references.some((reference) => (
+        Math.abs(timestamp - reference.timestamp) <= MAX_SOURCE_REFERENCE_AGE_MS
+          && isScaleArtifactRatio(historicalPrice, reference.price, 90, 110)
+      ))
+      if (matchesNearbyPublicSearch) return false
+    }
+
+    return true
   })
 }
 
