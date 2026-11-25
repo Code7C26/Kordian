@@ -14,6 +14,7 @@
     "enrich-carrefour-manifest-history": "node scripts/enrich_carrefour_manifest_history.js",
     "preflight-carrefour-manifest": "node scripts/preflight_carrefour_manifest.js",
     "sync-disco-token-prices": "node scripts/sync_disco_token_prices.js",
+    "audit-disco-prices": "node scripts/audit_disco_prices.js",
     "sync-disco": "node scripts/sync_disco.js"
   },
   "dependencies": {

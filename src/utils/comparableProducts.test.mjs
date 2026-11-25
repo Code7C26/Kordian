@@ -33,6 +33,23 @@ const catalogProducts = [
   { id: 'catalog-2', name: 'Otro producto', category: 'Alimentos', subcategory: 'Golosinas y snacks', offers: [{ cash_price: 1100 }] },
 ];
 assert.equal(findComparableReferences(catalogProducts[0], catalogProducts, new Map()).references.length, 1);
+const hiddenOfferProducts = [
+  { id: 'target', name: 'Bebida de soja naranja 1l', category_id: 'food', subcategory_id: 'drinks', offers: [{ cash_price: 1000 }] },
+  { id: 'hidden-peer', name: 'Bebida de soja manzana 1l', category_id: 'food', subcategory_id: 'drinks', offers: [{ cash_price: 301653, is_catalog_visible: false }] },
+  { id: 'visible-peer', name: 'Bebida de soja natural 1l', category_id: 'food', subcategory_id: 'drinks', offers: [{ cash_price: 1200, is_catalog_visible: true }] },
+];
+const hiddenOfferClassifications = new Map([
+  ['target', { type: 'Bebida' }],
+  ['hidden-peer', { type: 'Bebida' }],
+  ['visible-peer', { type: 'Bebida' }],
+]);
+const visibleReferences = findComparableReferences(
+  hiddenOfferProducts[0],
+  hiddenOfferProducts,
+  hiddenOfferClassifications,
+);
+assert.deepEqual(visibleReferences.references.map(({ id }) => id), ['visible-peer']);
+assert.equal(visibleReferences.referencePrice, 1200);
 const sameNamedSubcategories = [
   { id: 'oil-1', name: 'Aceite 1l', category_id: 'food', subcategory_id: 'oils', subcategories: { id: 'oils', name: 'Otros', category_id: 'food' }, offers: [{ cash_price: 1000 }] },
   { id: 'other-1', name: 'Producto de bazar 1l', category_id: 'home', subcategory_id: 'other', subcategories: { id: 'other', name: 'Otros', category_id: 'home' }, offers: [{ cash_price: 2000 }] },

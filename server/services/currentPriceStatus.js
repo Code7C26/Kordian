@@ -45,6 +45,7 @@ function isPersistablePriceStatusRow(status) {
 
 function buildPriceFingerprint(product, references = {}, analysis = {}) {
   const rawOffers = (product?.offers || [])
+    .filter((offer) => offer.is_catalog_visible !== false)
     .map((offer, index) => ({
       offer_id: String(offer.id ?? `${offer.supermarket || ''}:${index}`),
       cash_price: Number(offer.cash_price ?? offer.cashPrice),
@@ -55,7 +56,9 @@ function buildPriceFingerprint(product, references = {}, analysis = {}) {
     .sort((first, second) => first.offer_id.localeCompare(second.offer_id))
   const source = String(product?.source || '').trim().toLowerCase()
   const fingerprintOffers = (product?.offers || [])
-    .filter((offer) => offer.id !== null && offer.id !== undefined)
+    .filter((offer) => offer.is_catalog_visible !== false
+      && offer.id !== null
+      && offer.id !== undefined)
     .map((offer) => {
       const cashPrice = Number(offer.cash_price ?? offer.cashPrice)
       const catalogPrice = ['disco', 'mami'].includes(source) && cashPrice < 100
@@ -277,6 +280,58 @@ async function enqueueIncompletePriceStatuses(
   }
 }
 
+async function enqueuePendingPriceScaleArtifactStatuses(
+  database,
+  queue,
+  batchSize = PRICE_STATUS_BATCH_SIZE,
+  { checkDetails = true } = {},
+) {
+  const productIds = new Set()
+  for (let offset = 0; ; offset += batchSize) {
+    const { data: reviews, error } = await database
+      .from('price_history_scale_artifact_reviews')
+      .select('product_id')
+      .eq('decision', 'pending')
+      .order('product_id', { ascending: true })
+      .range(offset, offset + batchSize - 1)
+    if (error) throw error
+
+    for (const review of reviews || []) {
+      const productId = String(review.product_id ?? '')
+      if (!/^[1-9]\d*$/.test(productId) || !Number.isSafeInteger(Number(productId))) {
+        throw new TypeError(`Invalid product ID in pending price scale review: ${productId}`)
+      }
+      productIds.add(productId)
+    }
+    if (!reviews || reviews.length < batchSize) break
+  }
+
+  const ids = [...productIds]
+  const statusColumns = checkDetails
+    ? 'product_id, rules_version, analysis_details, data_quality'
+    : 'product_id, rules_version'
+  let queued = 0
+  for (let offset = 0; offset < ids.length; offset += batchSize) {
+    const batch = ids.slice(offset, offset + batchSize)
+    const { data: statuses, error } = await database
+      .from('product_price_status')
+      .select(statusColumns)
+      .in('product_id', batch)
+    if (error) throw error
+
+    const currentIds = new Set((statuses || [])
+      .filter((status) => status.rules_version === PRICE_STATUS_RULES_VERSION
+        && (!checkDetails || hasCompletePriceStatusDetails(status)))
+      .map((status) => String(status.product_id)))
+    const staleIds = batch.filter((productId) => !currentIds.has(productId))
+    if (staleIds.length) {
+      await queue.enqueue(staleIds)
+      queued += staleIds.length
+    }
+  }
+  return queued
+}
+
 module.exports = {
   PRICE_STATUS_RULES_VERSION,
   buildPriceFingerprint,
@@ -284,5 +339,6 @@ module.exports = {
   isPersistablePriceStatusRow,
   createPriceStatusRefreshQueue,
   enqueueIncompletePriceStatuses,
+  enqueuePendingPriceScaleArtifactStatuses,
   saveCurrentPriceStatuses,
 }

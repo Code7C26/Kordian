@@ -2,12 +2,16 @@ const DISCO_API_URL = 'https://www.disco.com.ar/api/catalog_system/pub/products/
 const DISCO_IMAGE_CHECK_CONCURRENCY = 8
 const DISCO_PROMOTION_CACHE_TTL_MS = 10 * 60 * 1000
 const DISCO_PROMOTION_CACHE_MAX_ENTRIES = 256
-import { createCommonProduct, isValidCommonProduct } from './importerContract.js'
+const DISCO_MAX_LIST_PRICE_RATIO = 10
+import { createCommonProduct, getCommonInvalidReason, isValidCommonProduct } from './importerContract.js'
 import { extractGenericProductProfile, extractJsonLdProductItems, parseHtmlProductDetails } from './htmlProductParser.js'
 import {
   resolveCatalogMappingFromExamples,
   suggestCatalogMapping,
 } from './catalogTaxonomy.js'
+import priceNormalization from '../priceNormalization.js'
+
+const { parseMonetaryAmount } = priceNormalization
 
 export class InvalidDiscoPromotionRequestError extends Error {
   constructor(message) {
@@ -27,7 +31,22 @@ const invalidProductNamePattern = /\b(envio|envios|entrega|delivery|shipping|ofe
 const productMeasurePattern = /\b\d+(?:[.,]\d+)?\s*(?:kg|kgs|kilo(?:s)?|g|gr|gramo(?:s)?|mg|l|lt|lts|litro(?:s)?|ml|cc|cl|unidad(?:es)?|un|uds?|u)\b/i
 
 function normalizeDiscoPrice(value) {
-  return numeric(value)
+  const parsed = parseMonetaryAmount(value, { locale: 'numeric' })
+  return parsed.status === 'valid' ? parsed.normalizedValue : 0
+}
+
+function getTokenPrice(token) {
+  if (token == null || token === '') return { price: null, status: 'missing' }
+  if (typeof token !== 'string') return { price: null, status: 'invalid', reason: 'token_not_string' }
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString())
+    const parsed = parseMonetaryAmount(payload?.data?.price, { locale: 'numeric' })
+    return parsed.status === 'valid'
+      ? { price: parsed.normalizedValue, status: 'valid' }
+      : { price: null, status: 'invalid', reason: parsed.reason }
+  } catch {
+    return { price: null, status: 'invalid', reason: 'malformed_token_payload' }
+  }
 }
 
 const categoryMapping = [
@@ -431,13 +450,49 @@ function getOffer(item) {
   const seller = sellers.find((candidate) => candidate.commertialOffer?.IsAvailable && numeric(candidate.commertialOffer?.Price) > 0)
     || sellers.find((candidate) => numeric(candidate.commertialOffer?.Price) > 0)
   const offer = seller?.commertialOffer || {}
-  const rawPrice = offer.Price || offer.PriceWithoutDiscount || offer.FullSellingPrice
+  const rawPrice = offer.Price ?? offer.PriceWithoutDiscount ?? offer.FullSellingPrice
+  const tokenResult = getTokenPrice(offer.PriceToken)
+  const tokenPrice = tokenResult.price
+  // Keep the published VTEX price authoritative; the token is diagnostic only.
+  const price = normalizeDiscoPrice(rawPrice)
+  const listPriceCandidates = [
+    { field: 'ListPrice', value: normalizeDiscoPrice(offer.ListPrice) },
+    { field: 'PriceWithoutDiscount', value: normalizeDiscoPrice(offer.PriceWithoutDiscount) },
+  ].filter(({ value }) => value > 0)
+  const listPrice = listPriceCandidates.find(({ value }) => (
+    value > price && value <= price * DISCO_MAX_LIST_PRICE_RATIO
+  ))
+  const rejectedListPrices = price > 0
+    ? listPriceCandidates.filter(({ value }) => value > price * DISCO_MAX_LIST_PRICE_RATIO)
+    : []
   return {
-    price: normalizeDiscoPrice(rawPrice),
-    listPrice: normalizeDiscoPrice(offer.ListPrice || offer.PriceWithoutDiscount),
+    price,
+    listPrice: listPrice?.value || 0,
+    listPriceWarning: rejectedListPrices.length
+      ? {
+          reason: 'list_price_ratio_exceeds_limit',
+          cashPrice: price,
+          maximumRatio: DISCO_MAX_LIST_PRICE_RATIO,
+          rejectedPrices: rejectedListPrices.map(({ field, value }) => ({
+            field,
+            value,
+            ratio: Number((value / price).toFixed(2)),
+          })),
+        }
+      : null,
     available: Boolean(offer.IsAvailable),
     quantity: numeric(offer.AvailableQuantity),
     seller: seller?.sellerName || 'Disco',
+    priceNormalization: {
+      status: price > 0 ? 'valid' : 'invalid',
+      originalValue: rawPrice ?? null,
+      tokenValue: tokenPrice,
+      normalizedValue: price || null,
+      method: 'vtex-price',
+      reason: price > 0 ? null : tokenResult.reason || 'invalid_source_price',
+      tokenStatus: tokenResult.status,
+      tokenReason: tokenResult.reason || null,
+    },
   }
 }
 
@@ -464,7 +519,7 @@ export function normalizeDiscoProduct(item) {
     classificationConfidence: item.classificationConfidence || item.classification_confidence || null,
   })
   const offer = getOffer(item)
-  return createCommonProduct({
+  const product = createCommonProduct({
     source: 'disco',
     sourceProductId: String(item.productId || ''),
     sourceSku: String(firstItem.itemId || ''),
@@ -483,6 +538,7 @@ export function normalizeDiscoProduct(item) {
     proposedCategory: classification.proposedCategory,
     proposedSubcategory: classification.proposedSubcategory,
     mappingStatus: classification.mappingStatus,
+    priceNormalization: offer.priceNormalization,
     ...(classification.isManual ? {
       classificationSource: classification.classificationSource,
       classificationConfidence: classification.classificationConfidence,
@@ -490,6 +546,8 @@ export function normalizeDiscoProduct(item) {
     onlineOnly: isOnlineOnly(item),
     seller: offer.seller,
   }, 'disco')
+  if (offer.listPriceWarning) product.listPriceWarning = offer.listPriceWarning
+  return product
 }
 
 export function getDiscoProductInvalidReason(product = {}) {
@@ -498,6 +556,9 @@ export function getDiscoProductInvalidReason(product = {}) {
   if (!product.sourceProductId) return 'Sin identificador'
   if (!name) return 'Sin nombre'
   if (invalidProductNamePattern.test(name)) return 'Promoción, envío u oferta no válida'
+  if (product.priceNormalization?.status && product.priceNormalization.status !== 'valid') {
+    return product.priceNormalization.reason || 'Precio pendiente de validación'
+  }
   if (price <= 0) return 'Sin precio válido'
   if (product.available === false) return 'Sin stock disponible'
   if (product.onlineOnly) return 'Exclusivo online'
@@ -542,6 +603,7 @@ export function parseDiscoProductDetailHtml(html = '') {
     source: 'disco',
     normalizeProduct: normalizeDiscoHtmlProduct,
     isValidProduct: isValidCommonProduct,
+    getInvalidReason: getCommonInvalidReason,
     extractProfile: (value, options) => extractGenericProductProfile(value, options),
     fallbackCategory: 'Disco',
   })
@@ -719,7 +781,10 @@ export async function fetchDiscoPreviewReport({ query = '', from = 0, to = 49 } 
 
 export async function fetchDiscoProductById(sourceProductId) {
   const params = new URLSearchParams({ fq: `productId:${sourceProductId}`, _from: '0', _to: '0' })
-  const response = await fetch(`${DISCO_API_URL}?${params}`)
+  const response = await fetch(`${DISCO_API_URL}?${params}`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(10000),
+  })
   if (!response.ok) throw new Error(`Disco respondió con HTTP ${response.status}`)
   const data = await response.json()
   const item = Array.isArray(data) ? data[0] : null

@@ -34,9 +34,18 @@ function createDatabase(products) {
 
       return {
         select() {
-          return {
-            eq: async () => ({ data: products, error: null }),
+          const query = {
+            eq() {
+              return query
+            },
+            order() {
+              return query
+            },
+            range(from, to) {
+              return Promise.resolve({ data: products.slice(from, to + 1), error: null })
+            },
           }
+          return query
         },
       }
     },
@@ -55,6 +64,7 @@ function productWithPrice(cashPrice) {
     name: 'Producto Disco',
     source: 'disco',
     source_product_id: 'source-1',
+    ean: '7791234567898',
     offers: [{ id: 'offer-1', supermarket: 'Disco', cash_price: cashPrice, list_price: null }],
   }
 }
@@ -65,7 +75,7 @@ function optionsFor(products, sourcePrice, additions = {}) {
   const promise = syncDiscoPrices({
     database: state.database,
     historyRecorder: async (entry) => history.push(entry),
-    fetchProductById: async () => ({ price: sourcePrice, available: true }),
+    fetchProductById: async () => ({ price: sourcePrice, available: true, ean: '7791234567898' }),
     ...additions,
   })
   return { ...state, history, promise }
@@ -83,7 +93,7 @@ test('rounds to cents before comparing to avoid no-op price updates', async () =
 
 test('syncs a promotional and regular price together', async () => {
   const state = optionsFor([productWithPrice(100)], 90, {
-    fetchProductById: async () => ({ price: 90, listPrice: 120, available: true }),
+    fetchProductById: async () => ({ price: 90, listPrice: 120, available: true, ean: '7791234567898' }),
   })
   const result = await state.promise
 
@@ -106,7 +116,7 @@ test('clears a stale regular price when the current Disco price is no longer pro
   const product = productWithPrice(100)
   product.offers[0].list_price = 120
   const state = optionsFor([product], 100, {
-    fetchProductById: async () => ({ price: 100, listPrice: 100, available: true }),
+    fetchProductById: async () => ({ price: 100, listPrice: 100, available: true, ean: '7791234567898' }),
   })
   const result = await state.promise
 
@@ -118,6 +128,65 @@ test('clears a stale regular price when the current Disco price is no longer pro
   assert.deepEqual(state.rpcCalls.map(({ name }) => name), ['apply_catalog_price_promotion_sync'])
   assert.equal(state.rpcCalls[0].args.p_promotion_updates[0].updatedListPrice, null)
   assert.equal(state.history.length, 0)
+})
+
+test('clears and reports an excessive source list price without changing the cash price', async () => {
+  const product = productWithPrice(1050)
+  product.offers[0].list_price = 86777
+  const listPriceWarning = {
+    reason: 'list_price_ratio_exceeds_limit',
+    cashPrice: 1050,
+    maximumRatio: 10,
+    rejectedPrices: [{ field: 'ListPrice', value: 86777, ratio: 82.64 }],
+  }
+  const state = optionsFor([product], 1050, {
+    fetchProductById: async () => ({
+      price: 1050,
+      listPrice: 0,
+      listPriceWarning,
+      available: true,
+      ean: '7791234567898',
+    }),
+  })
+  const result = await state.promise
+
+  assert.deepEqual(result.promotionsUpdated, [{
+    offerId: 'offer-1',
+    previousListPrice: 86777,
+    updatedListPrice: null,
+  }])
+  assert.equal(result.updated.length, 0)
+  assert.equal(result.listPriceWarnings.length, 1)
+  assert.equal(result.listPriceWarnings[0].reason, 'list_price_ratio_exceeds_limit')
+  assert.equal(state.rpcCalls[0].args.p_updates.length, 0)
+  assert.equal(state.rpcCalls[0].args.p_promotion_updates[0].updatedListPrice, null)
+  assert.equal(
+    state.rpcCalls[0].args.p_promotion_updates[0].listPriceWarning.rejectedPrices[0].value,
+    86777,
+  )
+})
+
+test('continues reporting an excessive source list price after the stored reference is cleared', async () => {
+  const state = optionsFor([productWithPrice(1050)], 1050, {
+    dryRun: true,
+    fetchProductById: async () => ({
+      price: 1050,
+      listPrice: 0,
+      listPriceWarning: {
+        reason: 'list_price_ratio_exceeds_limit',
+        cashPrice: 1050,
+        maximumRatio: 10,
+        rejectedPrices: [{ field: 'ListPrice', value: 86777, ratio: 82.64 }],
+      },
+      available: true,
+      ean: '7791234567898',
+    }),
+  })
+  const result = await state.promise
+
+  assert.equal(result.listPriceWarnings.length, 1)
+  assert.deepEqual(result.proposed.promotions, [])
+  assert.equal(state.rpcCalls.length, 0)
 })
 
 test('skips and reports suspicious upward changes instead of persisting inflated prices', async () => {
@@ -144,6 +213,14 @@ test('automatically corrects a prior 100x scale inflation from the authoritative
   assert.equal(state.logs[0].percentage, -99)
 })
 
+test('accepts the reviewed 89.47x Disco scale correction when the EAN matches', async () => {
+  const state = optionsFor([productWithPrice(85000)], 950)
+  const result = await state.promise
+
+  assert.equal(result.updated.length, 1)
+  assert.equal(result.updated[0].updatedCashPrice, 950)
+})
+
 test('corrects a Disco token-scale price when normal price changes move the ratio beyond five percent', async () => {
   const state = optionsFor([productWithPrice(285000)], 2700)
   const result = await state.promise
@@ -151,6 +228,85 @@ test('corrects a Disco token-scale price when normal price changes move the rati
   assert.equal(result.updated.length, 1)
   assert.equal(result.updated[0].updatedCashPrice, 2700)
   assert.equal(state.rpcCalls[0].args.p_updates[0].updatedCashPrice, 2700)
+})
+
+test('does not correct a scale price when the current source EAN conflicts', async () => {
+  const state = optionsFor([productWithPrice(85000)], 950, {
+    fetchProductById: async () => ({ price: 950, available: true, ean: '7790000000000' }),
+  })
+  const result = await state.promise
+
+  assert.equal(result.updated.length, 0)
+  assert.equal(result.identityMismatch[0].reason, 'ean_mismatch')
+  assert.deepEqual(state.visibilityUpdates, [{
+    values: { is_catalog_visible: false },
+    ids: ['offer-1'],
+  }])
+})
+
+test('dry-run reports proposed writes without making any database or cache changes', async () => {
+  let catalogChanges = 0
+  const state = optionsFor([productWithPrice(85000)], 950, {
+    dryRun: true,
+    onCatalogChange: () => { catalogChanges += 1 },
+    fetchProductById: async () => ({
+      price: 950,
+      listPrice: 1200,
+      available: true,
+      ean: '7791234567898',
+    }),
+  })
+  const result = await state.promise
+
+  assert.equal(result.dryRun, true)
+  assert.equal(result.scanned, 1)
+  assert.deepEqual(result.updated, [])
+  assert.equal(result.proposed.updates.length, 1)
+  assert.equal(result.proposed.updates[0].updatedCashPrice, 950)
+  assert.equal(result.proposed.promotions.length, 1)
+  assert.equal(result.proposed.promotions[0].expectedCashPrice, 950)
+  assert.equal(result.proposed.promotions[0].productEan, '7791234567898')
+  assert.equal(result.proposed.promotions[0].sourceEan, '7791234567898')
+  assert.equal(state.rpcCalls.length, 0)
+  assert.deepEqual(state.visibilityUpdates, [])
+  assert.equal(catalogChanges, 0)
+})
+
+test('dry-run records source fetch errors and continues the audit', async () => {
+  const state = optionsFor([productWithPrice(100)], 100, {
+    dryRun: true,
+    fetchProductById: async () => { throw new Error('source unavailable') },
+  })
+  const result = await state.promise
+
+  assert.equal(result.errors.length, 1)
+  assert.equal(result.errors[0].reason, 'source unavailable')
+  assert.equal(state.rpcCalls.length, 0)
+})
+
+test('loads every page when the Disco catalog exceeds the database page limit', async () => {
+  const products = Array.from({ length: 1001 }, (_, index) => ({
+    ...productWithPrice(100),
+    id: index + 1,
+    source_product_id: `source-${index + 1}`,
+    offers: [{
+      id: index + 1,
+      supermarket: 'Disco',
+      cash_price: 100,
+      list_price: null,
+      is_catalog_visible: true,
+    }],
+  }))
+  const state = optionsFor(products, 100, {
+    dryRun: true,
+    fetchProductById: async () => ({ price: 100, available: true, ean: '7791234567898' }),
+  })
+
+  const result = await state.promise
+
+  assert.equal(result.scanned, 1001)
+  assert.equal(result.unchanged.length, 1001)
+  assert.equal(state.rpcCalls.length, 0)
 })
 
 test('shares an active sync so concurrent callers cannot duplicate history writes', async () => {
@@ -179,6 +335,19 @@ test('does not remove an existing offer when Disco returns an invalid price', as
 
   assert.equal(result.unavailable[0].reason, 'invalid_price')
   assert.equal(state.rpcCalls.length, 0)
+})
+
+test('hides an offer when Disco marks it available but reports zero stock', async () => {
+  const state = optionsFor([productWithPrice(72)], null, {
+    fetchProductById: async () => ({ available: true, stock: 0 }),
+  })
+  const result = await state.promise
+
+  assert.equal(result.unavailable[0].reason, 'out_of_stock')
+  assert.deepEqual(state.visibilityUpdates, [{
+    values: { is_catalog_visible: false },
+    ids: ['offer-1'],
+  }])
 })
 
 test('hides an unavailable offer without deleting it and restores it when a valid price returns', async () => {
@@ -275,7 +444,11 @@ test('limits high-price verification to offers at or above the configured minimu
     minCurrentPrice: 50000,
     fetchProductById: async (id) => {
       fetchedIds.push(id)
-      return { price: id === 'source-1' ? 905.19 : 900, available: true }
+      return {
+        price: id === 'source-1' ? 905.19 : 900,
+        available: true,
+        ean: '7791234567898',
+      }
     },
   })
 

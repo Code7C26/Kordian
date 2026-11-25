@@ -1,3 +1,5 @@
+const { parseMonetaryAmount } = require('../priceNormalization')
+
 function extractJsonLdProductItems(html = '') {
   const text = String(html || '')
   const blocks = Array.from(text.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi))
@@ -11,22 +13,28 @@ function extractJsonLdProductItems(html = '') {
         const type = Array.isArray(item?.['@type']) ? item['@type'] : [item?.['@type'] || item?.type]
         if (!type.includes('Product')) continue
         const offers = Array.isArray(item.offers) ? item.offers : [item.offers]
-        const offer = offers.find((candidate) => Number(candidate?.price) > 0) || {}
+        const offer = offers.find((candidate) => (
+          parseMonetaryAmount(candidate?.price, { locale: 'numeric' }).status === 'valid'
+        )) || offers[0] || {}
+        const rawPrice = offer.price ?? item.price ?? item.lowPrice ?? item.priceSpecification?.price
+        const priceResult = parseMonetaryAmount(rawPrice, { locale: 'numeric' })
         const priceSpecifications = [
           ...(Array.isArray(offer.priceSpecification) ? offer.priceSpecification : [offer.priceSpecification]),
           ...(Array.isArray(item.priceSpecification) ? item.priceSpecification : [item.priceSpecification]),
         ]
-        const listPriceSpecification = priceSpecifications.find((specification) => (
-          /listprice/i.test(String(specification?.priceType || ''))
-          && Number(specification?.price) > 0
-        ))
-        const listPrice = Number(
-          listPriceSpecification?.price
-          || offer.listPrice
-          || item.listPrice
-          || item.list_price
-          || 0,
-        ) || null
+        const listPriceSpecification = priceSpecifications.find((specification) => {
+          const parsed = parseMonetaryAmount(specification?.price, { locale: 'numeric' })
+          return /listprice/i.test(String(specification?.priceType || ''))
+            && parsed.status === 'valid'
+        })
+        const rawListPrice = listPriceSpecification?.price
+          ?? offer.listPrice
+          ?? item.listPrice
+          ?? item.list_price
+        const listPriceResult = parseMonetaryAmount(rawListPrice, { locale: 'numeric', allowZero: true })
+        const listPrice = listPriceResult.status === 'valid' && listPriceResult.normalizedValue > 0
+          ? listPriceResult.normalizedValue
+          : null
         products.push({
           sourceProductId: String(item.productID || item.productId || item.sku || item.id || item.product_id || ''),
           sourceSku: String(item.sku || item.productID || item.productId || ''),
@@ -34,7 +42,16 @@ function extractJsonLdProductItems(html = '') {
           name: item.name || item.productName || '',
           brand: String(item.brand?.name || item.brand || item.brandName || ''),
           image: String(item.image || item.imageUrl || (Array.isArray(item.images) ? item.images[0] : '') || ''),
-          price: Number(offer.price || item.price || item.lowPrice || item.priceSpecification?.price || 0) || 0,
+          price: priceResult.status === 'valid' ? priceResult.normalizedValue : 0,
+          priceOriginal: rawPrice ?? null,
+          priceNormalization: {
+            status: priceResult.status,
+            originalValue: rawPrice ?? null,
+            normalizedValue: priceResult.normalizedValue,
+            method: priceResult.method,
+            reason: priceResult.reason,
+          },
+          priceEvidence: 'structured_data',
           listPrice,
           priceValidUntil: offer.priceValidUntil || null,
           available: offer.availability ?? item.availability ?? true,
@@ -59,8 +76,19 @@ function extractGenericProductProfile(html = '', { source = 'unknown' } = {}) {
   const productUrl = text.match(/https?:\/\/[^"'\s<>]+(?:\/producto\/|\/product\/)[^"'\s<>]+/i)?.[0]
   if (productUrl) profile.sourceUrl = productUrl
 
-  const price = text.match(/(?:"price"|data-price)\s*[:=]\s*["']?([0-9.,]+)/i)?.[1]
-  if (price) profile.price = Number(String(price).replace(/,/g, '')) || 0
+  const rawPrice = text.match(/(?:"price"|data-price)\s*[:=]\s*["']?([0-9.,]+)/i)?.[1]
+  if (rawPrice) {
+    const parsedPrice = parseMonetaryAmount(rawPrice, { locale: 'es-AR' })
+    profile.price = parsedPrice.status === 'valid' ? parsedPrice.normalizedValue : 0
+    profile.priceOriginal = rawPrice
+    profile.priceNormalization = {
+      status: parsedPrice.status,
+      originalValue: rawPrice,
+      normalizedValue: parsedPrice.normalizedValue,
+      method: parsedPrice.method,
+      reason: parsedPrice.reason,
+    }
+  }
 
   return profile
 }
@@ -69,6 +97,7 @@ function parseHtmlProductDetails(html = '', {
   source = 'unknown',
   normalizeProduct,
   isValidProduct,
+  getInvalidReason,
   isSerializableProduct = () => true,
   extractProfile = extractGenericProductProfile,
   normalizeSourceUrl = (value) => String(value || '').trim(),
@@ -104,7 +133,9 @@ function parseHtmlProductDetails(html = '', {
 
     const invalidReason = !isSerializableProduct(product)
       ? 'invalid_product_detail_payload'
-      : (!isValidProduct(product) ? 'invalid_product_contract' : null)
+      : (!isValidProduct(product)
+        ? (typeof getInvalidReason === 'function' ? getInvalidReason(product) : null) || 'invalid_product_contract'
+        : null)
     if (invalidReason) {
       discarded.push({ sourceProductId: product.sourceProductId || '', name: product.name || '', reason: invalidReason })
       continue

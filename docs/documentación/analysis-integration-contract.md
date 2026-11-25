@@ -34,6 +34,10 @@ This keeps CRUD endpoints compatible while providing a clear path to one server-
 
 The public product card opens `src/components/PriceExplanationModal.jsx` through the `ⓘ` action. This component only renders classification, confidence, scores, indicators, data quality, signals, and comparable references received from the backend.
 
+Analysis filters known scale artifacts from `priceHistory` without modifying raw `price_history` records. For `price_token_normalization`, it allows for 10% drift around a 100x scale mismatch and also compares against same-offer `disco_public_search` history within 30 days; other history sources retain the existing 5% tolerance. The `20261117_disco_price_scale_artifact_review.sql` migration keeps the matched source-row IDs and price snapshots in a service-role-only review table; it does not rewrite prices, offers, or history. The read-only `server/scripts/preflight_disco_price_scale_artifacts.sql` reports candidates and identity conflicts before applying it.
+
+The analysis rules version advances with this filter change so the normal startup refresh queue recalculates persisted `product_price_status` rows. The migration itself does not pause writers or directly update those status rows.
+
 Administrative mutations require the temporary Bearer token returned by `POST /login`; public catalog reads remain unauthenticated.
 
 Missing analysis details are represented as unavailable; they must not be rendered as zero counts or empty evidence. Current status and the old `price_analysis` snapshots are not equivalent: the current tables cannot reconstruct the deleted historical snapshots. The service role key is used only by the server and is never sent to the browser.

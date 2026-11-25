@@ -25,6 +25,27 @@ async function run() {
   assert.equal(isValidCommonProduct(product), true)
   assert.equal(getCommonInvalidReason(product), null)
 
+  const parsedPrice = createCommonProduct({
+    sourceProductId: 'disco-2',
+    name: 'Producto de prueba 500 g',
+    price: '1299.99',
+    available: true,
+  }, 'disco')
+  assert.equal(parsedPrice.price, 1299.99)
+  assert.equal(parsedPrice.priceOriginal, '1299.99')
+  assert.equal(parsedPrice.priceNormalization.method, 'dot-decimal')
+  assert.equal(parsedPrice.priceNormalization.normalizedValue, 1299.99)
+
+  const ambiguousPrice = createCommonProduct({
+    sourceProductId: 'carrefour-2',
+    name: 'Producto de prueba 500 g',
+    price: '1,299',
+    available: true,
+  }, 'carrefour')
+  assert.equal(ambiguousPrice.price, 0)
+  assert.equal(ambiguousPrice.priceNormalization.status, 'invalid')
+  assert.notEqual(getCommonInvalidReason(ambiguousPrice), null)
+
   const validation = validateImporterContract(mamiContract)
   assert.equal(validation.valid, true)
   assert.equal(validation.source, 'mami')

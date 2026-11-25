@@ -148,6 +148,7 @@ const {
   createPriceStatusRefreshQueue,
   buildCurrentPriceStatusRows,
   enqueueIncompletePriceStatuses,
+  enqueuePendingPriceScaleArtifactStatuses,
   saveCurrentPriceStatuses,
 } = require('./services/currentPriceStatus')
 const { createDurablePriceStatusRefreshQueue } = require('./services/durablePriceStatusQueue')
@@ -157,6 +158,10 @@ const {
   readLegacyComparableProducts,
 } = require('./services/freshPriceStatusAnalysis')
 const priceStatusRulesVersion = PRICE_STATUS_RULES_VERSION
+const priceStatusBootstrapScope = process.env.PRICE_STATUS_BOOTSTRAP_SCOPE || 'all'
+if (!['all', 'pending-scale-artifacts'].includes(priceStatusBootstrapScope)) {
+  throw new Error(`Unsupported PRICE_STATUS_BOOTSTRAP_SCOPE: ${priceStatusBootstrapScope}`)
+}
 const catalogSortVersion = '2026-10-26-global-sort-v1'
 const catalogPageCache = createCatalogPageCache()
 const productTranslationService = createProductTranslationService({
@@ -227,7 +232,12 @@ function requireAdmin(req, res, next) {
   })
 }
 
-const { parsePrice, normalizeNumericValue } = require('./priceNormalization')
+const {
+  classifyPriceVariation,
+  parseMonetaryAmount,
+  parsePrice,
+  normalizeNumericValue,
+} = require('./priceNormalization')
 
 function sameMoneyValue(first, second) {
   const firstPrice = Number(first)
@@ -242,6 +252,16 @@ function getRegularListPrice(item, cashPrice) {
   return Number.isFinite(listPrice) && listPrice > Number(cashPrice)
     ? Number(listPrice.toFixed(2))
     : null
+}
+
+function getPriceChangeReviewResult(currentPrice, referenceOffers = []) {
+  for (const offer of referenceOffers) {
+    const assessment = classifyPriceVariation(offer.cash_price, currentPrice)
+    if (assessment.status === 'requires_review') {
+      return { ...assessment, referenceOfferId: offer.id ?? null }
+    }
+  }
+  return null
 }
 
 function normalizeBrandName(value) {
@@ -1076,6 +1096,26 @@ app.post('/admin/import/carrefour/execute', requireAdmin, async (req, res) => {
         noWrites: true,
       })
     }
+    const scaleChangeWarnings = currentProducts.flatMap((item) => {
+      const match = findImportMatch(item)
+      if (match.ambiguous || !match.product) return []
+      const priceReview = getPriceChangeReviewResult(item.price, match.product.offers || [])
+      return priceReview
+        ? [{
+          sourceProductId: item.sourceProductId,
+          productId: match.product.id,
+          reason: `Variación de precio ${priceReview.ratio}x requiere revisión`,
+          priceReview,
+        }]
+        : []
+    })
+    if (scaleChangeWarnings.length) {
+      return res.status(409).json({
+        error: 'La importación contiene variaciones de precio de escala que requieren revisión; no se realizaron escrituras.',
+        priceWarnings: scaleChangeWarnings,
+        noWrites: true,
+      })
+    }
     if (req.body?.bulkRun === true) {
       const priceWarnings = currentProducts.flatMap((item) => {
         const match = findImportMatch(item)
@@ -1529,6 +1569,19 @@ app.post('/admin/import/mami/execute', requireAdmin, requireCatalogWritesFor('Ma
       if (existing) {
         if (sourceProductId) seenSourceProductIds.add(sourceProductId)
         const existingOffer = existing.offers?.find((offer) => offer.supermarket === 'Mami')
+        const priceReview = getPriceChangeReviewResult(
+          item.price,
+          existingOffer ? [existingOffer] : existing.offers || [],
+        )
+        if (priceReview) {
+          skipped.push({
+            sourceProductId,
+            productId: existing.id,
+            reason: `Variación de precio ${priceReview.ratio}x requiere revisión`,
+            priceReview,
+          })
+          continue
+        }
         if (existingOffer) {
           const sourceListPrice = getRegularListPrice(item, item.price)
           const nextListPrice = sourceListPrice === undefined ? existingOffer.list_price : sourceListPrice
@@ -1839,6 +1892,19 @@ app.post('/admin/import/disco', requireAdmin, requireCatalogWritesFor('Disco'), 
         }
         seenSourceProductIds.add(sourceProductId)
         const existingOffer = existing.offers?.find((offer) => offer.supermarket === 'Disco')
+        const priceReview = getPriceChangeReviewResult(
+          item.price,
+          existingOffer ? [existingOffer] : existing.offers || [],
+        )
+        if (priceReview) {
+          skipped.push({
+            sourceProductId: item.sourceProductId,
+            productId: existing.id,
+            reason: `Variación de precio ${priceReview.ratio}x requiere revisión`,
+            priceReview,
+          })
+          continue
+        }
         if (existingOffer) {
           const sourceListPrice = getRegularListPrice(item, item.price)
           const nextListPrice = sourceListPrice === undefined ? existingOffer.list_price : sourceListPrice
@@ -3828,7 +3894,15 @@ app.post('/offers', requireAdmin, requireCatalogWriteAllowedFromBody(), async (r
 
     if (!product_id) return res.status(400).json({ error: 'product_id is required' })
 
-    const normalizedCashPrice = normalizeNumericValue(cash_price)
+    const parsedCashPrice = parseMonetaryAmount(cash_price)
+    if (parsedCashPrice.status !== 'valid') {
+      return res.status(400).json({
+        error: parsedCashPrice.status === 'ambiguous'
+          ? 'El formato del precio contado es ambiguo'
+          : 'El precio contado debe ser un importe válido mayor que cero',
+      })
+    }
+    const normalizedCashPrice = parsedCashPrice.normalizedValue
     const normalizedInstallmentsQuantity = normalizeNumericValue(installments_quantity)
     const normalizedInstallmentPrice = normalizeNumericValue(installment_price)
 
@@ -3879,7 +3953,15 @@ app.put('/offers/:id', requireAdmin, requireOfferCatalogWrite, async (req, res) 
       skipPriceChangeRecording = false,
     } = req.body || {}
 
-    const normalizedCashPrice = normalizeNumericValue(cash_price)
+    const parsedCashPrice = parseMonetaryAmount(cash_price)
+    if (parsedCashPrice.status !== 'valid') {
+      return res.status(400).json({
+        error: parsedCashPrice.status === 'ambiguous'
+          ? 'El formato del precio contado es ambiguo'
+          : 'El precio contado debe ser un importe válido mayor que cero',
+      })
+    }
+    const normalizedCashPrice = parsedCashPrice.normalizedValue
     const normalizedInstallmentsQuantity = normalizeNumericValue(installments_quantity)
     const normalizedInstallmentPrice = normalizeNumericValue(installment_price)
 
@@ -6280,9 +6362,17 @@ if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.PRICE_STATUS_BOOTSTRAP_
   if (!checkAnalysisDetails) {
     console.info('Skipped analysis_details validation during price status bootstrap (PRICE_STATUS_BOOTSTRAP_CHECK_DETAILS=false)')
   }
-  enqueueIncompletePriceStatuses(analysisWriter, priceStatusQueue, undefined, {
+  const bootstrap = priceStatusBootstrapScope === 'pending-scale-artifacts'
+    ? enqueuePendingPriceScaleArtifactStatuses
+    : enqueueIncompletePriceStatuses
+  bootstrap(analysisWriter, priceStatusQueue, undefined, {
     checkDetails: checkAnalysisDetails,
   })
+    .then((queued) => {
+      if (priceStatusBootstrapScope === 'pending-scale-artifacts') {
+        console.info(`Queued ${queued} pending price scale artifact products for status refresh`)
+      }
+    })
     .catch((error) => console.error('Unable to queue missing or stale current price statuses', error))
 } else if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.info('Skipped initial price status refresh bootstrap (PRICE_STATUS_BOOTSTRAP_ENABLED=false)')

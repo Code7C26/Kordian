@@ -1,4 +1,5 @@
 const { isValidGtin } = require('./productIdentityAudit')
+const { parseMonetaryAmount } = require('../priceNormalization')
 
 const COMMON_IMPORTER_FIELDS = {
   source: 'source',
@@ -9,6 +10,9 @@ const COMMON_IMPORTER_FIELDS = {
   brand: 'brand',
   image: 'image',
   price: 'price',
+  priceOriginal: 'priceOriginal',
+  priceNormalization: 'priceNormalization',
+  priceEvidence: 'priceEvidence',
   listPrice: 'listPrice',
   available: 'available',
   stock: 'stock',
@@ -42,6 +46,19 @@ function normalizeBoolean(value) {
 
 function createCommonProduct(raw = {}, source = 'unknown') {
   const item = raw || {}
+  const priceLocale = item.priceLocale || (source === 'mami' ? 'es-AR' : 'numeric')
+  const parsedPrice = parseMonetaryAmount(item.price, { locale: priceLocale })
+  const priceNormalization = item.priceNormalization || {
+    status: parsedPrice.status,
+    originalValue: item.price ?? null,
+    normalizedValue: parsedPrice.normalizedValue,
+    method: parsedPrice.method,
+    reason: parsedPrice.reason,
+  }
+  const parsedListPrice = parseMonetaryAmount(
+    item.listPrice ?? item.ListPrice ?? item.list_price,
+    { locale: priceLocale, allowZero: true },
+  )
   const product = {
     source: String(item.source || source),
     sourceProductId: String(item.sourceProductId || item.productId || item.source_product_id || item.id || ''),
@@ -50,8 +67,13 @@ function createCommonProduct(raw = {}, source = 'unknown') {
     name: String(item.name || item.productName || item.title || ''),
     brand: String(item.brand || item.brandName || item.marca || ''),
     image: String(item.image || item.images?.[0]?.imageUrl || ''),
-    price: numeric(item.price),
-    listPrice: numeric(item.listPrice || item.ListPrice || item.list_price),
+    price: parsedPrice.status === 'valid' ? parsedPrice.normalizedValue : 0,
+    priceOriginal: item.priceOriginal ?? item.price ?? null,
+    priceNormalization,
+    priceEvidence: item.priceEvidence || null,
+    listPrice: parsedListPrice.status === 'valid' && parsedListPrice.normalizedValue > 0
+      ? parsedListPrice.normalizedValue
+      : null,
     available: typeof item.available === 'boolean' ? item.available : normalizeBoolean(item.available),
     stock: numeric(item.stock || item.quantity || item.AvailableQuantity),
     sourceCategory: item.sourceCategory || item.category || item.source_categories?.at(-1) || null,
@@ -83,6 +105,9 @@ function getCommonInvalidReason(product = {}, {
   if (!product.sourceProductId) return 'Sin identificador'
   if (!name) return 'Sin nombre'
   if (invalidProductNamePattern.test(name)) return 'Promoción, envío u oferta no válida'
+  if (product.priceNormalization?.status && product.priceNormalization.status !== 'valid') {
+    return product.priceNormalization.reason || 'Precio pendiente de validación'
+  }
   if (price <= 0) return 'Sin precio válido'
   if (product.available === false) return 'Sin stock disponible'
   if (product.onlineOnly) return 'Exclusivo online'

@@ -11,6 +11,7 @@ const {
   createPriceStatusQueueCapacityErrorPayload,
   isPriceStatusQueueCapacityError,
 } = require('./services/priceStatusQueueCapacityError')
+const { classifyPriceVariation } = require('./priceNormalization')
 
 const serverSource = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8')
 const paginationMigration = fs.readFileSync(
@@ -580,6 +581,7 @@ test('admin Disco import updates only the regular price without adding price his
     findCrossSourceProductMatch: () => null,
     buildDiscoProductTaxonomyFields: () => ({}),
     resolveCatalogClassification,
+    getPriceChangeReviewResult: () => null,
     recordPriceHistory: async (entry) => history.push(entry),
     assertCatalogWriteAllowed() {},
     createPriceStatusQueueErrorPayload,
@@ -621,6 +623,104 @@ test('admin Disco import updates only the regular price without adding price his
   }])
   assert.equal(history.length, 0)
   assert.equal(response.payload.updated.length, 1)
+})
+
+test('admin Disco import quarantines an extreme price change without writes', async () => {
+  const selectedProduct = {
+    sourceProductId: 'disco-existing-1',
+    name: 'Yogur',
+    price: 10000,
+    ean: '7790000000002',
+  }
+  const existingProduct = {
+    id: 101,
+    source: 'disco',
+    source_product_id: selectedProduct.sourceProductId,
+    ean: selectedProduct.ean,
+    offers: [{ id: 202, supermarket: 'Disco', cash_price: 100 }],
+  }
+  const writes = []
+  const database = {
+    from(table) {
+      return {
+        select() {
+          return this
+        },
+        then(resolve, reject) {
+          return Promise.resolve({
+            data: table === 'categories'
+              ? [{ id: 1, name: 'Almacén' }]
+              : [{ id: 2, name: 'Yogures', category_id: 1 }],
+            error: null,
+          }).then(resolve, reject)
+        },
+        update(payload) {
+          writes.push({ table, payload })
+          return { eq: async () => ({ error: null }) }
+        },
+        insert(payload) {
+          writes.push({ table, payload })
+          return { select() { return this }, single: async () => ({ data: { id: 303 }, error: null }) }
+        },
+      }
+    },
+  }
+  const route = vm.runInNewContext(
+    `(${extractRouteHandler(serverSource, 'post', '/admin/import/disco').toString()})`,
+    {
+      analysisWriter: database,
+      readAllRowsForImport: async () => ({ data: [], error: null }),
+      readAllProductsForImport: async () => ({ data: [existingProduct], error: null }),
+      isValidDiscoProduct: () => true,
+      buildCatalogTaxonomyExamples: () => [],
+      getDiscoProductClassification: () => ({
+        proposedCategory: 'Almacén',
+        proposedSubcategory: 'Yogures',
+      }),
+      suggestCatalogMapping: () => ({ status: 'determined', category: 'Almacén', subcategory: 'Yogures' }),
+      normalizeBrandName: (name) => String(name || '').trim().toLowerCase(),
+      findCrossSourceProductMatch: () => null,
+      buildDiscoProductTaxonomyFields: () => ({}),
+      resolveCatalogClassification,
+      classifyPriceVariation,
+      getPriceChangeReviewResult(currentPrice, offers = []) {
+        for (const offer of offers) {
+          const assessment = classifyPriceVariation(offer.cash_price, currentPrice)
+          if (assessment.status === 'requires_review') {
+            return { ...assessment, referenceOfferId: offer.id ?? null }
+          }
+        }
+        return null
+      },
+      recordPriceHistory: async () => assert.fail('Price history must not be written'),
+      assertCatalogWriteAllowed() {},
+      createPriceStatusQueueErrorPayload: () => null,
+      isPriceStatusQueueError: () => false,
+      createPriceStatusQueueCapacityErrorPayload,
+      isPriceStatusQueueCapacityError,
+      sameMoneyValue: (first, second) => Number(first) === Number(second),
+      invalidateCatalogPageCache() {},
+      invalidateAnalysisCache() {},
+      console,
+    },
+  )
+  const response = {
+    statusCode: 200,
+    json(payload) {
+      this.payload = payload
+      return this
+    },
+    status(code) {
+      this.statusCode = code
+      return this
+    },
+  }
+
+  await route({ body: { products: [selectedProduct] } }, response)
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.payload.skipped[0].priceReview.reason, 'scale_change_x100')
+  assert.deepEqual(writes, [])
 })
 
 test('admin Mami import updates its regular price without adding price history', async () => {
@@ -688,6 +788,7 @@ test('admin Mami import updates its regular price without adding price history',
     normalizeBrandName: (name) => String(name || '').trim().toLowerCase(),
     getRegularListPrice: (item, cashPrice) => item.listPrice > cashPrice ? item.listPrice : null,
     resolveCatalogClassification,
+    getPriceChangeReviewResult: () => null,
     sameMoneyValue: (first, second) => Number(first) === Number(second),
     assertCatalogWriteAllowed() {},
     recordPriceHistory: async (entry) => {
