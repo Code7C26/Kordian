@@ -1,6 +1,7 @@
 import { ArrowRight } from 'lucide-react';
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
-import brandLogo from '../../assets/Ar-Price/Logo_final.svg';
+import brandLogo from '../../assets/Ar-Price/Logo_arprice.png';
+import brandLogoDark from '../../assets/Ar-Price/Logo_arprice_dark.png';
 import { useLanguage } from '../contexts/LanguageContext.jsx';
 
 export function CategorySelectionPage({ categories, selectedCategory, onSelectCategory }) {
@@ -24,8 +25,9 @@ export function CategorySelectionPage({ categories, selectedCategory, onSelectCa
           ))}
         </div>
         <div className="mx-auto max-w-3xl text-center">
-          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white p-2 shadow-sm">
-            <img src={brandLogo} alt="AR-PRICE" className="h-full w-full object-contain" />
+          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white p-2 shadow-sm dark:bg-stone-900">
+            <img src={brandLogo} alt="AR-PRICE" className="h-full w-full object-contain dark:hidden" />
+            <img src={brandLogoDark} alt="" aria-hidden="true" className="hidden h-full w-full object-contain dark:block" />
           </div>
           <p className="mb-2 text-xs font-black uppercase tracking-[0.25em] text-sky-600 dark:text-sky-400">{t('Bienvenido a AR-PRICE')}</p>
           <h1 className="text-4xl font-black tracking-tight sm:text-5xl">{t('Elige un rubro para comparar')}</h1>

@@ -30,8 +30,8 @@ import { useLanguage } from '../contexts/LanguageContext.jsx';
 import { CITIES_LIST } from '../data/mockProducts.js'
 import ClearableSearchInput from './ClearableSearchInput.jsx'
 import { CategoryIconImage, getCategoryIconAsset } from '../utils/categoryIconAssets.jsx';
-import brandLogo from '../../assets/Ar-Price/Logo_final.svg';
-import brandLogoDark from '../../assets/Ar-Price/Logo_final_Negativo.svg';
+import brandLogo from '../../assets/Ar-Price/Logo_arprice.png';
+import brandLogoDark from '../../assets/Ar-Price/Logo_arprice_dark.png';
 
 const APP_DOWNLOAD_URL = 'https://github.com/Code7C26/Kordian/releases/latest/download/Ar-Price.apk'
 
