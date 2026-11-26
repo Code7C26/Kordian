@@ -28,3 +28,18 @@ test('filters Mami 1000x scale artifacts while retaining unrelated offers', () =
 
   assert.deepEqual(filterDisplayPriceHistory(history, offers), [history[1]])
 })
+
+test('filters a moderate-drift Disco scale artifact without hiding ordinary history', () => {
+  const history = [
+    { offerId: 5075, avgPrice: 95000, source: 'disco_public_search' },
+    { offerId: 5075, avgPrice: 1050, source: 'disco_sync' },
+    { offerId: 5075, avgPrice: 80000, source: 'disco_public_search' },
+    { offerId: 6060, avgPrice: 95000, source: 'other_store_history' },
+  ]
+  const offers = [
+    { id: 5075, price: 1050, supermarket: 'Disco' },
+    { id: 6060, price: 1050, supermarket: 'Carrefour' },
+  ]
+
+  assert.deepEqual(filterDisplayPriceHistory(history, offers), [history[1], history[2], history[3]])
+})

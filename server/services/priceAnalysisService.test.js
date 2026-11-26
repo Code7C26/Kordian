@@ -36,6 +36,77 @@ test('hidden offers do not contribute to current price analysis', async () => {
   assert.equal(result.indicators.market.minimum, 1500)
 })
 
+test('unverified product peers do not support an atypical price diagnosis', async () => {
+  const products = [
+    { id: 1, name: 'Sopapa Novica Turbo Cocina 500ml', category_id: 'home', subcategory_id: 'cleaning', offers: [{ id: 'target', supermarket: 'Disco', cash_price: 3000 }] },
+    ...[2, 3, 4].map((id) => ({
+      id,
+      name: `Producto de limpieza ${id} 500ml`,
+      category_id: 'home',
+      subcategory_id: 'cleaning',
+      offers: [{ id: `peer-${id}`, supermarket: 'Disco', cash_price: 1000 }],
+    })),
+  ]
+  const now = Date.now()
+  const history = [90, 60, 30, 1].map((days, index) => ({
+    offer_id: 'target',
+    cash_price: 1000 + (index * 100),
+    observed_at: new Date(now - (days * 24 * 60 * 60 * 1000)).toISOString(),
+  }))
+
+  const [comparables, analysis, status] = await Promise.all([
+    import('../../src/utils/comparableProducts.js'),
+    import('../../src/utils/priceAnalysis.js'),
+    import('../../src/utils/priceStatus.js'),
+  ])
+  const classifications = new Map(products.map((product) => [String(product.id), { type: 'Producto' }]))
+  const productIndex = comparables.createComparableProductIndex(products, classifications)
+  const result = await analyzeProduct(products[0], products, history, 'Limpieza', {
+    comparables,
+    analysis,
+    status,
+    classifications,
+    productIndex,
+  })
+
+  assert.equal(result.references.referenceGroup, 'product_peers')
+  assert.equal(result.references.references.length, 3)
+  assert.equal(result.dataQuality.comparables, 0)
+  assert.equal(result.indicators.signals.some(({ id }) => id === 'peer_high'), false)
+  assert.equal(result.classification, 'INFORMACION_INSUFICIENTE')
+})
+
+test('verified same-product references remain usable as price evidence', async () => {
+  const products = [
+    { id: 1, name: 'Producto 500ml', category_id: 'home', subcategory_id: 'cleaning', comparable_group_id: 'same-product', offers: [{ id: 'target', supermarket: 'Disco', cash_price: 3000 }] },
+    ...[2, 3, 4].map((id) => ({
+      id,
+      name: `Producto ${id} 500ml`,
+      category_id: 'home',
+      subcategory_id: 'cleaning',
+      comparable_group_id: 'same-product',
+      offers: [{ id: `peer-${id}`, supermarket: 'Disco', cash_price: 1000 }],
+    })),
+  ]
+  const [comparables, analysis, status] = await Promise.all([
+    import('../../src/utils/comparableProducts.js'),
+    import('../../src/utils/priceAnalysis.js'),
+    import('../../src/utils/priceStatus.js'),
+  ])
+  const classifications = new Map(products.map((product) => [String(product.id), { type: 'Producto' }]))
+  const productIndex = comparables.createComparableProductIndex(products, classifications)
+  const result = await analyzeProduct(products[0], products, [], 'Limpieza', {
+    comparables,
+    analysis,
+    status,
+    classifications,
+    productIndex,
+  })
+
+  assert.equal(result.dataQuality.comparables, 3)
+  assert.ok(result.indicators.signals.some(({ id }) => id === 'peer_high'))
+})
+
 test('excludes known 100x Disco scale artifacts from current-price analysis history', () => {
   const product = {
     offers: [{ id: 'disco-offer', supermarket: 'Disco', cash_price: 8613 }],
@@ -47,6 +118,20 @@ test('excludes known 100x Disco scale artifacts from current-price analysis hist
   ]
 
   assert.deepEqual(filterKnownPriceScaleArtifacts(history, product), [history[0], history[2]])
+})
+
+test('excludes Disco history artifacts with moderate drift while retaining ordinary prices', () => {
+  const product = {
+    source: 'disco',
+    offers: [{ id: 'disco-offer', supermarket: 'Disco', cash_price: 1050 }],
+  }
+  const history = [
+    { offer_id: 'disco-offer', cash_price: 95000, source: 'disco_public_search' },
+    { offer_id: 'disco-offer', cash_price: 1050, source: 'disco_sync' },
+    { offer_id: 'disco-offer', cash_price: 80000, source: 'disco_public_search' },
+  ]
+
+  assert.deepEqual(filterKnownPriceScaleArtifacts(history, product), [history[1], history[2]])
 })
 
 test('hidden offers do not hide historical scale artifacts', () => {

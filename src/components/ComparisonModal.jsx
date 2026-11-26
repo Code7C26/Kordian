@@ -93,7 +93,6 @@ export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, 
     promotionKey
     && (activePromotionCheck.status !== 'ready' || activePromotionCheck.promotion?.conditionsVerified === false),
   );
-  const promotionWarning = activePromotionCheck.promotion && !activePromotionCheck.promotion.conditionsVerified;
   const rawHistory = Array.isArray(product.priceHistory) ? product.priceHistory : [];
   const history = filterDisplayPriceHistory(rawHistory, sortedStores);
   const hasFilteredHistory = history.length !== rawHistory.length;
@@ -223,23 +222,6 @@ export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, 
               <Store className="w-4 h-4 text-sky-600 dark:text-sky-400" />
               <span>{t('Comparador de Precios por Tienda')}</span>
             </h3>
-            {promotionKey && activePromotionCheck.status === 'loading' && (
-              <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                {t('Verificando la promoción de Disco. Se ocultan las diferencias hasta confirmar sus condiciones.')}
-              </p>
-            )}
-            {promotionKey && activePromotionCheck.status === 'error' && (
-              <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                {t('No se pudo verificar la promoción de Disco. No indicamos un comercio más barato.')}
-              </p>
-            )}
-            {promotionWarning && (
-              <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                {t('Disco publica un precio promocional de')} {formatCurrency(activePromotionCheck.promotion.promotionPrice)}
-                {' '}{t('y un precio de referencia de')} {formatCurrency(activePromotionCheck.promotion.referencePrice)}.
-                {' '}{t('Las condiciones de compra no están verificadas; no se declara un ganador.')}
-              </p>
-            )}
             <div className="space-y-2.5">
               {displayStores.map((store, index) => {
                 const hasComparison = displayStores.length > 1 && !promotionConditionsUnknown;
@@ -280,8 +262,12 @@ export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, 
                       <div className="flex items-center gap-3">
                         <div className="text-right">
                           {discoPriceUnavailable
-                            ? <span role="status" className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                              {t(activePromotionCheck.status === 'loading' ? 'Verificando precio de Disco...' : 'Precio no verificado')}
+                            ? <span
+                              role="status"
+                              aria-label={t(activePromotionCheck.status === 'loading' ? 'Verificando precio de Disco...' : 'Precio no verificado')}
+                              className="text-xl font-black text-stone-900 dark:text-white"
+                            >
+                              —
                             </span>
                             : <>
                               {Number(store.listPrice) > Number(store.price) && (

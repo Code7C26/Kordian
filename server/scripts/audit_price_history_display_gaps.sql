@@ -55,6 +55,9 @@ classified_history AS (
     history.*,
     CASE
       WHEN history.history_source = 'price_token_normalization' THEN 'suppressed_token_normalization'
+      WHEN history.supermarket = 'Disco'
+        AND history.history_to_current_ratio BETWEEN 85 AND 110
+      THEN 'suppressed_scale_artifact'
       WHEN history.history_to_current_ratio BETWEEN 95 AND 105
         OR history.history_to_current_ratio BETWEEN 1.0 / 105 AND 1.0 / 95
         OR history.history_to_current_ratio BETWEEN 950 AND 1050

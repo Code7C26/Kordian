@@ -338,8 +338,9 @@ Ejecutar en el SQL Editor de Supabase, en este orden:
 1. `20261008_product_price_status.sql`
 2. `20261010_price_status_dependencies.sql`
 3. `20261012_price_status_analysis_details.sql`
-4. `20261124_price_status_pending_fingerprint.sql` antes de desplegar
-   `PRICE_STATUS_RULES_VERSION=2026-11-24-v3`.
+4. `20261124_price_status_pending_fingerprint.sql`
+5. `20261125_disco_price_scale_artifact_summary.sql` antes de desplegar
+   `PRICE_STATUS_RULES_VERSION=2026-11-25-v5`.
 
 La API guarda la clasificación actual y una huella de los precios y comparables
 usados. Solo reemplaza una fila cuando cambia esa huella o la versión de las
@@ -406,7 +407,20 @@ antes de cambiar su estado.
 Para refrescar solo los productos pendientes, configurar
 `PRICE_STATUS_BOOTSTRAP_SCOPE=pending-scale-artifacts` con la tabla instalada y
 `PRICE_STATUS_BOOTSTRAP_ENABLED` distinto de `false`. La versión vigente de
-reglas es `2026-11-24-v3`. Verificar el estado después de aplicar:
+reglas es `2026-11-25-v5`. El despliegue de esta versión usa
+`PRICE_STATUS_BOOTSTRAP_SCOPE=all` para recalcular los estados persistidos con
+el nuevo filtro de escala. Después del bootstrap, verificar la versión:
+
+```sql
+select rules_version, count(*) as products
+from public.product_price_status
+group by rules_version
+order by rules_version;
+```
+
+Y ejecutar `../scripts/audit_price_history_display_gaps.sql` para revisar
+integridad del historial visible. Las decisiones de revisión siguen pendientes
+hasta que se revisen explícitamente; el refresco del estado no las confirma.
 
 ```sql
 select decision, count(*) as rows, count(distinct product_id) as products
