@@ -1,6 +1,6 @@
 const crypto = require('node:crypto')
 
-const PRICE_STATUS_RULES_VERSION = '2026-11-24-v3'
+const PRICE_STATUS_RULES_VERSION = '2026-11-25-v5'
 const PRICE_STATUS_BATCH_SIZE = 100
 const PRICE_STATUS_REFRESH_RETRY_DELAY_MS = 60 * 1000
 

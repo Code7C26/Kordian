@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Flag, Heart, ShoppingBag } from 'lucide-react';
+import { BarChart3, Flag, Heart, ShoppingBag } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { ProductImage } from './ProductImage';
@@ -136,23 +136,19 @@ export function ProductCard({
         </div>
 
         <div className="bg-stone-50 dark:bg-stone-900/60 p-3 rounded-xl border border-stone-200/50 dark:border-stone-800/80 space-y-1">
-          {isInflated && sortedStores.length === 1 && (
-            <p className="flex items-start gap-1.5 text-[11px] font-semibold leading-4 text-amber-700 dark:text-amber-300">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Precio atípico sin otra oferta para comparar; verifica con el comercio.
+          {!discoPriceUnavailable && Number(primaryOffer?.listPrice) > Number(primaryOffer?.price) && (
+            <p className="text-xs text-stone-500 line-through">
+              {t('Precio regular:')} {formatCurrency(primaryOffer.listPrice)}
             </p>
           )}
-          {discoPriceUnavailable
-            ? <p role="status" className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-              {t(product.discoPromotionStatus === 'loading' ? 'Verificando precio de Disco...' : 'Precio no verificado')}
-            </p>
-            : Number(primaryOffer?.listPrice) > Number(primaryOffer?.price) && (
-              <p className="text-xs text-stone-500 line-through">
-                {t('Precio regular:')} {formatCurrency(primaryOffer.listPrice)}
-              </p>
-            )}
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-black text-stone-900 dark:text-white tracking-tight">
+            <span
+              className="text-2xl font-black text-stone-900 dark:text-white tracking-tight"
+              role={discoPriceUnavailable ? 'status' : undefined}
+              aria-label={discoPriceUnavailable
+                ? t(product.discoPromotionStatus === 'loading' ? 'Verificando precio de Disco...' : 'Precio no verificado')
+                : undefined}
+            >
               {discoPriceUnavailable ? '—' : formatCurrency(primaryOffer?.price || product.currentPrice)}
             </span>
             {!discoPriceUnavailable && <SupermarketLogo
@@ -161,13 +157,6 @@ export function ProductCard({
               className="h-8 max-w-[38%]"
             />}
           </div>
-          {!discoPriceUnavailable
-            && String(primaryOffer?.supermarket || '').trim().toLowerCase() === 'disco'
-            && product.discoPromotion?.conditionsVerified === false && (
-              <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
-                {t('Condiciones de Disco sin verificar')}
-              </p>
-            )}
         </div>
 
         <div className="grid grid-cols-2 gap-2 pt-1">

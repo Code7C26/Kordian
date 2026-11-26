@@ -24,6 +24,7 @@ function filterKnownPriceScaleArtifacts(history, product) {
   const mamiPrices = new Map((product.offers || [])
     .filter((offer) => offer.is_catalog_visible !== false && offer.supermarket === 'Mami')
     .map((offer) => [String(offer.id), normalizeDiscoStoredPrice(offer.cash_price, product.source)]))
+  const discoOfferIds = new Set(discoPrices.keys())
   const currentPrices = new Map([...discoPrices, ...mamiPrices])
   const publicSearchPrices = new Map()
   for (const point of history) {
@@ -45,6 +46,11 @@ function filterKnownPriceScaleArtifacts(history, product) {
 
     const historicalPrice = normalizeDiscoStoredPrice(point.cash_price, product.source)
     if (!historicalPrice || historicalPrice <= 0) return true
+
+    const offerId = String(point.offer_id)
+    if (discoOfferIds.has(offerId)
+      && historicalPrice > currentPrice
+      && isScaleArtifactRatio(historicalPrice, currentPrice, 85, 110)) return false
 
     const [minimumScaleRatio, maximumScaleRatio] = point.source === PRICE_TOKEN_NORMALIZATION_SOURCE
       ? [90, 110]
@@ -132,6 +138,7 @@ async function analyzeProduct(product, products = [], history = [], categoryName
   const { comparables, analysis, status, classifications, productIndex } = analysisContext
   const classification = classifications.get(String(product.id))
   const references = comparables.findComparableReferences(product, products, classifications, productIndex)
+  const trustedReferenceCount = references.references.filter((reference) => reference.identityMatch).length
   const relevantHistory = filterKnownPriceScaleArtifacts(history, product)
     .map((point) => ({
       ...point,
@@ -151,7 +158,7 @@ async function analyzeProduct(product, products = [], history = [], categoryName
     offers,
     currentPrice,
     inflationRate: status.getCategoryInflationRate(categoryName),
-    comparableCount: references.references.length,
+    comparableCount: trustedReferenceCount,
   })
   const historicalAverage = behavior.previousPrice || 0
   const marketAverage = behavior.market.median || behavior.market.average || 0
@@ -169,12 +176,13 @@ async function analyzeProduct(product, products = [], history = [], categoryName
     inflationRate: status.getCategoryInflationRate(categoryName),
     recentDifference: behavior.recentVariation,
     peerDifference: references.referencePrice && normalizedCurrentPrice
+      && trustedReferenceCount > 0
       ? ((normalizedCurrentPrice - references.referencePrice) / references.referencePrice) * 100
       : null,
     dataPoints: relevantHistory.length,
     analysis: behavior,
     supermarketCount,
-    comparableCount: references.references.length,
+    comparableCount: trustedReferenceCount,
   })
   const pricePeriods = buildPricePeriods(relevantHistory)
   const populatedPeriods = pricePeriods.filter((period) => period.recordCount > 0).length
