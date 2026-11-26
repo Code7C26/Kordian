@@ -22,8 +22,8 @@ import { filterProductOffers, getProductPrice } from './utils/productOffers.js';
 import { applyDiscoPromotionToProduct } from './utils/discoPromotionDisplay.js';
 import { fetchDiscoPromotions } from './services/discoPromotionApi.js';
 import { Heart, Search, SlidersHorizontal, ChevronRight, RotateCcw, ArrowLeft, Tag, ThumbsUp, AlertTriangle, Loader2, ChevronDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUpWideNarrow, Percent } from 'lucide-react';
-import brandLogo from '../assets/Ar-Price/Logo_final.svg';
-import brandLogoDark from '../assets/Ar-Price/Logo_final_Negativo.svg';
+import brandLogo from '../assets/Ar-Price/Logo_arprice.png';
+import brandLogoDark from '../assets/Ar-Price/Logo_arprice_dark.png';
 import LoginRequiredNotice from './components/LoginRequiredNotice.jsx'
 
 const ReportPriceModal = lazy(() => import('./components/ReportPriceModal.jsx').then((module) => ({ default: module.ReportPriceModal })));
