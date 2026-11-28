@@ -477,6 +477,7 @@ const translations = {
   'Cargando direcciones…': 'Loading addresses…',
   'No hay direcciones registradas para este comercio en la ubicación seleccionada.': 'No branch addresses are registered for this store in the selected location.',
   'No se pudieron cargar las direcciones. Intenta nuevamente.': 'Could not load addresses. Please try again.',
+  'Las direcciones muestran sucursales del comercio; la disponibilidad del producto debe confirmarse en el local.': 'These addresses show store branches; product availability should be confirmed with the store.',
   'Inicia sesión para guardar favoritos en tu cuenta.': 'Sign in to save favorites to your account.',
   'Explorar productos': 'Browse products',
   'No hay productos disponibles con estos filtros.': 'No products match these filters.',

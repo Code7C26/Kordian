@@ -28,6 +28,19 @@ test('includes and sorts the primary and alternative store offers', () => {
   assert.deepEqual(offers.map((offer) => offer.price), [2990, 3490])
 })
 
+test('normalizes offers from the raw favorites catalog response', () => {
+  const offers = getProductOffers({
+    offers: [
+      { id: 2, cash_price: 2400, list_price: 2800, supermarket: 'Disco' },
+      { id: 1, cash_price: 2200, supermarket: 'Mami' },
+    ],
+  })
+
+  assert.deepEqual(offers.map((offer) => offer.supermarket), ['Mami', 'Disco'])
+  assert.deepEqual(offers.map((offer) => offer.price), [2200, 2400])
+  assert.equal(offers[1].listPrice, 2800)
+})
+
 test('ignores offers without a valid price or store', () => {
   const offers = getProductOffers({
     primaryStore: { id: 1, name: 'Mami' },

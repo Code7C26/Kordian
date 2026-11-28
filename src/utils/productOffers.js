@@ -56,8 +56,13 @@ export function getProductOffers(product = {}) {
         supermarket: primaryStore.name,
       }
     : null)
+  const offers = Array.isArray(product.otherStores)
+    ? [primaryOffer, ...product.otherStores]
+    : Array.isArray(product.offers)
+      ? product.offers
+      : [primaryOffer]
 
-  return filterProductOffers(product, [primaryOffer, ...(Array.isArray(product.otherStores) ? product.otherStores : [])])
+  return filterProductOffers(product, offers)
     .filter((offer) => {
       const price = Number(offer?.price ?? offer?.cash_price ?? offer?.cashPrice ?? 0)
       const supermarket = String(
@@ -68,6 +73,7 @@ export function getProductOffers(product = {}) {
     .map((offer) => ({
       ...offer,
       price: Number(offer.price ?? offer.cash_price ?? offer.cashPrice),
+      listPrice: Number(offer.listPrice ?? offer.list_price ?? 0) || null,
       supermarket: offer.supermarket || offer.supermarket_name || offer.storeName || offer.name,
     }))
     .sort((first, second) => first.price - second.price)

@@ -30,6 +30,7 @@ const ReportPriceModal = lazy(() => import('./components/ReportPriceModal.jsx').
 const ComparisonModal = lazy(() => import('./components/ComparisonModal.jsx').then((module) => ({ default: module.ComparisonModal })));
 const SmartBasketModal = lazy(() => import('./components/SmartBasketModal.jsx').then((module) => ({ default: module.SmartBasketModal })));
 const PriceExplanationModal = lazy(() => import('./components/PriceExplanationModal.jsx'));
+const FavoritesPage = lazy(() => import('./pages/FavoritesPage.jsx'));
 
 const SEARCH_DEBOUNCE_MS = 180;
 const CATEGORIES_URL = apiUrl('/categories')
@@ -196,6 +197,7 @@ export default function App() {
   const catalogReferenceCache = useRef(null)
   const catalogTotalRequest = useRef(null)
   const discoPromotionRequestId = useRef(0)
+  const handledComparisonNavigationKey = useRef(null)
   const lastCatalogRefreshKey = useRef(catalogRefreshKey)
   const analysisCache = useRef(new Map())
   const analysisRequests = useRef(new Map())
@@ -227,6 +229,7 @@ export default function App() {
   const [favoriteActionError, setFavoriteActionError] = useState('');
 
   const [selectedProductForComparison, setSelectedProductForComparison] = useState(null);
+  const [comparisonReturnPath, setComparisonReturnPath] = useState(null);
   const [selectedProductForExplanation, setSelectedProductForExplanation] = useState(null);
   const [basketOpen, setBasketOpen] = useState(false);
   const [loginNotice, setLoginNotice] = useState(null);
@@ -318,6 +321,25 @@ export default function App() {
         : { ...previous, ...routeFilters }
     ))
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    const product = location.state?.compareProduct
+    if (!product || handledComparisonNavigationKey.current === location.key) return
+
+    handledComparisonNavigationKey.current = location.key
+    setComparisonReturnPath(location.state?.comparisonReturnTo === '/favoritos'
+      ? '/favoritos'
+      : null)
+    setSelectedProductForComparison(product)
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, [location.key, location.pathname, location.search, location.state, navigate])
+
+  const closeComparison = () => {
+    setSelectedProductForComparison(null)
+    const returnPath = comparisonReturnPath
+    setComparisonReturnPath(null)
+    if (returnPath) navigate(returnPath, { replace: true })
+  }
 
   const favoriteIdsKey = favoritesOnlyView ? favorites.join(',') : ''
 
@@ -442,12 +464,35 @@ export default function App() {
                 signal: controller.signal,
                 ttlMs: 300_000,
               })
+          const supermarketsPromise = catalogReferenceCache.current
+            ? Promise.resolve(catalogReferenceCache.current.supermarkets)
+            : fetchCachedCatalogResponse(apiUrl('/supermarkets'), {
+                signal: controller.signal,
+                ttlMs: 300_000,
+              }).catch((error) => {
+                if (error.name !== 'AbortError') {
+                  console.error('Error loading supermarkets for price reports', error)
+                }
+                return null
+              })
 
-          const categoriesData = await categoriesPromise
+          const [categoriesData, supermarketsData] = await Promise.all([
+            categoriesPromise,
+            supermarketsPromise,
+          ])
           if (!mounted) return
           const nextCategories = Array.isArray(categoriesData) ? categoriesData : []
           storeCategories(CATEGORIES_URL, nextCategories)
           setCategories(nextCategories)
+          if (Array.isArray(supermarketsData)) {
+            setStoresList(supermarketsData
+              .filter((supermarket) => supermarket?.name?.trim())
+              .map((supermarket) => ({
+                id: supermarket.id || supermarket.name,
+                name: supermarket.name.trim(),
+                image: supermarket.image || '',
+              })))
+          }
           return
         }
 
@@ -890,6 +935,28 @@ export default function App() {
     () => filteredProducts,
     [filteredProducts],
   );
+  const prefetchProductPage = (page) => {
+    if (page < 1 || page > totalPages || Math.abs(page - productsPage) !== 1) return
+    const query = buildProductsQuery({
+      page,
+      limit: productsPageSize,
+      searchQuery: filters.searchQuery,
+      category: filters.category,
+      subcategory: filters.subcategory,
+      store: filters.store,
+      status: filters.priceStatus,
+      sortBy,
+      favoritesOnly: favoritesOnlyView,
+      favoriteIds: favoriteIdsKey ? favoriteIdsKey.split(',') : [],
+      maxPrice: filters.maxPrice,
+    })
+    fetchCachedCatalogResponse(apiUrl(`/products?${query.toString()}`))
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          console.error('Could not prefetch an adjacent catalog page', { page, error })
+        }
+      })
+  }
 
   useEffect(() => {
     if (productsPage > totalPages) {
@@ -912,6 +979,32 @@ export default function App() {
     selectedProductForComparison,
     products,
   );
+  const comparisonModal = comparisonProduct && (
+    <Suspense fallback={null}>
+      <ComparisonModal
+        product={comparisonProduct}
+        stores={storesList}
+        analysisLoadState={analysisLoadState}
+        onClose={closeComparison}
+        onAddToBasket={addToBasket}
+        onRemoveFromBasket={removeBasketUnit}
+        getBasketQuantity={getBasketQuantity}
+        isInBasket={basket.some((item) => item.product.id === comparisonProduct.id)}
+        onExplain={(product) => setSelectedProductForExplanation(product)}
+      />
+    </Suspense>
+  );
+
+  if (comparisonReturnPath === '/favoritos') {
+    return (
+      <>
+        <Suspense fallback={null}>
+          <FavoritesPage />
+        </Suspense>
+        {comparisonModal}
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
@@ -1317,6 +1410,8 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-center gap-2 pt-4">
                   <button
                     type="button"
+                    onPointerEnter={() => prefetchProductPage(productsPage - 1)}
+                    onFocus={() => prefetchProductPage(productsPage - 1)}
                     onClick={() => setProductsPage((page) => Math.max(1, page - 1))}
                     disabled={productsPage === 1}
                     className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
@@ -1327,6 +1422,8 @@ export default function App() {
                     <button
                       key={page}
                       type="button"
+                      onPointerEnter={() => prefetchProductPage(page)}
+                      onFocus={() => prefetchProductPage(page)}
                       onClick={() => setProductsPage(page)}
                       className={`min-w-10 rounded-lg border px-3 py-2 text-xs font-bold ${productsPage === page ? 'border-sky-600 bg-sky-600 text-white' : 'border-stone-200 bg-white text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200'}`}
                     >
@@ -1335,6 +1432,8 @@ export default function App() {
                   ))}
                   <button
                     type="button"
+                    onPointerEnter={() => prefetchProductPage(productsPage + 1)}
+                    onFocus={() => prefetchProductPage(productsPage + 1)}
                     onClick={() => setProductsPage((page) => Math.min(totalPages, page + 1))}
                     disabled={productsPage === totalPages}
                     className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
@@ -1377,20 +1476,7 @@ export default function App() {
         </div>
       </footer>
 
-      {comparisonProduct && (
-        <Suspense fallback={null}>
-          <ComparisonModal
-            product={comparisonProduct}
-            analysisLoadState={analysisLoadState}
-            onClose={() => setSelectedProductForComparison(null)}
-            onAddToBasket={addToBasket}
-            onRemoveFromBasket={removeBasketUnit}
-            getBasketQuantity={getBasketQuantity}
-            isInBasket={basket.some((i) => i.product.id === comparisonProduct.id)}
-            onExplain={(p) => setSelectedProductForExplanation(p)}
-          />
-        </Suspense>
-      )}
+      {comparisonModal}
 
       {selectedProductForExplanation && (
         <Suspense fallback={null}>

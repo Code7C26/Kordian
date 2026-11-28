@@ -6,6 +6,22 @@ function normalizeProductName(value) {
     .trim()
 }
 
+export async function fetchSharedListCatalogWithFallback(searchRequest, catalogRequest) {
+  try {
+    return await searchRequest()
+  } catch (error) {
+    if (error?.status !== 404) throw error
+    return catalogRequest()
+  }
+}
+
+export function needsSharedListCatalogData(item) {
+  return !item.hasCatalogMatch
+    || !item.hasImage
+    || !item.hasCurrentPrice
+    || !item.hasSupermarket
+}
+
 export function findSharedListCatalogProduct(products, { productId, itemName }) {
   const candidates = Array.isArray(products) ? products : []
   if (productId) {
