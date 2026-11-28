@@ -9,8 +9,10 @@ import { CATALOG_REQUEST_TIMEOUT_MS, fetchCachedCatalogResponse } from '../servi
 import { getSearchRelevance, normalizeSearchText } from '../utils/searchTerms.js'
 import {
   attachSharedListSearchSupermarkets,
+  fetchSharedListCatalogWithFallback,
   findSharedListCatalogProduct,
   getSharedListFallbackSearchTerms,
+  needsSharedListCatalogData,
   normalizeSharedListSearchResults,
 } from '../utils/sharedListProductSearch.js'
 import { filterProductOffers } from '../utils/productOffers.js'
@@ -22,6 +24,25 @@ import LoginRequiredNotice from '../components/LoginRequiredNotice.jsx'
 const ITEM_SEARCH_LIMIT = 20
 const ITEM_SEARCH_MIN_LENGTH = 2
 const ITEM_SEARCH_DEBOUNCE_MS = 150
+
+async function fetchSharedListCatalogSearch(query, signal) {
+  const params = new URLSearchParams({
+    page: '1',
+    limit: String(ITEM_SEARCH_LIMIT),
+    search: query,
+    catalogOnly: 'false',
+  })
+  const requestOptions = {
+    signal,
+    timeoutMs: CATALOG_REQUEST_TIMEOUT_MS,
+    fetchImpl: customerApiFetch,
+  }
+  const payload = await fetchSharedListCatalogWithFallback(
+    () => fetchCachedCatalogResponse(apiUrl(`/products/search?${params.toString()}`), requestOptions),
+    () => fetchCachedCatalogResponse(apiUrl(`/products?${params.toString()}`), requestOptions),
+  )
+  return Array.isArray(payload) ? payload : payload?.data || []
+}
 
 function getProductOffers(product = {}) {
   const offers = Array.isArray(product.offers) ? product.offers : []
@@ -170,7 +191,6 @@ export default function SharedListsPage() {
     hasImage: Boolean(getProductImage(item.product || {})),
     hasCurrentPrice: getProductPrice(item.product || {}) > 0,
     hasSupermarket: Boolean(getProductSupermarket(item.product || {})),
-    hasSupermarketImage: Boolean(item.product?.supermarketImage),
   })))
   const translateProductName = useProductNameTranslator([
     ...(selectedList?.items || []).map((item) => catalogProductsByItemId[item.id]?.name || item.product?.name || item.item_name),
@@ -184,13 +204,7 @@ export default function SharedListsPage() {
 
   useEffect(() => {
     const itemsNeedingCatalogData = JSON.parse(itemLookupKey)
-      .filter((item) => (
-        !item.hasCatalogMatch
-        || !item.hasImage
-        || !item.hasCurrentPrice
-        || !item.hasSupermarket
-        || !item.hasSupermarketImage
-      ))
+      .filter(needsSharedListCatalogData)
     if (!selectedList?.id || !itemsNeedingCatalogData.length) return undefined
 
     const controller = new AbortController()
@@ -212,10 +226,6 @@ export default function SharedListsPage() {
         requestedItemLookups.current.add(lookupKey)
 
         const query = item.itemName
-        const params = new URLSearchParams({
-          limit: String(ITEM_SEARCH_LIMIT),
-          search: query,
-        })
         try {
           let matchedProduct = null
           let lookupError = null
@@ -227,15 +237,7 @@ export default function SharedListsPage() {
             }
 
             try {
-              const payload = await fetchCachedCatalogResponse(
-                apiUrl(`/products/search?${params.toString()}`),
-                {
-                  signal: controller.signal,
-                  timeoutMs: CATALOG_REQUEST_TIMEOUT_MS,
-                  fetchImpl: customerApiFetch,
-                },
-              )
-              const results = Array.isArray(payload) ? payload : payload?.data || []
+              const results = await fetchSharedListCatalogSearch(query, controller.signal)
               const candidates = normalizeCatalogProducts(results)
               matchedProduct = findSharedListCatalogProduct(candidates, {
                 productId: item.productId,
@@ -344,21 +346,7 @@ export default function SharedListsPage() {
     const debounceId = window.setTimeout(async () => {
       try {
         const fetchSearchResults = async (search) => {
-          const params = new URLSearchParams({
-            page: '1',
-            limit: String(ITEM_SEARCH_LIMIT),
-            search,
-            catalogOnly: 'false',
-          })
-          const payload = await fetchCachedCatalogResponse(
-            apiUrl(`/products/search?${params.toString()}`),
-            {
-              signal: controller.signal,
-              timeoutMs: CATALOG_REQUEST_TIMEOUT_MS,
-              fetchImpl: customerApiFetch,
-            },
-          )
-          return Array.isArray(payload) ? payload : payload?.data || []
+          return fetchSharedListCatalogSearch(search, controller.signal)
         }
         const [results, supermarkets] = await Promise.all([
           fetchSearchResults(query),

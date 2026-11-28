@@ -35,6 +35,27 @@ import brandLogoDark from '../../assets/Ar-Price/Logo_arprice_dark.png';
 
 const APP_DOWNLOAD_URL = 'https://github.com/Code7C26/Kordian/releases/latest/download/Ar-Price.apk'
 
+const ROUTE_PRELOADERS = {
+  '/listas-compartidas': () => import('../pages/SharedListsPage.jsx'),
+  '/calculadora': () => import('../pages/PriceInflationPage.jsx'),
+  '/cupones': () => import('../pages/CouponsPage.jsx'),
+  '/configuracion': () => import('../pages/SettingsPage.jsx'),
+  '/faq': () => import('../pages/FaqPage.jsx'),
+  '/mis-alertas': () => import('../pages/CustomerAccountPage.jsx'),
+  '/ingresar': () => import('../pages/CustomerAuthPage.jsx'),
+  '/registro': () => import('../pages/CustomerAuthPage.jsx'),
+  '/favoritos': () => import('../pages/FavoritesPage.jsx'),
+}
+
+function preloadRoute(path) {
+  const preload = ROUTE_PRELOADERS[path]
+  if (!preload) return
+
+  preload().catch((error) => {
+    console.error(`Could not preload the ${path} page`, error)
+  })
+}
+
 export function Header({
   darkMode,
   setDarkMode,
@@ -298,6 +319,8 @@ export function Header({
 
               <button
                 onClick={onOpenFavorites}
+                onPointerEnter={() => preloadRoute('/favoritos')}
+                onFocus={() => preloadRoute('/favoritos')}
                 className="relative p-2 rounded-lg text-white dark:text-stone-300 hover:text-rose-200 dark:hover:text-rose-400 hover:bg-white/20 dark:hover:bg-stone-800 transition-colors cursor-pointer"
                 title={t('Ver Favoritos')}
               >
@@ -306,6 +329,12 @@ export function Header({
 
               <button
                 onClick={onOpenBasket}
+                onPointerEnter={() => import('./SmartBasketModal.jsx').catch((error) => {
+                  console.error('Could not preload the basket modal', error)
+                })}
+                onFocus={() => import('./SmartBasketModal.jsx').catch((error) => {
+                  console.error('Could not preload the basket modal', error)
+                })}
                 className="relative flex items-center gap-2 rounded-lg border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20"
                 title={t('Canasta Ahorro')}
               >
@@ -353,25 +382,27 @@ export function Header({
                           onOpenSharedLists()
                         }
                       }}
+                      onPointerEnter={() => preloadRoute('/listas-compartidas')}
+                      onFocus={() => preloadRoute('/listas-compartidas')}
                       className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800"
                     >
                       <UsersRound className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       {t('Lista compartida')}
                     </Link>
-                    <Link role="menuitem" to="/calculadora" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/calculadora" onClick={() => setOpenMenu(null)} onPointerEnter={() => preloadRoute('/calculadora')} onFocus={() => preloadRoute('/calculadora')} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <ChartNoAxesCombined className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       {t('Calculadora de precios')}
                     </Link>
-                    <Link role="menuitem" to="/cupones" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/cupones" onClick={() => setOpenMenu(null)} onPointerEnter={() => preloadRoute('/cupones')} onFocus={() => preloadRoute('/cupones')} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <TicketPercent className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       {t('Cupones y descuentos')}
                     </Link>
                     <div className="my-2 border-t border-stone-200 dark:border-stone-700" />
-                    <Link role="menuitem" to="/configuracion" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/configuracion" onClick={() => setOpenMenu(null)} onPointerEnter={() => preloadRoute('/configuracion')} onFocus={() => preloadRoute('/configuracion')} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <Settings className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       {t('Configuración')}
                     </Link>
-                    <Link role="menuitem" to="/faq" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                    <Link role="menuitem" to="/faq" onClick={() => setOpenMenu(null)} onPointerEnter={() => preloadRoute('/faq')} onFocus={() => preloadRoute('/faq')} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                       <CircleHelp className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                       {t('FAQ')}
                     </Link>
@@ -391,7 +422,7 @@ export function Header({
                     )}
                     {user ? (
                       <>
-                        <Link role="menuitem" to="/mis-alertas" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                        <Link role="menuitem" to="/mis-alertas" onClick={() => setOpenMenu(null)} onPointerEnter={() => preloadRoute('/mis-alertas')} onFocus={() => preloadRoute('/mis-alertas')} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <Bell className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                           <span>{t('Notificaciones')}</span>
                           {pendingNotificationCount > 0 && (
@@ -407,10 +438,10 @@ export function Header({
                       </>
                     ) : (
                       <>
-                        <Link role="menuitem" to="/ingresar" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
+                        <Link role="menuitem" to="/ingresar" onClick={() => setOpenMenu(null)} onPointerEnter={() => preloadRoute('/ingresar')} onFocus={() => preloadRoute('/ingresar')} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-stone-100 dark:hover:bg-stone-800">
                           <LogIn className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> {t('Iniciar sesión')}
                         </Link>
-                        <Link role="menuitem" to="/registro" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/60">
+                        <Link role="menuitem" to="/registro" onClick={() => setOpenMenu(null)} onPointerEnter={() => preloadRoute('/registro')} onFocus={() => preloadRoute('/registro')} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/60">
                           <UserPlus className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" /> {t('Registrarse')}
                         </Link>
                       </>

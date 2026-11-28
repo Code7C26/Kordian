@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, LoaderCircle, MapPin, X } from 'lucide-react'
 import { customerApiFetch } from '../config/api.js'
 import { useLanguage } from '../contexts/LanguageContext.jsx'
+import { fetchSupermarketLocations } from '../services/supermarketLocations.js'
 import { SupermarketLogo } from './SupermarketLogo.jsx'
-
-const branchAddressCache = new Map()
 
 export default function StoreFilter({ stores, value, onChange, selectedCity }) {
   const { t } = useLanguage()
@@ -54,33 +53,10 @@ export default function StoreFilter({ stores, value, onChange, selectedCity }) {
   const showStoreLocations = async (store) => {
     setMenuOpen(false)
     const city = selectedCity
-    const cacheKey = `${city.toLocaleLowerCase()}:${store.name.toLocaleLowerCase()}`
-    const cachedResult = branchAddressCache.get(cacheKey)
     const requestId = ++locationRequestId.current
-    if (cachedResult) {
-      setLocationDialog({
-        store,
-        city,
-        addresses: cachedResult.addresses,
-        loading: false,
-        error: '',
-      })
-      return
-    }
-
     setLocationDialog({ store, city, addresses: [], loading: true, error: '' })
     try {
-      const params = new URLSearchParams({ city, store: store.name })
-      const response = await customerApiFetch(`/supermarket-locations?${params.toString()}`)
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(payload?.error || t('No se pudieron cargar las direcciones. Intenta nuevamente.'))
-      }
-
-      const addresses = Array.isArray(payload?.addresses)
-        ? payload.addresses.filter((address) => typeof address === 'string' && address.trim())
-        : []
-      branchAddressCache.set(cacheKey, { addresses })
+      const addresses = await fetchSupermarketLocations(city, store.name, customerApiFetch)
       if (locationRequestId.current === requestId) {
         setLocationDialog({ store, city, addresses, loading: false, error: '' })
       }

@@ -1,21 +1,36 @@
-import { useEffect, useState } from 'react';
-import { X, Store, Calendar, Info, Minus, TriangleAlert } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { X, Store, Calendar, Info, LoaderCircle, MapPin, Minus, TriangleAlert } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { getProductOffers } from '../utils/productOffers';
 import { apiUrl } from '../config/api.js';
 import { ProductImage } from './ProductImage';
+import { customerApiFetch } from '../config/api.js';
 import { useLanguage, useProductNameTranslator } from '../contexts/LanguageContext.jsx';
 import { SupermarketLogo } from './SupermarketLogo.jsx'
 import { filterDisplayPriceHistory } from '../utils/priceHistoryDisplay.js';
 import { applyDiscoPromotionToOffers } from '../utils/discoPromotionDisplay.js';
+import { useSelectedCity } from '../contexts/SelectedCityContext.jsx';
+import { fetchSupermarketLocations } from '../services/supermarketLocations.js';
 
-export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, onAddToBasket, onRemoveFromBasket, getBasketQuantity, onExplain, onReportPriceInflated }) {
+export function ComparisonModal({ product, stores = [], analysisLoadState = 'idle', onClose, onAddToBasket, onRemoveFromBasket, getBasketQuantity, onExplain, onReportPriceInflated }) {
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const [discoPromotionCheck, setDiscoPromotionCheck] = useState({ key: '', status: 'idle', promotion: null });
+  const [locationDialog, setLocationDialog] = useState(null);
+  const locationRequestId = useRef(0);
+  const { selectedCity } = useSelectedCity();
   const { language, t } = useLanguage();
   const translateProductName = useProductNameTranslator([product?.name]);
   const dateLocale = language === 'en' ? 'en-US' : 'es-AR';
-  const sortedStores = getProductOffers(product || {});
+  const storeImages = new Map(stores.map((store) => [
+    String(store.name || '').trim().toLocaleLowerCase(),
+    store.image,
+  ]));
+  const sortedStores = getProductOffers(product || {}).map((store) => ({
+    ...store,
+    image: store.image
+      || storeImages.get(String(store.supermarket || '').trim().toLocaleLowerCase())
+      || '',
+  }));
   const discoOffer = sortedStores.find((offer) => (
     String(offer.supermarket || offer.storeName || '').trim().toLowerCase() === 'disco'
   ));
@@ -80,8 +95,27 @@ export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, 
     product?.discoPromotion,
   ]);
 
+  useEffect(() => {
+    if (!locationDialog) return undefined;
+
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        locationRequestId.current += 1;
+        setLocationDialog(null);
+      }
+    };
+
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [locationDialog]);
+
   if (!product) return null;
   const displayName = translateProductName(product.name);
+  const productMetadata = [...new Set([
+    product.brand || product.brands?.name,
+    product.categories?.name || product.category?.name || (typeof product.category === 'string' ? product.category : ''),
+    product.subcategory || product.subcategories?.name,
+  ].map((value) => String(value || '').trim()).filter(Boolean))];
   const activePromotionCheck = discoPromotionCheck.key === promotionKey
     ? discoPromotionCheck
     : { key: promotionKey, status: promotionKey ? 'loading' : 'idle', promotion: null };
@@ -190,6 +224,34 @@ export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, 
       })
     : [];
 
+  const showStoreLocations = async (store) => {
+    const storeName = store.supermarket || store.storeName || t('Sin nombre');
+    const storeDetails = { name: storeName, image: store.image };
+    const city = selectedCity;
+    const requestId = ++locationRequestId.current;
+    setLocationDialog({ store: storeDetails, city, addresses: [], loading: true, error: '' });
+
+    try {
+      const addresses = await fetchSupermarketLocations(city, storeName, customerApiFetch);
+      if (locationRequestId.current === requestId) {
+        setLocationDialog({ store: storeDetails, city, addresses, loading: false, error: '' });
+      }
+    } catch (error) {
+      console.error('Branch addresses could not be loaded from the comparison modal', { store: storeName, city, error });
+      if (locationRequestId.current === requestId) {
+        const errorMessage = /failed to fetch|fetch failed|network/i.test(error.message || '')
+          ? t('No se pudieron cargar las direcciones. Intenta nuevamente.')
+          : error.message || t('No se pudieron cargar las direcciones. Intenta nuevamente.');
+        setLocationDialog({ store: storeDetails, city, addresses: [], loading: false, error: errorMessage });
+      }
+    }
+  };
+
+  const closeLocationDialog = () => {
+    locationRequestId.current += 1;
+    setLocationDialog(null);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-sm animate-fade-in overflow-y-auto">
       <div className="relative w-full max-w-3xl bg-white dark:bg-stone-800 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-700 overflow-hidden my-8" onClick={(e) => e.stopPropagation()}>
@@ -197,10 +259,13 @@ export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, 
           <div className="flex items-center gap-4">
             <ProductImage src={product.image} alt={displayName} productName={displayName} productCategory={product.categories?.name || product.category?.name || product.category || product.subcategory} iconSize="large" className="w-24 h-24 rounded-2xl border border-stone-200 dark:border-stone-700 shrink-0" />
             <div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-sky-600 dark:text-sky-400 uppercase tracking-wider">
-                <span>{product.brand}</span>
-                <span>•</span>
-                <span>{product.subcategory}</span>
+              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-sky-600 dark:text-sky-400 uppercase tracking-wider">
+                {productMetadata.map((label, index) => (
+                  <span key={`${label}-${index}`} className="inline-flex items-center gap-2">
+                    {index > 0 && <span aria-hidden="true">•</span>}
+                    <span>{label}</span>
+                  </span>
+                ))}
               </div>
               <h2 className="text-xl font-bold text-stone-900 dark:text-white leading-tight">{displayName}</h2>
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
@@ -244,12 +309,24 @@ export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, 
                         : 'bg-stone-50/60 dark:bg-stone-900/60 border-stone-200/80 dark:border-stone-800'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
                       <SupermarketLogo
                         name={store.supermarket || store.storeName || t('Sin nombre')}
                         image={store.image}
                         className="h-10 w-16"
                       />
+                      <span className="min-w-0 max-w-32 truncate text-sm font-semibold text-stone-700 dark:text-stone-200">
+                        {store.supermarket || store.storeName || t('Sin nombre')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { void showStoreLocations(store) }}
+                        title={`${t('Ver direcciones de sucursales')} ${store.supermarket || store.storeName || t('Sin nombre')} ${t('en')} ${selectedCity}`}
+                        aria-label={`${t('Ver direcciones de sucursales')} ${store.supermarket || store.storeName || t('Sin nombre')} ${t('en')} ${selectedCity}`}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sky-700 transition-colors hover:bg-sky-50 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:text-sky-300 dark:hover:bg-stone-700"
+                      >
+                        <MapPin className="h-4 w-4" aria-hidden="true" />
+                      </button>
                       <div className="flex-1 text-center">
                         <div className="flex items-center justify-center gap-2 flex-wrap">
                           {isCheapest && <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-extrabold text-[10px]">{t('MÁS BARATO')}</span>}
@@ -397,6 +474,82 @@ export function ComparisonModal({ product, analysisLoadState = 'idle', onClose, 
             <div className="mb-4 flex items-start justify-between gap-4"><div><h3 className="text-base font-bold text-stone-900 dark:text-white">{t('Registros del período')}</h3><p className="text-xs text-stone-500 dark:text-stone-400">{new Date(selectedPeriod.periodStart).toLocaleDateString(dateLocale)} - {new Date(selectedPeriod.periodEnd).toLocaleDateString(dateLocale)}</p></div><button type="button" onClick={() => setSelectedPeriod(null)} aria-label={t('Cerrar registros')} className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700"><X className="h-5 w-5" /></button></div>
             <div className="max-h-72 space-y-2 overflow-y-auto pr-1">{selectedPeriodRecords.map((record, index) => { const store = sortedStores.find((candidate) => String(candidate.id) === String(record.offerId)); return <div key={`${record.timestamp}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 dark:border-stone-700 dark:bg-stone-900/70"><div className="flex min-w-0 items-center gap-2">{store?.image && <img src={store.image} alt="" className="h-7 w-7 shrink-0 rounded-lg bg-white object-contain" />}<div className="min-w-0"><span className="block truncate text-xs font-bold text-stone-700 dark:text-stone-200">{store?.supermarket || t('Supermercado')}</span><span className="block text-[11px] font-semibold text-stone-500 dark:text-stone-400">{new Date(record.timestamp).toLocaleDateString(dateLocale)}</span></div></div><span className="font-bold text-stone-900 dark:text-white">{formatCurrency(record.price)}</span><span className={`min-w-16 text-right text-xs font-bold ${record.isNewPrice ? 'text-sky-600 dark:text-sky-400' : record.changePercent > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{record.isNewPrice ? t('Nuevo precio') : `${record.changePercent > 0 ? '+' : ''}${record.changePercent.toFixed(1)}%`}</span></div> })}</div>
           </div>
+        </div>
+      )}
+      {locationDialog && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-stone-950/60 p-4"
+          onClick={closeLocationDialog}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="comparison-branch-addresses-title"
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl dark:border-stone-700 dark:bg-stone-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-stone-200 p-4 dark:border-stone-700">
+              <div className="min-w-0">
+                <h3 id="comparison-branch-addresses-title" className="font-bold text-stone-900 dark:text-white">
+                  {t('Direcciones de sucursales')}
+                </h3>
+                <div className="mt-1 flex min-w-0 items-center gap-2">
+                  <SupermarketLogo
+                    name={locationDialog.store.name}
+                    image={locationDialog.store.image}
+                    className="h-7 w-16"
+                  />
+                  <span className="truncate text-sm text-stone-500 dark:text-stone-400">
+                    {locationDialog.city}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeLocationDialog}
+                aria-label={t('Cerrar')}
+                className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </header>
+            <div className="max-h-[60vh] overflow-y-auto p-4">
+              {locationDialog.loading ? (
+                <p className="flex items-center gap-2 py-4 text-sm text-stone-600 dark:text-stone-300" role="status">
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  {t('Cargando direcciones…')}
+                </p>
+              ) : locationDialog.error ? (
+                <p className="py-3 text-sm text-rose-700 dark:text-rose-300" role="alert">{t(locationDialog.error)}</p>
+              ) : locationDialog.addresses.length ? (
+                <>
+                  <ul className="space-y-2">
+                    {locationDialog.addresses.map((address) => (
+                      <li key={address}>
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${address}, ${locationDialog.store.name}, ${locationDialog.city}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`${t('Ver ubicación en Maps')}: ${address}, ${locationDialog.city}`}
+                          className="flex items-center justify-between gap-3 rounded-lg bg-stone-50 px-3 py-2.5 text-sm text-stone-800 transition-colors hover:bg-sky-50 hover:text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700 dark:hover:text-sky-300"
+                        >
+                          <span>{address}</span>
+                          <MapPin className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-xs text-stone-500 dark:text-stone-400">
+                    {t('Las direcciones muestran sucursales del comercio; la disponibilidad del producto debe confirmarse en el local.')}
+                  </p>
+                </>
+              ) : (
+                <p className="py-3 text-sm text-stone-600 dark:text-stone-300" role="status">
+                  {t('No hay direcciones registradas para este comercio en la ubicación seleccionada.')}
+                </p>
+              )}
+            </div>
+          </section>
         </div>
       )}
     </div>

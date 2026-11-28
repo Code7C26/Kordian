@@ -2,10 +2,54 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   attachSharedListSearchSupermarkets,
+  fetchSharedListCatalogWithFallback,
   findSharedListCatalogProduct,
   getSharedListFallbackSearchTerms,
+  needsSharedListCatalogData,
   normalizeSharedListSearchResults,
 } from './sharedListProductSearch.js'
+
+test('falls back to the product catalog when the search endpoint is unavailable', async () => {
+  let catalogFallbackCalled = false
+  const result = await fetchSharedListCatalogWithFallback(
+    async () => {
+      throw Object.assign(new Error('Not found'), { status: 404 })
+    },
+    async () => {
+      catalogFallbackCalled = true
+      return { data: [{ id: 1, name: 'Leche' }] }
+    },
+  )
+
+  assert.equal(catalogFallbackCalled, true)
+  assert.deepEqual(result.data, [{ id: 1, name: 'Leche' }])
+})
+
+test('does not hide catalog search errors other than a missing endpoint', async () => {
+  const requestError = Object.assign(new Error('Service unavailable'), { status: 503 })
+  let catalogFallbackCalled = false
+
+  await assert.rejects(
+    fetchSharedListCatalogWithFallback(
+      async () => { throw requestError },
+      async () => {
+        catalogFallbackCalled = true
+        return []
+      },
+    ),
+    requestError,
+  )
+  assert.equal(catalogFallbackCalled, false)
+})
+
+test('does not perform another catalog lookup just because a supermarket logo is missing', () => {
+  assert.equal(needsSharedListCatalogData({
+    hasCatalogMatch: true,
+    hasImage: true,
+    hasCurrentPrice: true,
+    hasSupermarket: true,
+  }), false)
+})
 
 test('keeps matching database products even when they have no price or offers', () => {
   const results = normalizeSharedListSearchResults([

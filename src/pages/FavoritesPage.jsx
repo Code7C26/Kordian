@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Heart, Loader2 } from 'lucide-react';
+import { ArrowLeft, BarChart3, Heart, Loader2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config/api.js';
 import { buildFavoriteProductsQueries } from '../utils/catalogQuery.js';
@@ -237,8 +237,39 @@ export default function FavoritesPage() {
                     <div className="flex items-center justify-between gap-3">
                       <button
                         type="button"
+                        onClick={() => {
+                          const compareProduct = {
+                            ...product,
+                            offers: (product.offers || []).map((offer) => {
+                              const supermarketName = offer.supermarket
+                                || offer.supermarket_name
+                                || offer.storeName
+                                || '';
+                              const supermarket = supermarkets.find((store) => store.name === supermarketName);
+                              return {
+                                ...offer,
+                                supermarket: supermarketName,
+                                image: offer.image || supermarket?.image || '',
+                              };
+                            }),
+                          };
+                          navigate('/buscar', {
+                            state: {
+                              compareProduct,
+                              comparisonReturnTo: '/favoritos',
+                            },
+                          });
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-100 px-3 py-2 text-xs font-bold text-stone-800 transition-colors hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 dark:border-stone-600 dark:bg-stone-700/80 dark:text-stone-200 dark:hover:border-sky-700 dark:hover:bg-sky-950/60 dark:hover:text-sky-300"
+                        aria-label={`${t('Comparar precios')}: ${displayName}`}
+                      >
+                        <BarChart3 className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                        <span>{t('Comparar')}</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => removeFavorite(product.id)}
-                        className="ml-auto rounded-full bg-rose-50 p-2 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300"
+                        className="rounded-full bg-rose-50 p-2 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300"
                         aria-label={t('Eliminar de favoritos')}
                       >
                         <Heart className="h-4 w-4 fill-current" />
